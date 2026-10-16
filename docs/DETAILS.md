@@ -1152,6 +1152,19 @@ sizes and K/V bytes reused during capture. `STRATA_SNAPSHOT_FULL_CAPTURE=1` disa
 retention for diagnostic comparisons. Parked snapshots are not
 persisted across restarts; the session files below are.
 
+**Automatic sessions (disk, opt-in, experimental).** With `--slot-save-auto` (requires
+`--slot-save-path`, also `"slot_save_auto"` in the config) the server saves each finished
+solo text request under `DIR/auto/<sha>-<tokens>.bin` and, before the next request's GEN,
+restores the longest stored prefix of its prompt. A mismatch re-reads the prompt: always
+correct, at most slower. Matching is by token prefix plus the request's cache keys (model,
+sampling, turn); the engine still applies its own model and config fingerprints and refuses
+a foreign file. `--slot-save-min-tokens` (default 1024) skips prefixes below the floor,
+`--slot-save-max-count` / `--slot-save-max-mb` cap the store (LRU by mtime, auto files
+only: manual saves are never touched; 0 = unlimited). One-shot calls
+(`"strata_checkpoint": false`), image requests, cancelled requests and parallel requests
+are never auto-saved. Stage 1 saves whole sessions only; message-boundary slices are
+planned next and need no engine changes, incremental deltas would.
+
 **Session files (disk).** The conversation the engine holds can be saved to a file and restored later, also after a
 restart of the same engine version, so a long prompt is not read again. The server exposes the save and restore
 requests of llama-server's slot API, for its single slot 0, when started with `--slot-save-path DIR` (also

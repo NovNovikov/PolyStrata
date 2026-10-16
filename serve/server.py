@@ -69,6 +69,7 @@ from serve.structured import StructuredOutputError, prepare_format, validated_js
 from serve import responses as responses_api  # noqa: E402
 from serve.responses import ResponsesError, error_body as responses_error_body  # noqa: E402
 from serve import images as images_api  # noqa: E402
+from serve import slot_save_auto as auto_sessions  # noqa: E402
 
 IM_END = "<|im_end|>"
 IMAGE_PAD = "<|image_pad|>"
@@ -3077,6 +3078,10 @@ class Service:
         self.keep_awake = None                        # #1727 (opt-in): serve.keepawake.KeepAwake, the config's "prevent_sleep"
         self.fifo = threading.Lock()
         self.slot_save_path = None                    # --slot-save-path: /slots/0?action=save|restore (off when None)
+        self.slot_save_auto = False                   # --slot-save-auto: save/restore sessions automatically (off)
+        self.slot_save_max_count = 0                  # --slot-save-max-count: auto store cap (0 = unlimited)
+        self.slot_save_max_bytes = 0                  # --slot-save-max-mb: auto store byte cap (0 = unlimited)
+        self.slot_save_min_tokens = 1024              # --slot-save-min-tokens: floor below which a save is skipped
         self.embeddings = threading.local()           # the current request's image embeddings file (GENI)
         self.api_key = ""                              # when set, /v1/* needs it (Bearer or x-api-key)
         # #458 (opt-in, the config's "effort_position": "end"): a non-default reasoning effort goes in a short system
@@ -3412,6 +3417,81 @@ class Service:
                          "timings": {"save_ms": r["ms"]}}
         return 200, {"id_slot": 0, "filename": filename, "n_restored": r["tokens"], "n_read": r["bytes"],
                      "timings": {"restore_ms": r["ms"]}}
+
+    def auto_cache_on(self) -> bool:
+        """Whether automatic disk sessions may run: --slot-save-auto with a path, solo engine only."""
+        return bool(self.slot_save_auto and self.slot_save_path
+                    and not getattr(self.engine, "batch", 0))
+
+    def auto_session_keys(self, ids, sampling) -> str:
+        """The fingerprint a stored session must match: model plus the request's cache keys."""
+        return f"{self.model}\n{StrataEngine.sampling_keys(sampling or {})}{self.engine.turn_key(ids)}"
+
+    def auto_save_session(self, ids, ntokens: int, sampling) -> None:
+        """SAVE this finished conversation for later requests (never fails the request)."""
+        if not self.auto_cache_on() or not ntokens or ntokens < self.slot_save_min_tokens:
+            return
+        try:
+            store = auto_sessions.auto_dir(self.slot_save_path)
+        except OSError as e:
+            print(f"[strata] auto slot save skipped (no store): {e}", flush=True)
+            return
+        keys = self.auto_session_keys(ids, sampling)
+        sha_full = auto_sessions.prefix_sha(ids, len(ids))
+        try:
+            if auto_sessions.covered(store, sha_full):
+                return                                    # this exact prefix is already stored
+        except OSError:
+            return
+        session = auto_sessions.entry_name(sha_full, len(ids))
+        try:
+            r = self.engine.session_file("save", str(store / session))
+        except (SessionRefused, ValueError, EngineDied, EngineSilent) as e:
+            print(f"[strata] auto slot save skipped: {e}", flush=True)
+            return
+        except OSError as e:
+            print(f"[strata] auto slot save skipped: {e}", flush=True)
+            return
+        try:
+            auto_sessions.write_meta(store, session, {"model": self.model, "keys": keys,
+                                                      "ntokens": len(ids),
+                                                      "saved_tokens": int(r.get("tokens") or len(ids)),
+                                                      "sha256": sha_full,
+                                                      "bytes": int(r.get("bytes") or 0)})
+            auto_sessions.evict(store, self.slot_save_max_count, self.slot_save_max_bytes)
+        except OSError as e:
+            print(f"[strata] auto slot save index skipped: {e}", flush=True)
+            return
+        print(f"[strata] auto slot saved: {session} ({r.get('tokens')} tokens)", flush=True)
+
+    def auto_restore_session(self, ids, sampling) -> int:
+        """RESTORE the longest stored prefix of this prompt (0: none; never fails the request)."""
+        if not self.auto_cache_on() or not ids or len(ids) < self.slot_save_min_tokens:
+            return 0
+        try:
+            store = auto_sessions.auto_dir(self.slot_save_path)
+        except OSError:
+            return 0
+        keys = self.auto_session_keys(ids, sampling)
+        try:
+            found = auto_sessions.find_best(store, ids, keys, self.model, self.slot_save_min_tokens)
+        except OSError:
+            return 0
+        if found is None:
+            return 0
+        session, meta = found
+        try:
+            r = self.engine.session_file("restore", str(store / session))
+        except (SessionRefused, ValueError, EngineDied, EngineSilent) as e:
+            print(f"[strata] auto slot restore rejected ({session}): {e}", flush=True)
+            auto_sessions.remove_pair(store, session)
+            return 0
+        except OSError as e:
+            print(f"[strata] auto slot restore skipped ({session}): {e}", flush=True)
+            return 0
+        n = int(meta.get("ntokens") or 0)
+        print(f"[strata] auto slot restored: {session} ({r.get('tokens')} tokens, {n} prefix)", flush=True)
+        return n
 
     def set_aliases(self, aliases) -> None:
         """#297: the config's `aliases` - a list of names (or one comma-separated string), like llama-server's --alias.
@@ -4497,6 +4577,8 @@ class Service:
                                    "reasoning_tokens": 0, "reasoning_recoveries": 0}
                     return
             with turn:
+                if not par and not emb:
+                    self.auto_restore_session(ids, sampling)
                 try:
                     with self.status_lock:
                         if trace is not None:
@@ -4806,6 +4888,10 @@ class Service:
                                 timings = request_timings(seen, n, last)
                                 self.last_timings = dict(timings, at=int(time.time())) if timings else None
                             self.last_request_at = time.time()
+                            if (not par and not emb and n > 0
+                                    and finish not in ("cancel", "disconnect", "error")
+                                    and (sampling or {}).get("strata_checkpoint") is not False):
+                                self.auto_save_session(ids, len(ids) + n, sampling)
                             now = time.time()
                             el = now - st.get("started", now)
                             ft = st.get("first_token")
@@ -7122,6 +7208,20 @@ def main() -> int:
     ap.add_argument("--slot-save-path", default=None, metavar="DIR",
                     help="enable POST /slots/0?action=save|restore {\"filename\": NAME} (llama-server's API): the "
                          "conversation the engine holds, to or from DIR/NAME (also \"slot_save_path\" in the config)")
+    ap.add_argument("--slot-save-auto", action="store_true",
+                    help="automatically save finished sessions under DIR/auto and restore the longest stored "
+                         "prefix of the next prompt (transparent disk sessions; requires --slot-save-path; "
+                         "also \"slot_save_auto\" in the config; default: off)")
+    ap.add_argument("--slot-save-max-count", type=int, default=None, metavar="N",
+                    help="max auto sessions kept (oldest evicted; manual saves are never touched; "
+                         "also \"slot_save_max_count\" in the config; default: unlimited)")
+    ap.add_argument("--slot-save-max-mb", type=int, default=None, metavar="N",
+                    help="max total MiB of auto sessions (oldest evicted; manual saves are never touched; "
+                         "also \"slot_save_max_mb\" in the config; default: unlimited)")
+    ap.add_argument("--slot-save-min-tokens", type=int, default=None, metavar="N",
+                    help="only sessions of at least N tokens are auto-saved/restored (a shorter prefix saves "
+                         "little against a multi-GB write; also \"slot_save_min_tokens\" in the config; "
+                         "default: 1024)")
     ap.add_argument("--replicas", type=int, default=None, metavar="N",
                     help="data-parallel replicas (opt-in): cut the \"gpu\" list into N equal groups and run one engine on "
                          "each, requests spread over them (also \"replicas\" in the config: a number, or "
@@ -7250,6 +7350,25 @@ def main() -> int:
             raise SystemExit(f"[strata] {e}")
         print(f"[strata] slot save/restore on: {svc.slot_save_path} (session files are kept until deleted: "
               "about 1.2 GB per 63K-token conversation; restore only files this server wrote)", flush=True)
+    auto = a.slot_save_auto or cfg.get("slot_save_auto") is True
+    if auto and not svc.slot_save_path:
+        raise SystemExit("[strata] --slot-save-auto requires --slot-save-path (or \"slot_save_path\" in the config)")
+    svc.slot_save_auto = auto
+    for key, attr, minimum in (("slot_save_max_count", "slot_save_max_count", 0),
+                               ("slot_save_max_mb", "slot_save_max_bytes", 0),
+                               ("slot_save_min_tokens", "slot_save_min_tokens", 1)):
+        flag = {"slot_save_max_count": a.slot_save_max_count, "slot_save_max_mb": a.slot_save_max_mb,
+                "slot_save_min_tokens": a.slot_save_min_tokens}[key]
+        value = flag if flag is not None else cfg.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+            raise SystemExit(f"[strata] config \"{key}\" must be an integer >= {minimum}, not {value!r}")
+        setattr(svc, attr, value * 1024 * 1024 if attr == "slot_save_max_bytes" else value)
+    if svc.slot_save_auto:
+        print(f"[strata] auto slot sessions on: {svc.slot_save_path} (max {svc.slot_save_max_count or 'unlimited'} "
+              f"sessions, {svc.slot_save_max_bytes // (1024 * 1024) if svc.slot_save_max_bytes else 'unlimited'} MiB, "
+              f"floor {svc.slot_save_min_tokens} tokens; manual saves are never touched)", flush=True)
     mode = str(cfg.get("anthropic_thinking") or "model")   # #278: "on_request" = only when the request asks
     if mode not in ("model", "on_request"):
         raise SystemExit(f"[strata] config anthropic_thinking must be \"model\" or \"on_request\", not {mode!r}")
