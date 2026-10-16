@@ -43,7 +43,11 @@ META_SUFFIX = ".json"
 
 
 def auto_dir(base: str | os.PathLike) -> Path:
-    """The automatic store inside the slot save path (private to this user, like it)."""
+    """The automatic store inside the slot save path (private to this user, like it).
+
+    Its own subdirectory, unreachable by the manual API (filenames cannot hold a
+    separator): everything strict-named inside is ours, and only ours is ever indexed,
+    evicted or swept here."""
     path = Path(base) / AUTO_SUBDIR
     os.makedirs(path, mode=0o700, exist_ok=True)
     return path

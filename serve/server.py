@@ -7468,7 +7468,8 @@ def main() -> int:
     idle_given = a.slot_save_idle_seconds is not None or "slot_save_idle_seconds" in cfg
     idle = a.slot_save_idle_seconds if a.slot_save_idle_seconds is not None else cfg.get("slot_save_idle_seconds")
     if idle is not None:
-        if not isinstance(idle, (int, float)) or isinstance(idle, bool) or idle < -1:
+        if (not isinstance(idle, (int, float)) or isinstance(idle, bool) or idle != idle
+                or idle == float("inf") or idle == float("-inf") or not -1 <= idle <= 10**12):
             raise SystemExit(f"[strata] config \"slot_save_idle_seconds\" must be a number >= -1, not {idle!r}")
         svc.slot_save_idle_seconds = float(idle)
     if idle_given and not auto:
