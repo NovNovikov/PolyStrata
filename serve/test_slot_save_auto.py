@@ -116,6 +116,7 @@ class Store(unittest.TestCase):
         hashes = auto.prefix_hashes(ids, [1, 3, 5, 7])
         for pos in (1, 3, 5, 7):
             self.assertEqual(hashes[pos], auto.prefix_sha(ids, pos))
+        self.assertEqual(auto.prefix_hashes(ids, [0, -4, 99]), {})
         pairs = auto.boundary_pairs(ids, {7}, 1)
         self.assertEqual([length for length, _ in pairs], [7, 5, 3, 1])
         self.assertEqual(auto.boundary_pairs(ids, {7}, 6), [(7, auto.prefix_sha(ids, 7))])
@@ -267,15 +268,19 @@ class Hooks(unittest.TestCase):
         self.svc.auto_save_session(self.ids, [1, 2], self.sampling())
         self.assertEqual(self.engine.proc.sent, [])
 
+    def test_server_side_evicts_to_max_count(self):
+        self.svc.slot_save_max_count = 1
+        self.svc.slot_save_auto = True
+        self.svc.auto_save_session(make_ids(2000), [1], self.sampling())
+        self.svc.auto_save_session(make_ids(2000, 50000), [2], self.sampling())
+        self.assertEqual(len(auto.list_entries(auto.auto_dir(self.dir.name))), 1)
+
     def test_dead_engine_keeps_the_pair(self):
         self.svc.slot_save_auto = True
         self.svc.auto_save_session(self.ids, [1, 2], self.sampling())
         (session, _), = auto.list_entries(auto.auto_dir(self.dir.name))
         self.engine.fail_dead = True
-        try:
-            n = self.svc.auto_restore_session(self.ids + [1, 2, 3], self.sampling())
-        except Exception:
-            n = 0
+        n = self.svc.auto_restore_session(self.ids + [1, 2, 3], self.sampling())
         self.assertEqual(n, 0)
         self.assertEqual([s for s, _ in auto.list_entries(auto.auto_dir(self.dir.name))], [session])
 
@@ -458,6 +463,7 @@ class EndToEnd(unittest.TestCase):
         s, b = self.chat(first)
         self.assertEqual(s, 200, b)
         self.assertEqual(len(self.engine.restored), 1)
+        self.assertEqual(len(self.engine.saved), 1)
         follow = first + [{"role": "assistant", "content": b["choices"][0]["message"]["content"]},
                           {"role": "user", "content": "and again, please"}]
         s, b = self.chat(follow)
