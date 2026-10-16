@@ -174,6 +174,27 @@ void full_session(int fmt, int mode, int experts) {
               x.checkpoints.size()==y.checkpoints.size() && equal(x.kv[0],y.kv[0]) && equal(x.kv.back(),y.kv.back()),
               "streamed file equals captured file");
         check(slurp(p1)==slurp(p2),"streamed file is byte-identical to the captured file");
+        {
+            // checkpoints/live streamed straight from the pools (no host copy): byte-identical file
+            SavedConversationStream stream;
+            std::vector<SessionKvSource> streams;
+            check(session_stream_snapshot(stream, streams, view, ss, g, draft.state, err),
+                  "stream descriptors over live pools");
+            check(stream.checkpoints.size() == 1 && stream.live.ids == &view.ids,
+                  "deepest checkpoint selected by pointer, live referenced");
+            const std::string p3 = (dir / "stream-checkpoints.bin").string();
+            size_t n3 = 0;
+            check(session_file_write_stream(p3, stream, streams, id, n3, err),
+                  "streamed checkpoints write succeeds");
+            check(n3 == n2 && slurp(p3) == slurp(p2),
+                  "streamed checkpoints equal the captured write byte for byte");
+            // the preflight win on this fixture: buffer plus directory only, no copies
+            SessionSaveLive live{0, (uint64_t) ids.size(), 0, (uint64_t) streams.size()};
+            const uint64_t expect = (uint64_t(16) << 20) + (uint64_t(1) << 20) +
+                                    (uint64_t) ids.size() * 4 +
+                                    (uint64_t) streams.size() * (sizeof(SessionKvSource) + 256);
+            check(session_stream_peak_bytes(live) == expect, "stream preflight is buffer plus directory only");
+        }
         std::error_code ec;
         fs::remove_all(dir,ec);
         auto empty_ids=std::vector<int32_t>{};
