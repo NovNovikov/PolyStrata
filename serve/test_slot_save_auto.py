@@ -4,16 +4,20 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import queue
 import sys
 import tempfile
+import threading
+import time
 import unittest
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from serve.frontend import ChatTemplate  # noqa: E402
-from serve.server import ByteTokenizer, Service, StrataEngine  # noqa: E402
+from serve.server import ByteTokenizer, MockEngine, Service, StrataEngine, serve  # noqa: E402
 from serve import slot_save_auto as auto  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -267,6 +271,176 @@ class Hooks(unittest.TestCase):
             n = 0
         self.assertEqual(n, 0)
         self.assertEqual([s for s, _ in auto.list_entries(auto.auto_dir(self.dir.name))], [session])
+
+
+class StoreIndexTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.store = auto.auto_dir(self.dir.name)
+        self.index = auto.StoreIndex()
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def put(self, ids):
+        n = len(ids)
+        session = auto.entry_name(auto.prefix_sha(ids, n), n)
+        (self.store / session).write_bytes(b"x" * 10)
+        auto.write_meta(self.store, session, {"model": MODEL, "keys": KEYS, "ntokens": n,
+                                              "sha256": auto.prefix_sha(ids, n), "bytes": 10})
+        return session
+
+    def test_cached_identity_until_change(self):
+        self.put(make_ids(1500))
+        first = self.index.entries(self.store)
+        self.assertIs(self.index.entries(self.store), first)
+        self.put(make_ids(1500, 9000))
+        second = self.index.entries(self.store)
+        self.assertIsNot(second, first)
+        self.assertEqual(len(second), 2)
+
+    def test_external_removal_refreshes(self):
+        session = self.put(make_ids(1500))
+        self.assertEqual(len(self.index.entries(self.store)), 1)
+        (self.store / session).unlink()
+        (self.store / auto.meta_name(session)).unlink()
+        self.assertEqual(self.index.entries(self.store), [])
+
+
+class IdleShutdown(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.engine = FakeEngine()
+        self.svc = Service(self.engine, ByteTokenizer(), ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc.slot_save_path = self.dir.name
+        self.svc.slot_save_auto = True
+        self.svc.slot_save_min_tokens = 5
+        self.ids = make_ids(100)
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def retain(self):
+        self.svc._auto_last = (list(self.ids), [1, 2], self.sampling())
+
+    def sampling(self):
+        return {"temperature": 0.7}
+
+    def auto_files(self):
+        return [p for p in auto.auto_dir(self.dir.name).iterdir() if p.suffix == ".bin"]
+
+    def test_idle_flush_after_timeout(self):
+        self.retain()
+        self.svc.last_request_at = time.time() - 3600
+        self.svc.slot_save_idle_seconds = 60
+        self.svc.auto_idle_save()
+        self.assertEqual(len(self.auto_files()), 1)
+
+    def test_idle_skips_recent_activity_and_repeats(self):
+        self.retain()
+        self.svc.last_request_at = time.time()
+        self.svc.slot_save_idle_seconds = 60
+        self.svc.auto_idle_save()
+        self.assertEqual(self.auto_files(), [])
+        self.svc.last_request_at = time.time() - 3600
+        self.svc.auto_idle_save()
+        self.assertEqual(len(self.auto_files()), 1)
+        self.svc.auto_idle_save()
+        self.assertEqual(len(self.auto_files()), 1)
+
+    def test_idle_disabled(self):
+        self.retain()
+        self.svc.last_request_at = time.time() - 3600
+        self.svc.slot_save_idle_seconds = -1
+        self.svc.auto_idle_save()
+        self.assertEqual(self.auto_files(), [])
+
+    def test_shutdown_saves_once(self):
+        self.retain()
+        self.svc.auto_save_at_shutdown()
+        self.assertEqual(len(self.auto_files()), 1)
+        self.svc.auto_save_at_shutdown()
+        self.assertEqual(len(self.auto_files()), 1)
+        self.assertIsNone(self.svc._auto_last)
+
+    def test_start_auto_idle_only_when_wanted(self):
+        started = []
+        real = threading.Thread
+
+        class Probe(real):
+            def start(self):
+                started.append(self.name)
+
+        threading.Thread = Probe
+        try:
+            self.svc.start_auto_idle()
+            self.svc.slot_save_auto = False
+            self.svc.start_auto_idle()
+        finally:
+            threading.Thread = real
+        self.assertEqual(started, ["auto-slot-idle"])
+
+
+class SessionMockEngine(MockEngine):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.saved: list[str] = []
+        self.restored: list[str] = []
+
+    def turn_key(self, ids):
+        return ""
+
+    def session_file(self, action, path):
+        if action == "save":
+            Path(path).write_bytes(b"x" * 64)
+            self.saved.append(Path(path).name)
+            return {"tokens": 100, "bytes": 64, "ms": 1.0}
+        Path(path).read_bytes()
+        self.restored.append(Path(path).name)
+        return {"tokens": 100, "bytes": 64, "ms": 1.0}
+
+
+class EndToEnd(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.TemporaryDirectory()
+        tok = ByteTokenizer()
+        cls.engine = SessionMockEngine(tok, "Hello!", max_context=32768)
+        cls.svc = Service(cls.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        cls.svc.slot_save_path = cls.dir.name
+        cls.svc.slot_save_auto = True
+        cls.svc.slot_save_min_tokens = 5
+        cls.httpd = serve(cls.svc, port=0)
+        cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+        cls.dir.cleanup()
+
+    def chat(self, messages):
+        req = urllib.request.Request(
+            self.base + "/v1/chat/completions",
+            data=json.dumps({"model": "x", "max_tokens": 16, "messages": messages}).encode(),
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, json.loads(r.read())
+
+    def test_repeat_reuses_and_followup_extends(self):
+        first = [{"role": "user", "content": "hello world, this is a test"}]
+        s, b = self.chat(first)
+        self.assertEqual(s, 200, b)
+        self.assertEqual(len(self.engine.saved), 1)
+        s, b = self.chat(first)
+        self.assertEqual(s, 200, b)
+        self.assertEqual(len(self.engine.restored), 1)
+        follow = first + [{"role": "assistant", "content": b["choices"][0]["message"]["content"]},
+                          {"role": "user", "content": "and again, please"}]
+        s, b = self.chat(follow)
+        self.assertEqual(s, 200, b)
+        self.assertEqual(len(self.engine.saved), 2)
+        self.assertEqual(len(self.engine.restored), 2)
 
 
 if __name__ == "__main__":

@@ -176,10 +176,12 @@ def entry_pairs(meta: dict) -> list[tuple[int, str]]:
         return []
 
 
-def find_best(dir: Path, ids, keys: str, model: str, floor: int) -> tuple[str, dict] | None:
+def find_best(dir: Path, ids, keys: str, model: str, floor: int,
+              entries=None) -> tuple[str, dict] | None:
     """The longest stored prefix this prompt starts with (keys equal, prefix hash equal)."""
     n_all = len(ids)
-    entries = [(session, meta) for session, meta in list_entries(dir)
+    all_entries = entries if entries is not None else list_entries(dir)
+    entries = [(session, meta) for session, meta in all_entries
                if meta.get("model") == model and meta.get("keys") == keys]
     if not entries:
         return None
@@ -200,15 +202,15 @@ def find_best(dir: Path, ids, keys: str, model: str, floor: int) -> tuple[str, d
     return best
 
 
-def covered(dir: Path, sha_full: str) -> bool:
+def covered(dir: Path, sha_full: str, entries=None) -> bool:
     """Whether this exact full prefix is already stored (dedup: skip the rewrite)."""
-    for session, meta in list_entries(dir):
+    for _, meta in entries if entries is not None else list_entries(dir):
         if meta.get("sha256") == sha_full:
             return True
     return False
 
 
-def evict(dir: Path, max_count: int, max_bytes: int) -> None:
+def evict(dir: Path, max_count: int, max_bytes: int, entries=None) -> None:
     """LRU by mtime over auto pairs only (manual saves are never touched).
 
     Always sweeps orphan .bin files with no valid meta first: a SAVE whose meta never
@@ -231,19 +233,20 @@ def evict(dir: Path, max_count: int, max_bytes: int) -> None:
             pass
     if max_count <= 0 and max_bytes <= 0:
         return
-    entries = []
-    for session, meta in list_entries(dir):
+    pairs = entries if entries is not None else list_entries(dir)
+    items = []
+    for session, meta in pairs:
         try:
             st = os.lstat(dir / session)
             mst = os.lstat(dir / meta_name(session))
         except OSError:
             continue
-        entries.append((min(st.st_mtime, mst.st_mtime), st.st_size + mst.st_size, session))
-    entries.sort()
-    total = sum(size for _, size, _ in entries)
-    while entries and ((max_count > 0 and len(entries) > max_count)
-                       or (max_bytes > 0 and total > max_bytes)):
-        _, size, session = entries.pop(0)
+        items.append((min(st.st_mtime, mst.st_mtime), st.st_size + mst.st_size, session))
+    items.sort()
+    total = sum(size for _, size, _ in items)
+    while items and ((max_count > 0 and len(items) > max_count)
+                     or (max_bytes > 0 and total > max_bytes)):
+        _, size, session = items.pop(0)
         total -= size
         for name in (session, meta_name(session)):
             try:
@@ -261,3 +264,44 @@ def remove_pair(dir: Path, session: str) -> None:
             os.remove(dir / name)
         except OSError:
             pass
+
+
+class StoreIndex:
+    """In-memory index of the auto store: one readdir per change, not per request.
+
+    A single server owns its store (like the fork's server-owned auto-cache dir), so
+    the (name, size, mtime) signature of the auto files detects every change.
+    Callers pass entries() wherever list_entries() went; a signature mismatch (an
+    outside writer, a crash mid-flow) falls back to a fresh read, never to stale data."""
+
+    def __init__(self) -> None:
+        self.sig = None
+        self.cached: list[tuple[str, dict]] = []
+
+    def signature(self, dir: Path):
+        try:
+            names = os.listdir(dir)
+        except OSError:
+            return None
+        sig = []
+        for name in names:
+            if strict_auto_name(name) or (name.endswith(META_SUFFIX)
+                                          and strict_auto_name(name[:-len(META_SUFFIX)])):
+                try:
+                    st = os.lstat(dir / name)
+                except OSError:
+                    continue
+                sig.append((name, st.st_size, st.st_mtime_ns))
+        return tuple(sorted(sig))
+
+    def entries(self, dir: Path) -> list[tuple[str, dict]]:
+        sig = self.signature(dir)
+        if sig is None:
+            self.sig, self.cached = None, []
+            return []
+        if sig != self.sig:
+            self.sig, self.cached = sig, list_entries(dir)
+        return self.cached
+
+    def invalidate(self) -> None:
+        self.sig, self.cached = None, []

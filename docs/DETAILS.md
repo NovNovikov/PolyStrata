@@ -1163,9 +1163,12 @@ correct, at most slower. Matching is by token prefix plus the request's cache ke
 sampling, turn); the engine still applies its own model and config fingerprints and refuses
 a foreign file. `--slot-save-min-tokens` (default 1024) skips prefixes below the floor,
 `--slot-save-max-count` / `--slot-save-max-mb` cap the store (LRU by mtime, auto files
-only: manual saves are never touched; 0 = unlimited). One-shot calls
+only: manual saves are never touched; 0 = unlimited). Completions save; a session idle
+longer than `--slot-save-idle-seconds` (default 60, -1 = disabled) is flushed, and the
+last finished one is saved at shutdown. The store carries an in-memory index (one
+readdir per change, not per request). One-shot calls
 (`"strata_checkpoint": false`), image requests, cancelled requests and parallel requests
-are never auto-saved. Stage 1 saved whole sessions under one prefix each; stage 2
+are never auto-saved (replicas have no session files, as with manual saves). Stage 1 saved whole sessions under one prefix each; stage 2
 indexes every turn-start boundary (first answer, last answer end at its next turn,
 fifth-from-end, ...) with no engine changes. Incremental deltas would need them.
 

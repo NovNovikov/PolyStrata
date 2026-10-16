@@ -3082,6 +3082,9 @@ class Service:
         self.slot_save_max_count = 0                  # --slot-save-max-count: auto store cap (0 = unlimited)
         self.slot_save_max_bytes = 0                  # --slot-save-max-mb: auto store byte cap (0 = unlimited)
         self.slot_save_min_tokens = 1024              # --slot-save-min-tokens: floor below which a save is skipped
+        self.slot_save_idle_seconds = 60              # --slot-save-idle-seconds: idle flush delay (-1 = disabled)
+        self._auto_index = auto_sessions.StoreIndex()  # in-memory index of the auto store
+        self._auto_last = None                        # last finished solo state (ids, generated, sampling)
         self.embeddings = threading.local()           # the current request's image embeddings file (GENI)
         self.api_key = ""                              # when set, /v1/* needs it (Bearer or x-api-key)
         # #458 (opt-in, the config's "effort_position": "end"): a non-default reasoning effort goes in a short system
@@ -3421,33 +3424,55 @@ class Service:
     def auto_cache_on(self) -> bool:
         """Whether automatic disk sessions may run: --slot-save-auto with a path, solo engine only."""
         return bool(self.slot_save_auto and self.slot_save_path
-                    and not getattr(self.engine, "batch", 0))
+                    and not getattr(self.engine, "batch", 0)
+                    and hasattr(self.engine, "session_file"))
 
     def auto_session_keys(self, ids, sampling) -> str:
         """The fingerprint a stored session must match: model plus the request's cache keys."""
         return f"{self.model}\n{StrataEngine.sampling_keys(sampling or {})}{self.engine.turn_key(ids)}"
 
-    def auto_save_session(self, ids, gen_ids, sampling) -> None:
+    def _auto_store(self):
+        """The auto store dir, or None (no store: never fails the request)."""
+        try:
+            return auto_sessions.auto_dir(self.slot_save_path)
+        except OSError as e:
+            print(f"[strata] auto slot store skipped: {e}", flush=True)
+            return None
+
+    def auto_save_session(self, ids, gen_ids, sampling, acquire=False) -> None:
         """SAVE this finished conversation for later requests (never fails the request).
 
         The file holds the whole session (prompt plus what was generated); it is indexed
         under every turn-start prefix inside it, so a later prompt sharing any turn
-        boundary restores it and the engine reuses the matching prefix."""
+        boundary restores it and the engine reuses the matching prefix.  With acquire
+        (idle/shutdown triggers) the FIFO is taken here; the completion hook calls with
+        it already held."""
         full = list(ids) + list(gen_ids or [])
         if not self.auto_cache_on() or len(ids) < self.slot_save_min_tokens:
             return
-        try:
-            store = auto_sessions.auto_dir(self.slot_save_path)
-        except OSError as e:
-            print(f"[strata] auto slot save skipped (no store): {e}", flush=True)
+        if acquire:
+            if not self.fifo.acquire(timeout=30):
+                print("[strata] auto slot save skipped: engine busy at shutdown", flush=True)
+                return
+            try:
+                self._auto_save_locked(full, ids, sampling)
+            finally:
+                self.fifo.release()
+        else:
+            self._auto_save_locked(full, ids, sampling)
+
+    def _auto_save_locked(self, full, ids, sampling) -> None:
+        store = self._auto_store()
+        if store is None:
             return
+        entries = self._auto_index.entries(store)
         keys = self.auto_session_keys(ids, sampling)
         pairs = auto_sessions.boundary_pairs(full, self.turn_ids, self.slot_save_min_tokens)
         if not pairs:
             return
         sha_full = pairs[0][1]
         try:
-            if auto_sessions.covered(store, sha_full):
+            if auto_sessions.covered(store, sha_full, entries):
                 return                                    # this exact session is already stored
         except OSError:
             return
@@ -3467,7 +3492,10 @@ class Service:
                                                       "sha256": sha_full,
                                                       "prefixes": [[length, sha] for length, sha in pairs],
                                                       "bytes": int(r.get("bytes") or 0)})
-            auto_sessions.evict(store, self.slot_save_max_count, self.slot_save_max_bytes)
+            self._auto_index.invalidate()
+            auto_sessions.evict(store, self.slot_save_max_count, self.slot_save_max_bytes,
+                                self._auto_index.entries(store))
+            self._auto_index.invalidate()
         except OSError as e:
             print(f"[strata] auto slot save index skipped: {e}", flush=True)
             return
@@ -3478,13 +3506,13 @@ class Service:
         """RESTORE the longest stored prefix of this prompt (0: none; never fails the request)."""
         if not self.auto_cache_on() or not ids or len(ids) < self.slot_save_min_tokens:
             return 0
-        try:
-            store = auto_sessions.auto_dir(self.slot_save_path)
-        except OSError:
+        store = self._auto_store()
+        if store is None:
             return 0
         keys = self.auto_session_keys(ids, sampling)
         try:
-            found = auto_sessions.find_best(store, ids, keys, self.model, self.slot_save_min_tokens)
+            found = auto_sessions.find_best(store, ids, keys, self.model, self.slot_save_min_tokens,
+                                            self._auto_index.entries(store))
         except OSError:
             return 0
         if found is None:
@@ -3498,6 +3526,7 @@ class Service:
             # silent engine, I/O) says nothing about the file: keep it.
             print(f"[strata] auto slot restore rejected ({session}): {e}", flush=True)
             auto_sessions.remove_pair(store, session)
+            self._auto_index.invalidate()
             return 0
         except (ValueError, EngineDied, EngineSilent, OSError) as e:
             print(f"[strata] auto slot restore skipped ({session}): {e}", flush=True)
@@ -3505,6 +3534,41 @@ class Service:
         n = int(meta.get("ntokens") or 0)
         print(f"[strata] auto slot restored: {session} ({r.get('tokens')} tokens, {n} prefix)", flush=True)
         return n
+
+    def auto_idle_save(self) -> None:
+        """Idle flush: save the last finished state once it sat idle (never fails anything)."""
+        if not self.auto_cache_on() or self.slot_save_idle_seconds < 0 or self._auto_last is None:
+            return
+        if time.time() - getattr(self, "last_request_at", 0) < self.slot_save_idle_seconds:
+            return
+        if not self.loaded():
+            return
+        ids, gen_ids, sampling = self._auto_last
+        self._auto_last = None                            # one flush per idle period
+        self.auto_save_session(ids, gen_ids, sampling, acquire=True)
+
+    def start_auto_idle(self) -> None:
+        if not self.slot_save_auto or self.slot_save_idle_seconds < 0:
+            return
+        print(f"[strata] auto slot sessions flush after {self.slot_save_idle_seconds:g} s without requests",
+              flush=True)
+
+        def loop():
+            while True:
+                time.sleep(max(1.0, min(15.0, self.slot_save_idle_seconds / 4)))
+                try:
+                    self.auto_idle_save()
+                except Exception as e:                    # tried again at the next turn; the thread keeps running
+                    print(f"[strata] auto slot idle flush: {e}", flush=True)
+        threading.Thread(target=loop, name="auto-slot-idle", daemon=True).start()
+
+    def auto_save_at_shutdown(self) -> None:
+        """Persist the last finished state on the way out (a crash between requests loses nothing saved)."""
+        if not self.auto_cache_on() or self._auto_last is None or not self.loaded():
+            return
+        ids, gen_ids, sampling = self._auto_last
+        self._auto_last = None
+        self.auto_save_session(ids, gen_ids, sampling, acquire=True)
 
     def set_aliases(self, aliases) -> None:
         """#297: the config's `aliases` - a list of names (or one comma-separated string), like llama-server's --alias.
@@ -4901,6 +4965,9 @@ class Service:
                                 timings = request_timings(seen, n, last)
                                 self.last_timings = dict(timings, at=int(time.time())) if timings else None
                             self.last_request_at = time.time()
+                            if (not par and not emb and n > 0 and self.slot_save_auto
+                                    and self.slot_save_path):
+                                self._auto_last = (list(ids), list(raw_ids), dict(sampling or {}))
                             if (not par and not emb and n > 0
                                     and finish not in ("cancel", "disconnect", "error")
                                     and (sampling or {}).get("strata_checkpoint") is not False):
@@ -7235,6 +7302,9 @@ def main() -> int:
                     help="only sessions of at least N tokens are auto-saved/restored (a shorter prefix saves "
                          "little against a multi-GB write; also \"slot_save_min_tokens\" in the config; "
                          "default: 1024)")
+    ap.add_argument("--slot-save-idle-seconds", type=float, default=None, metavar="SECONDS",
+                    help="save the last finished session after this many seconds without requests (also "
+                         "\"slot_save_idle_seconds\" in the config; -1 = disabled; default: 60)")
     ap.add_argument("--replicas", type=int, default=None, metavar="N",
                     help="data-parallel replicas (opt-in): cut the \"gpu\" list into N equal groups and run one engine on "
                          "each, requests spread over them (also \"replicas\" in the config: a number, or "
@@ -7378,6 +7448,14 @@ def main() -> int:
         if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
             raise SystemExit(f"[strata] config \"{key}\" must be an integer >= {minimum}, not {value!r}")
         setattr(svc, attr, value * 1024 * 1024 if attr == "slot_save_max_bytes" else value)
+    idle_given = a.slot_save_idle_seconds is not None or "slot_save_idle_seconds" in cfg
+    idle = a.slot_save_idle_seconds if a.slot_save_idle_seconds is not None else cfg.get("slot_save_idle_seconds")
+    if idle is not None:
+        if not isinstance(idle, (int, float)) or isinstance(idle, bool) or idle < -1:
+            raise SystemExit(f"[strata] config \"slot_save_idle_seconds\" must be a number >= -1, not {idle!r}")
+        svc.slot_save_idle_seconds = float(idle)
+    if idle_given and not auto:
+        raise SystemExit("[strata] --slot-save-idle-seconds requires --slot-save-auto")
     if svc.slot_save_auto:
         print(f"[strata] auto slot sessions on: {svc.slot_save_path} (max {svc.slot_save_max_count or 'unlimited'} "
               f"sessions, {svc.slot_save_max_bytes // (1024 * 1024) if svc.slot_save_max_bytes else 'unlimited'} MiB, "
@@ -7450,6 +7528,7 @@ def main() -> int:
     httpd = serve(svc, host=a.host, port=a.port)
     svc.start_idle_unload()
     svc.start_vision_idle()
+    svc.start_auto_idle()
     here = "127.0.0.1" if a.host in ("0.0.0.0", "", "::") else a.host
     print(f"ready: http://{here}:{a.port}/v1  (OpenAI: /v1/chat/completions, Anthropic: /v1/messages, "
           f"context {engine.max_context} tokens{', images on' if vision else ''}"
@@ -7487,6 +7566,12 @@ def main() -> int:
             time.sleep(1)                               # Windows never delivers Ctrl+C to an untimed Event.wait()
     except KeyboardInterrupt:
         print("\n[strata] stopping (Ctrl+C again to end the engine at once) ...", flush=True)
+        try:
+            svc.auto_save_at_shutdown()
+        except KeyboardInterrupt:
+            pass
+        except Exception as e:  # noqa: BLE001 - never block the exit
+            print(f"[strata] auto slot save at shutdown skipped: {e}", flush=True)
         closers = [httpd.shutdown, getattr(engine, "close", None), vision.shutdown if vision else None,
                    hub.close if hub is not None else None]
         for close in filter(None, closers):
