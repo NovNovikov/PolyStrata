@@ -202,10 +202,14 @@ def find_best(dir: Path, ids, keys: str, model: str, floor: int,
     return best
 
 
-def covered(dir: Path, sha_full: str, entries=None) -> bool:
-    """Whether this exact full prefix is already stored (dedup: skip the rewrite)."""
+def covered(dir: Path, model: str, keys: str, sha_full: str, entries=None) -> bool:
+    """Whether this exact (model, keys, prefix) triple is already stored (dedup).
+
+    The model and keys are part of the identity: two models serve the same tokens,
+    and each must keep its own session."""
     for _, meta in entries if entries is not None else list_entries(dir):
-        if meta.get("sha256") == sha_full:
+        if (meta.get("model") == model and meta.get("keys") == keys
+                and meta.get("sha256") == sha_full):
             return True
     return False
 

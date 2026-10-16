@@ -77,9 +77,16 @@ class Store(unittest.TestCase):
 
     def test_covered_dedups_exact_prefix(self):
         ids = make_ids(1500)
-        self.assertFalse(auto.covered(self.store, auto.prefix_sha(ids, 1500)))
+        self.assertFalse(auto.covered(self.store, MODEL, KEYS, auto.prefix_sha(ids, 1500)))
         self.put(ids)
-        self.assertTrue(auto.covered(self.store, auto.prefix_sha(ids, 1500)))
+        self.assertTrue(auto.covered(self.store, MODEL, KEYS, auto.prefix_sha(ids, 1500)))
+
+    def test_covered_is_model_and_keys_scoped(self):
+        ids = make_ids(1500)
+        self.put(ids)
+        sha = auto.prefix_sha(ids, 1500)
+        self.assertFalse(auto.covered(self.store, "other-model", KEYS, sha))
+        self.assertFalse(auto.covered(self.store, MODEL, "other keys", sha))
 
     def test_evict_caps_count_and_bytes_but_never_manual(self):
         manual = Path(self.dir.name) / "manual.bin"

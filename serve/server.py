@@ -3474,8 +3474,9 @@ class Service:
         if not pairs:
             return
         sha_full = pairs[0][1]
+        entries = self._auto_index.entries(store)
         try:
-            if auto_sessions.covered(store, sha_full, entries):
+            if auto_sessions.covered(store, self.model, keys, sha_full, entries):
                 return                                    # this exact session is already stored
         except OSError:
             return
@@ -3560,7 +3561,8 @@ class Service:
             self.fifo.release()
 
     def start_auto_idle(self) -> None:
-        if not self.slot_save_auto or self.slot_save_idle_seconds < 0:
+        if (not self.slot_save_auto or self.slot_save_idle_seconds < 0
+                or getattr(self.engine, "batch", 0)):
             return
         print(f"[strata] auto slot sessions flush after {self.slot_save_idle_seconds:g} s without requests",
               flush=True)
@@ -7445,13 +7447,16 @@ def main() -> int:
             raise SystemExit(f"[strata] {e}")
         print(f"[strata] slot save/restore on: {svc.slot_save_path} (session files are kept until deleted: "
               "about 1.2 GB per 63K-token conversation; restore only files this server wrote)", flush=True)
+    if "slot_save_auto" in cfg and not isinstance(cfg["slot_save_auto"], bool):
+        raise SystemExit(f"[strata] config \"slot_save_auto\" must be true or false, "
+                         f"not {cfg['slot_save_auto']!r}")
     auto = a.slot_save_auto or cfg.get("slot_save_auto") is True
     if auto and not svc.slot_save_path:
         raise SystemExit("[strata] --slot-save-auto requires --slot-save-path (or \"slot_save_path\" in the config)")
     svc.slot_save_auto = auto
     for key, attr, minimum in (("slot_save_max_count", "slot_save_max_count", 0),
                                ("slot_save_max_mb", "slot_save_max_bytes", 0),
-                               ("slot_save_min_tokens", "slot_save_min_tokens", 1)):
+                               ("slot_save_min_tokens", "slot_save_min_tokens", 0)):
         flag = {"slot_save_max_count": a.slot_save_max_count, "slot_save_max_mb": a.slot_save_max_mb,
                 "slot_save_min_tokens": a.slot_save_min_tokens}[key]
         value = flag if flag is not None else cfg.get(key)
@@ -7472,6 +7477,9 @@ def main() -> int:
         print(f"[strata] auto slot sessions on: {svc.slot_save_path} (max {svc.slot_save_max_count or 'unlimited'} "
               f"sessions, {svc.slot_save_max_bytes // (1024 * 1024) if svc.slot_save_max_bytes else 'unlimited'} MiB, "
               f"floor {svc.slot_save_min_tokens} tokens; manual saves are never touched)", flush=True)
+        if getattr(engine, "batch", 0):
+            print("[strata] auto slot sessions stay off: session files are unavailable with parallel requests "
+                  "(\"parallel\" / --batch), as with manual saves", flush=True)
     mode = str(cfg.get("anthropic_thinking") or "model")   # #278: "on_request" = only when the request asks
     if mode not in ("model", "on_request"):
         raise SystemExit(f"[strata] config anthropic_thinking must be \"model\" or \"on_request\", not {mode!r}")
