@@ -3427,9 +3427,14 @@ class Service:
         """The fingerprint a stored session must match: model plus the request's cache keys."""
         return f"{self.model}\n{StrataEngine.sampling_keys(sampling or {})}{self.engine.turn_key(ids)}"
 
-    def auto_save_session(self, ids, ntokens: int, sampling) -> None:
-        """SAVE this finished conversation for later requests (never fails the request)."""
-        if not self.auto_cache_on() or not ntokens or ntokens < self.slot_save_min_tokens:
+    def auto_save_session(self, ids, gen_ids, sampling) -> None:
+        """SAVE this finished conversation for later requests (never fails the request).
+
+        The file holds the whole session (prompt plus what was generated); it is indexed
+        under every turn-start prefix inside it, so a later prompt sharing any turn
+        boundary restores it and the engine reuses the matching prefix."""
+        full = list(ids) + list(gen_ids or [])
+        if not self.auto_cache_on() or len(ids) < self.slot_save_min_tokens:
             return
         try:
             store = auto_sessions.auto_dir(self.slot_save_path)
@@ -3437,13 +3442,16 @@ class Service:
             print(f"[strata] auto slot save skipped (no store): {e}", flush=True)
             return
         keys = self.auto_session_keys(ids, sampling)
-        sha_full = auto_sessions.prefix_sha(ids, len(ids))
+        pairs = auto_sessions.boundary_pairs(full, self.turn_ids, self.slot_save_min_tokens)
+        if not pairs:
+            return
+        sha_full = pairs[0][1]
         try:
             if auto_sessions.covered(store, sha_full):
-                return                                    # this exact prefix is already stored
+                return                                    # this exact session is already stored
         except OSError:
             return
-        session = auto_sessions.entry_name(sha_full, len(ids))
+        session = auto_sessions.entry_name(sha_full, len(full))
         try:
             r = self.engine.session_file("save", str(store / session))
         except (SessionRefused, ValueError, EngineDied, EngineSilent) as e:
@@ -3454,15 +3462,17 @@ class Service:
             return
         try:
             auto_sessions.write_meta(store, session, {"model": self.model, "keys": keys,
-                                                      "ntokens": len(ids),
-                                                      "saved_tokens": int(r.get("tokens") or len(ids)),
+                                                      "ntokens": len(full),
+                                                      "saved_tokens": int(r.get("tokens") or len(full)),
                                                       "sha256": sha_full,
+                                                      "prefixes": [[length, sha] for length, sha in pairs],
                                                       "bytes": int(r.get("bytes") or 0)})
             auto_sessions.evict(store, self.slot_save_max_count, self.slot_save_max_bytes)
         except OSError as e:
             print(f"[strata] auto slot save index skipped: {e}", flush=True)
             return
-        print(f"[strata] auto slot saved: {session} ({r.get('tokens')} tokens)", flush=True)
+        print(f"[strata] auto slot saved: {session} ({r.get('tokens')} tokens, "
+              f"{len(pairs)} prefixes)", flush=True)
 
     def auto_restore_session(self, ids, sampling) -> int:
         """RESTORE the longest stored prefix of this prompt (0: none; never fails the request)."""
@@ -4891,7 +4901,7 @@ class Service:
                             if (not par and not emb and n > 0
                                     and finish not in ("cancel", "disconnect", "error")
                                     and (sampling or {}).get("strata_checkpoint") is not False):
-                                self.auto_save_session(ids, len(ids) + n, sampling)
+                                self.auto_save_session(ids, raw_ids, sampling)
                             now = time.time()
                             el = now - st.get("started", now)
                             ft = st.get("first_token")

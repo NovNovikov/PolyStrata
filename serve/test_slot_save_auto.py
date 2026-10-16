@@ -98,6 +98,42 @@ class Store(unittest.TestCase):
         auto.remove_pair(self.store, "manual.bin")
         self.assertTrue(evil.exists())
 
+    def test_turn_starts_and_rolling_hashes(self):
+        ids = [5, 7, 9, 7, 11, 7, 13]
+        self.assertEqual(auto.turn_starts(ids, {7}), [1, 3, 5])
+        self.assertEqual(auto.turn_starts(ids, set()), [])
+        hashes = auto.prefix_hashes(ids, [1, 3, 5, 7])
+        for pos in (1, 3, 5, 7):
+            self.assertEqual(hashes[pos], auto.prefix_sha(ids, pos))
+        pairs = auto.boundary_pairs(ids, {7}, 1)
+        self.assertEqual([length for length, _ in pairs], [7, 5, 3, 1])
+        self.assertEqual(auto.boundary_pairs(ids, {7}, 6), [(7, auto.prefix_sha(ids, 7))])
+
+    def test_find_best_matches_a_turn_boundary_then_diverges(self):
+        base = [5, 7, 9, 7, 11]
+        full = base + [13, 15]
+        session = auto.entry_name(auto.prefix_sha(full, len(full)), len(full))
+        pairs = auto.boundary_pairs(full, {7}, 1)
+        (self.store / session).write_bytes(b"x" * 100)
+        auto.write_meta(self.store, session, {"model": MODEL, "keys": KEYS, "ntokens": len(full),
+                                              "sha256": pairs[0][1],
+                                              "prefixes": [[length, sha] for length, sha in pairs],
+                                              "bytes": 100})
+        # same turn boundary (position 3), different tail: the boundary matches
+        again = base[:4] + [99, 100, 101]
+        found = auto.find_best(self.store, again, KEYS, MODEL, 1)
+        self.assertIsNotNone(found)
+        self.assertEqual(found[0], session)
+
+    def test_stage1_meta_without_prefixes_reads_as_one_pair(self):
+        # put() writes no "prefixes" (the stage-1 shape): it must match as one pair
+        ids = make_ids(1500)
+        session = self.put(ids)
+        self.assertNotIn("prefixes", auto.read_meta(self.store, session))
+        found = auto.find_best(self.store, make_ids(1600), KEYS, MODEL, 1024)
+        self.assertIsNotNone(found)
+        self.assertEqual(found[0], session)
+
 
 class FakeProc:
     def __init__(self, engine):
@@ -165,35 +201,36 @@ class Hooks(unittest.TestCase):
 
     def test_off_by_default_sends_no_save_lines(self):
         self.assertFalse(self.svc.slot_save_auto)
-        self.svc.auto_save_session(self.ids, len(self.ids), self.sampling())
+        self.svc.auto_save_session(self.ids, [1, 2], self.sampling())
         self.assertEqual(self.engine.proc.sent, [])
 
     def test_save_then_restore_roundtrip(self):
         self.svc.slot_save_auto = True
-        self.svc.auto_save_session(self.ids, len(self.ids), self.sampling())
+        gen = make_ids(50, 9000)
+        self.svc.auto_save_session(self.ids, gen, self.sampling())
         self.assertTrue(any(s.startswith("SAVE ") for s in self.engine.proc.sent))
-        again = make_ids(2500)
+        again = self.ids + gen + make_ids(30, 9500)
         n = self.svc.auto_restore_session(again, self.sampling())
-        self.assertEqual(n, 2000)
+        self.assertEqual(n, 2050)
         self.assertTrue(any(s.startswith("RESTORE ") for s in self.engine.proc.sent))
 
     def test_save_below_floor_skipped(self):
         self.svc.slot_save_auto = True
-        self.svc.auto_save_session(make_ids(100), 100, self.sampling())
+        self.svc.auto_save_session(make_ids(100), [1], self.sampling())
         self.assertEqual(self.engine.proc.sent, [])
 
     def test_engine_refusal_never_fails_and_drops_pair(self):
         self.svc.slot_save_auto = True
-        self.svc.auto_save_session(self.ids, len(self.ids), self.sampling())
+        self.svc.auto_save_session(self.ids, [1, 2], self.sampling())
         self.engine.fail = True
-        n = self.svc.auto_restore_session(make_ids(2500), self.sampling())
+        n = self.svc.auto_restore_session(self.ids + [1, 2, 3], self.sampling())
         self.assertEqual(n, 0)
         self.assertEqual(auto.list_entries(auto.auto_dir(self.dir.name)), [])
 
     def test_batch_engine_disables_hooks(self):
         self.svc.slot_save_auto = True
         self.engine.batch = 2
-        self.svc.auto_save_session(self.ids, len(self.ids), self.sampling())
+        self.svc.auto_save_session(self.ids, [1, 2], self.sampling())
         self.assertEqual(self.engine.proc.sent, [])
 
 

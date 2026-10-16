@@ -19,6 +19,15 @@ sampling, turn).  A mismatch re-reads the prompt: always correct, at most slower
 Stage 1 saves whole sessions only (the tail).  Message-boundary slices (first answer,
 last answer end, fifth-from-end) are stage 2 and need no engine changes either; only
 incremental deltas would (engine C++).
+
+Stage 2: the stored file still holds the whole session, but it is indexed under every
+turn-start prefix inside it (first answer start, fifth-from-end start, ... - the same
+turn markers turn_key() and keep_start() use, so this is template-agnostic).  A restore
+loads the whole file and the engine reuses the matching prefix from it (its own
+checkpoints cover the rest; a short tail past the last boundary is read again).  The
+last-answer-end boundary is its next turn's start, off by that tail.  Hashes for all
+boundaries come from one pass (hash copies), so indexing costs O(tokens), not
+O(tokens x boundaries).  Metas without "prefixes" (stage 1) read as one pair.
 """
 from __future__ import annotations
 
@@ -47,6 +56,41 @@ def prefix_sha(ids, n: int) -> str:
         h.update(str(int(t)).encode("ascii"))
         h.update(b",")
     return h.hexdigest()
+
+
+def turn_starts(ids, markers) -> list[int]:
+    """Every turn-start position in the token stream (the turn_ids markers, as turn_key()
+    and keep_start() read them; a marker echoed inside text reads as a start too)."""
+    mark = set(markers or ())
+    if not mark:
+        return []
+    return [i for i, t in enumerate(ids) if int(t) in mark and i > 0]
+
+
+def prefix_hashes(ids, positions) -> dict[int, str]:
+    """sha256 of every requested prefix length in one pass (identical to prefix_sha)."""
+    want = sorted({int(p) for p in positions if 0 < int(p) <= len(ids)})
+    out: dict[int, str] = {}
+    h = hashlib.sha256()
+    ids = list(ids)
+    for i, t in enumerate(ids, 1):
+        h.update(str(int(t)).encode("ascii"))
+        h.update(b",")
+        while want and want[0] == i:
+            out[i] = h.copy().hexdigest()
+            want.pop(0)
+        if not want:
+            break
+    return out
+
+
+def boundary_pairs(ids, markers, floor: int) -> list[tuple[int, str]]:
+    """(length, sha) of the whole sequence plus every turn-start prefix (longest first)."""
+    n = len(ids)
+    positions = turn_starts(ids, markers) + [n]
+    hashes = prefix_hashes(ids, positions)
+    return sorted(((length, hashes[length]) for length in positions
+                   if length >= floor and length in hashes), reverse=True)
 
 
 def entry_name(sha: str, n: int) -> str:
@@ -105,21 +149,47 @@ def list_entries(dir: Path) -> list[tuple[str, dict]]:
     return out
 
 
+def entry_pairs(meta: dict) -> list[tuple[int, str]]:
+    """Indexed (length, sha) pairs, longest first (stage-1 metas read as one pair)."""
+    pairs = meta.get("prefixes")
+    if isinstance(pairs, list) and pairs:
+        out = []
+        for item in pairs:
+            try:
+                length, sha = int(item[0]), str(item[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if length > 0 and len(sha) == 64:
+                out.append((length, sha))
+        return sorted(set(out), reverse=True)
+    try:
+        return [(int(meta.get("ntokens") or 0), str(meta.get("sha256") or ""))]
+    except (TypeError, ValueError):
+        return []
+
+
 def find_best(dir: Path, ids, keys: str, model: str, floor: int) -> tuple[str, dict] | None:
-    """The longest stored entry this prompt starts with (keys equal, prefix hash equal)."""
+    """The longest stored prefix this prompt starts with (keys equal, prefix hash equal)."""
     n_all = len(ids)
-    for session, meta in list_entries(dir):
-        if meta.get("model") != model or meta.get("keys") != keys:
-            continue
-        try:
-            n = int(meta.get("ntokens") or 0)
-        except (TypeError, ValueError):
-            continue
-        if n < floor or n > n_all:
-            continue
-        if prefix_sha(ids, n) == meta.get("sha256"):
-            return session, meta
-    return None
+    entries = [(session, meta) for session, meta in list_entries(dir)
+               if meta.get("model") == model and meta.get("keys") == keys]
+    if not entries:
+        return None
+    want: set[int] = set()
+    for _, meta in entries:
+        for length, _ in entry_pairs(meta):
+            if floor <= length <= n_all:
+                want.add(length)
+    if not want:
+        return None
+    hashes = prefix_hashes(ids, sorted(want))
+    best: tuple[str, dict] | None = None
+    best_len = 0
+    for session, meta in entries:
+        for length, sha in entry_pairs(meta):
+            if length > best_len and hashes.get(length) == sha:
+                best, best_len = (session, meta), length
+    return best
 
 
 def covered(dir: Path, sha_full: str) -> bool:
