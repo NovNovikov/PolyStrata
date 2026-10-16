@@ -174,10 +174,47 @@ struct SessionKvSource {
     std::function<bool(size_t part, size_t offset, void* dst, size_t n)> read;
     std::function<std::string()> error;
 };
+// One running-state block (a stored checkpoint's or the live running state's gdn, ple, tails, dead, block_pos)
+// read straight from where it lives into the file's staging buffer, without a host copy first - the checkpoint
+// edition of SessionKvSource.  `read(part, offset, dst, n)` copies bytes [offset, offset+n) of part
+// 0..4 = gdn, ple, tails, dead, block_pos; after a failed read `error()` (optional) says why.  The file bytes
+// are identical to writing the captured vectors.
+struct SessionStateSource {
+    std::array<size_t, 5> sizes{};
+    std::function<bool(size_t part, size_t offset, void* dst, size_t n)> read;
+    std::function<std::string()> error;
+};
+// A stored checkpoint's byte parts as plain host ranges (pure host code, no device).
+bool session_checkpoint_stream_source(SessionStateSource& out, const ConversationCheckpoint& c,
+                                      std::string& error);
 // `meta` carries everything but the K/V (meta.kv must be empty); `kv` supplies the layers in order.
 bool session_file_write(const std::string& path, const SavedConversation& meta, const std::vector<SessionKvSource>& kv,
                         const SessionFileIdentity& id, size_t& bytes, std::string& error,
                         const SessionWriteOptions& options = {}, SessionStatus* status = nullptr);
+// A session image that references live state instead of owning copies: ids/images point at the view's vectors
+// (no copy: referencing is not copying), `live`/`checkpoints` stream their byte parts from the pools.
+// Everything referenced must outlive the write (the engine is idle between requests; the same contract as
+// SessionKvSource).  Byte-identical on disk to the captured SavedConversation.
+struct SavedConversationStreamCheckpoint {
+    const std::vector<int32_t>* ids = nullptr;
+    const std::vector<ConversationImageKey>* imgs = nullptr;
+    SessionStateSource state;
+    uint64_t used = 0;
+};
+struct SavedConversationStream {
+    std::array<int64_t, 18> geometry{};
+    int64_t layer_lo = 0, layer_hi = 0;
+    bool cvec = true;
+    SavedConversationStreamCheckpoint live;
+    std::vector<SavedConversationStreamCheckpoint> checkpoints;
+};
+// Byte-identical to session_file_write of the captured image, without the host staging copies (the opt-in
+// --session-stream-save path).  Same refusal contract (layer splits, ambiguous K/V, torn sources fail the write
+// with no file left behind).
+bool session_file_write_stream(const std::string& path, const SavedConversationStream& stream,
+                               const std::vector<SessionKvSource>& kv,
+                               const SessionFileIdentity& id, size_t& bytes, std::string& error,
+                               const SessionWriteOptions& options = {}, SessionStatus* status = nullptr);
 
 // The checkpoints worth a disk write: the deepest one (the next turn's resume point when the live tail was
 // rewritten).  Earlier checkpoints only serve edits further back and cost ~118 MB each at this geometry.
@@ -195,6 +232,9 @@ struct SessionSaveLive {
 // one inside the captured image), the copied live state with its token and image lists, the K/V source directory,
 // the 16 MiB write buffer and 1 MiB for the small vectors.
 uint64_t session_save_peak_bytes(const ConversationCheckpoint* deepest, const SessionSaveLive& live);
+// The streaming peak: the 16 MiB write buffer, the small vectors, the token and image lists and the K/V source
+// directory.  No checkpoint or live copies (the --session-stream-save path admits this instead).
+uint64_t session_stream_peak_bytes(const SessionSaveLive& live);
 // The SAVE's RAM PREFLIGHT, BEFORE anything is copied: `admit` is asked for session_save_peak_bytes; only when it
 // agrees is the deepest checkpoint copied into `out`.  On a refusal nothing was allocated, `out` is empty, `chain`
 // and the live state are untouched and no file was opened.  Not a reservation.

@@ -34,6 +34,13 @@ bool conversation_kv_verify(const ConversationKv& image, const QsaState& state, 
 // conversation_kv_save).  Caller synchronizes the device first and keeps the state untouched while it is read.
 bool conversation_kv_source(SessionKvSource& source, const QsaState& state, const ModelGeometry& g,
                             int64_t upto, bool include_index, std::string& error);
+// Disk save of checkpoints/live without a host copy: descriptors over the live pools (sizes from the session
+// geometry, reads via the running-state transfer, chunked by the caller).  Live pools read by the device
+// transfer; no CUDA calls or destination writes here.  Validation mirrors conversation_checkpoint_save
+// (targets, pointers, layer-split refusal is the writer's).  Caller synchronized; session untouched until
+// written.  (Stored checkpoints have their own builder in conversation_file.hpp: pure host code.)
+bool session_live_stream_source(SessionStateSource& out, const SessionState& session, const ModelGeometry& g,
+                                size_t tokens, std::string& error);
 // The bytes of each K/V part (k, v, k_scale, v_scale, pooled) a snapshot of `upto` tokens holds: no state read.
 bool conversation_kv_part_sizes(const QsaState& state, const ModelGeometry& g, int64_t upto, bool include_index,
                                 std::array<uint64_t, 5>& sizes, std::string& error);
@@ -67,6 +74,13 @@ struct ConversationView {
     const std::vector<ConversationCheckpoint>& checkpoints;
     bool cvec;
 };
+// Disk save without capturing anything on the host: `stream` references the view (ids/images) and the live
+// pools, `kv` one streamed source per QSA layer then the draft (as conversation_snapshot_sources builds them).
+// The deepest checkpoint is chosen exactly as session_checkpoints_to_save chooses it, by pointer, without a
+// copy.  Caller has synchronized and must not run the session until the file is written.
+bool session_stream_snapshot(SavedConversationStream& stream, std::vector<SessionKvSource>& kv,
+                             const ConversationView& view, const SessionState& session,
+                             const ModelGeometry& g, const QsaState& draft, std::string& error);
 bool conversation_snapshot_bytes(const ConversationView& view, const SessionState& session,
                                  const ModelGeometry& g, const QsaState& draft, size_t& bytes, std::string& error);
 bool conversation_snapshot_capture_bytes(const ConversationKvReuse& reuse, const ConversationView& view,

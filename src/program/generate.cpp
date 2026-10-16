@@ -643,6 +643,7 @@ struct Options {
     /// --serve SAVE: disk space a session file must leave free where it is written (MiB; 0 = no check)
     int64_t session_min_free_mib = 4096;
     bool session_save_reclaim = false;
+    bool session_stream_save = false;   // --serve SAVE: stream checkpoints/live from the pools (opt-in, no copies)
     /// --serve: also keep a checkpoint every N freshly read prompt tokens (0 = only at the last turn boundary)
     int64_t prompt_cache_every = 16384;
     bool prompt_cache_tail = false;   // optional extra checkpoint at an existing near-tail chunk boundary
@@ -794,6 +795,8 @@ void usage() {
                  "                       short side requests do not take the slots a long one needs (default 0 = park any)\n"
                  "  --session-min-free-mib N  --serve: disk space a SAVE must leave free (default 4096; 0 = no check)\n"
                  "  --session-save-reclaim  --serve: reclaim unpinned host caches if SAVE needs RAM (opt-in)\n"
+                 "  --session-stream-save  --serve: stream a SAVE straight from the live pools into the file's\n"
+                 "    16 MiB ring, without the host staging copies (opt-in; byte-identical files)\n"
                  "  --vram-elastic       --serve (#533, opt-in, NVIDIA): the expert cache in segments (--vram-segment-mib,\n"
                  "                       default 512), so the command `VRAM <reserve_mib>` (the server's POST /v1/vram) can\n"
                  "                       give VRAM back to other programs between requests and take it back later\n"
@@ -2103,6 +2106,7 @@ int main(int argc, char** argv) {
         else if (a == "--serve") o.serve = true;
         else if (a == "--vision") o.vision = true;
         else if (a == "--session-save-reclaim") o.session_save_reclaim = true;
+        else if (a == "--session-stream-save") o.session_stream_save = true;
         else if (a == "--prompt-cache") o.prompt_cache = std::max(0, std::atoi(next("--prompt-cache")));
         else if (a == "--conversation-cache-mib" || a == "--conversation-cache-slots" ||
                  a == "--conversation-cache-min-free-mib" || a == "--conversation-cache-min-tokens" ||
@@ -10514,6 +10518,36 @@ int main(int argc, char** argv) {
                         };
                         std::vector<ConvCheckpoint> disk_checks;
                         std::string why;
+                        strata::core::SessionWriteOptions wo;
+                        wo.min_free_bytes = (uint64_t) o.session_min_free_mib << 20;
+                        wo.progress = moving;
+                        wo.phase = blocking;
+                        strata::core::SessionStatus st;
+                        if (o.session_stream_save) {
+                            // Streaming SAVE (opt-in): checkpoints and the live running state stream
+                            // straight from their owners into the file's 16 MiB ring - no host staging
+                            // copies.  Byte-identical files; the default path below is untouched.
+                            if (!admit(strata::core::session_stream_peak_bytes(sl), why)) {
+                                refuse(why, strata::core::SessionError::memory);
+                                continue;
+                            }
+                            const strata::core::ConversationView view{live, live_imgs, checks, cvec_cached};
+                            strata::core::SavedConversationStream stream;
+                            std::vector<strata::core::SessionKvSource> sources;
+                            blocking("capture", 0);
+                            if (!strata::core::session_stream_snapshot(stream, sources, view, ss, g,
+                                                                       mtp.kv_state(), err)) {
+                                refuse(err, strata::core::SessionError::io);
+                                continue;
+                            }
+                            capture_ms = ms();
+                            kept = stream.checkpoints.size();
+                            if (!strata::core::session_file_write_stream(path, stream, sources, id, bytes,
+                                                                         err, wo, &st)) {
+                                refuse(err, st.error, st.published);
+                                continue;
+                            }
+                        } else {
                         if (!strata::core::session_save_checkpoints(checks, sl, admit, disk_checks, why)) {
                             refuse(why, strata::core::SessionError::memory);
                             continue;
@@ -10530,14 +10564,10 @@ int main(int argc, char** argv) {
                             continue;
                         }
                         capture_ms = ms();
-                        strata::core::SessionWriteOptions wo;
-                        wo.min_free_bytes = (uint64_t) o.session_min_free_mib << 20;
-                        wo.progress = moving;
-                        wo.phase = blocking;
-                        strata::core::SessionStatus st;
                         if (!strata::core::session_file_write(path, meta, sources, id, bytes, err, wo, &st)) {
                             refuse(err, st.error, st.published);
                             continue;
+                        }
                         }
                         if (st.dir_flush_unsupported)
                             std::fprintf(stderr, "strata serve: session saved to %s; this filesystem cannot flush a "

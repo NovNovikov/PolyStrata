@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <limits>
+#include <memory>
 
 namespace strata::core {
 namespace {
@@ -314,6 +316,98 @@ bool conversation_snapshot_sources(SavedConversation& meta, std::vector<SessionK
     if (!conversation_kv_source(out.back(), draft, g, upto, false, error)) return false;
     meta = std::move(captured);
     sources = std::move(out);
+    return true;
+}
+
+// The live running state's byte parts as transfer reads over the session pools (no host
+// staging copy).  Sizes and targets mirror conversation_checkpoint_save exactly, so the
+// emitted bytes equal the captured form.
+bool session_live_stream_source(SessionStateSource& out, const SessionState& ss, const ModelGeometry& g,
+                                size_t tokens, std::string& error) {
+    ConversationStateSizes z;
+    if (!checkpoint_targets(ss, g, tokens, z, error)) return false;
+    const size_t layers = owned_qsa(ss);
+    struct Seg { const void* p; size_t n; };
+    std::array<Seg, 2> head = {{
+        {ss.gdn_state, z.gdn},
+        {ss.ple_hist, ss.ple_hist ? z.ple : 0},
+    }};
+    std::vector<Seg> tails(layers), deads(layers), blocks(layers);
+    for (size_t j = 0; j < layers; ++j) {
+        const auto& st = owned(ss, j);
+        tails[j] = {st.idx_tail, z.tail};
+        deads[j] = {st.idx_dead, z.dead};
+        blocks[j] = {st.idx_block_pos, z.block_pos};
+    }
+    SessionStateSource s;
+    s.sizes = {z.gdn, head[1].n, layers * z.tail, layers * z.dead, layers * z.block_pos};
+    auto why = std::make_shared<std::string>();
+    s.read = [head, tails = std::move(tails), deads = std::move(deads), blocks = std::move(blocks),
+              tail = z.tail, dead = z.dead, block = z.block_pos, why]
+             (size_t part, size_t offset, void* dst, size_t n) {
+        const void* base = nullptr;
+        size_t total = 0, stride = 0;
+        const std::vector<Seg>* rows = nullptr;
+        if (part == 0) { base = head[0].p; total = head[0].n; }
+        else if (part == 1) { base = head[1].p; total = head[1].n; }
+        else if (part == 2) { rows = &tails; stride = tail; }
+        else if (part == 3) { rows = &deads; stride = dead; }
+        else if (part == 4) { rows = &blocks; stride = block; }
+        else { *why = "running-state read out of range"; return false; }
+        if (rows) total = rows->size() * stride;
+        if (offset > total || n > total - offset) { *why = "running-state read out of range"; return false; }
+        uint8_t* d = static_cast<uint8_t*>(dst);
+        size_t left = n, at = offset;
+        while (left) {
+            const uint8_t* src = nullptr;
+            size_t chunk = left;
+            if (rows) {
+                const size_t row = at / stride, inner = at % stride;
+                src = static_cast<const uint8_t*>((*rows)[row].p) + inner;
+                chunk = std::min(chunk, stride - inner);
+            } else {
+                src = static_cast<const uint8_t*>(base) + at;
+            }
+            std::string err;
+            if (!copy(d, src, chunk, err)) { *why = err; return false; }
+            d += chunk; at += chunk; left -= chunk;
+        }
+        return true;
+    };
+    s.error = [why] { return *why; };
+    out = std::move(s);
+    return true;
+}
+
+// The stream edition of conversation_snapshot_sources: descriptors only, no vectors, no
+// copies.  The deepest checkpoint is chosen exactly as session_checkpoints_to_save
+// chooses it, by pointer (session_deepest_checkpoint).
+bool session_stream_snapshot(SavedConversationStream& stream, std::vector<SessionKvSource>& kv,
+                             const ConversationView& view, const SessionState& ss,
+                             const ModelGeometry& g, const QsaState& draft, std::string& error) {
+    if (!view_validate(view, ss, g, error) || !sync(error)) return false;
+    SavedConversationStream s;
+    s.geometry = geometry_key(g);
+    s.layer_lo = ss.layer_lo; s.layer_hi = ss.layer_hi;
+    s.cvec = view.cvec;
+    s.live.ids = &view.ids; s.live.imgs = &view.images; s.live.used = 0;
+    if (!session_live_stream_source(s.live.state, ss, g, view.ids.size(), error)) return false;
+    if (const ConversationCheckpoint* deepest = session_deepest_checkpoint(view.checkpoints)) {
+        if (!deepest->stage_parts.empty())
+            return fail(error, "layer-split state cannot be saved");
+        SavedConversationStreamCheckpoint entry;
+        entry.ids = &deepest->ids; entry.imgs = &deepest->imgs; entry.used = deepest->used;
+        if (!session_checkpoint_stream_source(entry.state, *deepest, error)) return false;
+        s.checkpoints.push_back(std::move(entry));
+    }
+    const int64_t upto = (int64_t) view.ids.size();
+    const size_t layers = owned_qsa(ss);
+    std::vector<SessionKvSource> out(layers + 1);
+    for (size_t j = 0; j < layers; ++j)
+        if (!conversation_kv_source(out[j], owned(ss, j), g, upto, true, error)) return false;
+    if (!conversation_kv_source(out.back(), draft, g, upto, false, error)) return false;
+    stream = std::move(s);
+    kv = std::move(out);
     return true;
 }
 
