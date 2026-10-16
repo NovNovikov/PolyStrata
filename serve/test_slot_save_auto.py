@@ -134,6 +134,26 @@ class Store(unittest.TestCase):
         self.assertIsNotNone(found)
         self.assertEqual(found[0], session)
 
+    def test_corrupt_meta_never_breaks_lookup(self):
+        import json as _json
+
+        session = self.put(make_ids(1500))
+        (self.store / auto.meta_name(session)).write_text(
+            _json.dumps({"v": 1, "ntokens": "abc", "model": MODEL, "keys": KEYS}),
+            encoding="utf-8")
+        self.assertEqual(auto.list_entries(self.store), [(session, auto.read_meta(self.store, session))])
+        self.assertIsNone(auto.find_best(self.store, make_ids(1600), KEYS, MODEL, 1024))
+
+    def test_evict_sweeps_orphans_and_wrong_versions(self):
+        orphan = self.store / "abcdef0123456789-10.bin"
+        orphan.write_bytes(b"o" * 10)
+        old = self.store / "abcdef0123456788-10.bin"
+        old.write_bytes(b"o" * 10)
+        (self.store / auto.meta_name(old.name)).write_text('{"v": 0}', encoding="utf-8")
+        auto.evict(self.store, 0, 0)
+        self.assertFalse(orphan.exists())
+        self.assertFalse(old.exists())
+
 
 class FakeProc:
     def __init__(self, engine):
@@ -151,7 +171,9 @@ class FakeProc:
                 Path(path).write_bytes(b"x" * 1234)
                 self.engine.lines.put("SAVED 62993 1234 401.5\n")
         elif cmd == "RESTORE":
-            if not Path(path).exists() or self.engine.fail:
+            if self.engine.fail_dead:
+                self.engine.lines.put(None)
+            elif not Path(path).exists() or self.engine.fail:
                 self.engine.lines.put("SERR invalid 0 session file: saved with another model\n")
             else:
                 self.engine.lines.put("RESTORED 62993 1234 560.2\n")
@@ -178,6 +200,7 @@ class FakeEngine(StrataEngine):
         self.unloaded, self.ended = False, False
         self.lines = queue.Queue()
         self.fail = False
+        self.fail_dead = False
         self.silence_s = 300.0
         self.proc = FakeProc(self)
 
@@ -232,6 +255,18 @@ class Hooks(unittest.TestCase):
         self.engine.batch = 2
         self.svc.auto_save_session(self.ids, [1, 2], self.sampling())
         self.assertEqual(self.engine.proc.sent, [])
+
+    def test_dead_engine_keeps_the_pair(self):
+        self.svc.slot_save_auto = True
+        self.svc.auto_save_session(self.ids, [1, 2], self.sampling())
+        (session, _), = auto.list_entries(auto.auto_dir(self.dir.name))
+        self.engine.fail_dead = True
+        try:
+            n = self.svc.auto_restore_session(self.ids + [1, 2, 3], self.sampling())
+        except Exception:
+            n = 0
+        self.assertEqual(n, 0)
+        self.assertEqual([s for s, _ in auto.list_entries(auto.auto_dir(self.dir.name))], [session])
 
 
 if __name__ == "__main__":

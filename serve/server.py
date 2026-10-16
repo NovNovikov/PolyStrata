@@ -3492,11 +3492,14 @@ class Service:
         session, meta = found
         try:
             r = self.engine.session_file("restore", str(store / session))
-        except (SessionRefused, ValueError, EngineDied, EngineSilent) as e:
+        except SessionRefused as e:
+            # the engine judged the file itself (foreign model/config, corrupt): drop the
+            # pair so no later request trips on it again.  Any other failure (a dead or
+            # silent engine, I/O) says nothing about the file: keep it.
             print(f"[strata] auto slot restore rejected ({session}): {e}", flush=True)
             auto_sessions.remove_pair(store, session)
             return 0
-        except OSError as e:
+        except (ValueError, EngineDied, EngineSilent, OSError) as e:
             print(f"[strata] auto slot restore skipped ({session}): {e}", flush=True)
             return 0
         n = int(meta.get("ntokens") or 0)

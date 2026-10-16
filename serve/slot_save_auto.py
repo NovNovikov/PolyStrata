@@ -126,6 +126,14 @@ def read_meta(dir: Path, session: str) -> dict | None:
         return None
 
 
+def _meta_length(meta: dict) -> int:
+    """The full length for ordering (a corrupt value sorts first, never crashes)."""
+    try:
+        return int(meta.get("ntokens") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def list_entries(dir: Path) -> list[tuple[str, dict]]:
     """(session, meta) of every complete auto pair, longest first."""
     out = []
@@ -145,7 +153,7 @@ def list_entries(dir: Path) -> list[tuple[str, dict]]:
         except OSError:
             continue
         out.append((name, meta))
-    out.sort(key=lambda e: (-int(e[1].get("ntokens") or 0), e[0]))
+    out.sort(key=lambda e: (-_meta_length(e[1]), e[0]))
     return out
 
 
@@ -201,7 +209,26 @@ def covered(dir: Path, sha_full: str) -> bool:
 
 
 def evict(dir: Path, max_count: int, max_bytes: int) -> None:
-    """LRU by mtime over auto pairs only (manual saves are never touched)."""
+    """LRU by mtime over auto pairs only (manual saves are never touched).
+
+    Always sweeps orphan .bin files with no valid meta first: a SAVE whose meta never
+    landed (crash, refused write, full disk) is unusable and would otherwise leak.  This
+    is safe because our own SAVE-then-meta flow is synchronous under the request FIFO:
+    any meta-less file seen here belongs to a finished flow, never to one in flight."""
+    try:
+        names = os.listdir(dir)
+    except OSError:
+        return
+    for name in names:
+        if not strict_auto_name(name):
+            continue
+        meta = read_meta(dir, name)
+        if isinstance(meta, dict) and meta.get("v") == 1:
+            continue
+        try:
+            os.remove(dir / name)
+        except OSError:
+            pass
     if max_count <= 0 and max_bytes <= 0:
         return
     entries = []
