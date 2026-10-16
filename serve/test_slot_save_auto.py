@@ -293,10 +293,11 @@ class StoreIndexTest(unittest.TestCase):
     def test_cached_identity_until_change(self):
         self.put(make_ids(1500))
         first = self.index.entries(self.store)
-        self.assertIs(self.index.entries(self.store), first)
+        again = self.index.entries(self.store)
+        self.assertEqual(first, again)
+        self.assertIsNot(first, again)
         self.put(make_ids(1500, 9000))
         second = self.index.entries(self.store)
-        self.assertIsNot(second, first)
         self.assertEqual(len(second), 2)
 
     def test_external_removal_refreshes(self):
@@ -354,6 +355,21 @@ class IdleShutdown(unittest.TestCase):
         self.svc.slot_save_idle_seconds = -1
         self.svc.auto_idle_save()
         self.assertEqual(self.auto_files(), [])
+
+    def test_idle_busy_keeps_armed(self):
+        self.retain()
+        self.svc.last_request_at = time.time() - 3600
+        self.svc.slot_save_idle_seconds = 60
+        self.assertTrue(self.svc.fifo.acquire(blocking=False))
+        try:
+            self.svc.auto_idle_save()
+        finally:
+            self.svc.fifo.release()
+        self.assertEqual(self.auto_files(), [])
+        self.assertIsNotNone(self.svc._auto_last)
+        self.svc.auto_idle_save()
+        self.assertEqual(len(self.auto_files()), 1)
+        self.assertIsNone(self.svc._auto_last)
 
     def test_shutdown_saves_once(self):
         self.retain()

@@ -3445,8 +3445,11 @@ class Service:
         The file holds the whole session (prompt plus what was generated); it is indexed
         under every turn-start prefix inside it, so a later prompt sharing any turn
         boundary restores it and the engine reuses the matching prefix.  With acquire
-        (idle/shutdown triggers) the FIFO is taken here; the completion hook calls with
-        it already held."""
+        (the shutdown trigger only) the FIFO is taken here with a timeout; the completion
+        hook calls with it already held, idle takes it non-blocking itself.  A retained
+        state newer than the engine's (an image or unrestored request ran after) only
+        wastes a file: the engine re-matches restores by tokens, so a stale hint costs a
+        re-read, never a wrong answer."""
         full = list(ids) + list(gen_ids or [])
         if not self.auto_cache_on() or len(ids) < self.slot_save_min_tokens:
             return
@@ -3536,16 +3539,25 @@ class Service:
         return n
 
     def auto_idle_save(self) -> None:
-        """Idle flush: save the last finished state once it sat idle (never fails anything)."""
+        """Idle flush: save the last finished state once it sat idle (never fails anything).
+
+        The FIFO is only ever taken non-blocking: a request starting up (or still
+        running) wins over the flush, and the retained state stays armed for the next
+        idle period."""
         if not self.auto_cache_on() or self.slot_save_idle_seconds < 0 or self._auto_last is None:
             return
         if time.time() - getattr(self, "last_request_at", 0) < self.slot_save_idle_seconds:
             return
         if not self.loaded():
             return
-        ids, gen_ids, sampling = self._auto_last
-        self._auto_last = None                            # one flush per idle period
-        self.auto_save_session(ids, gen_ids, sampling, acquire=True)
+        if not self.fifo.acquire(blocking=False):
+            return                                            # busy: stay armed, retry next period
+        try:
+            ids, gen_ids, sampling = self._auto_last
+            self._auto_last = None                            # one flush per idle period
+            self.auto_save_session(ids, gen_ids, sampling)
+        finally:
+            self.fifo.release()
 
     def start_auto_idle(self) -> None:
         if not self.slot_save_auto or self.slot_save_idle_seconds < 0:

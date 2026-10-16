@@ -301,7 +301,7 @@ class StoreIndex:
             return []
         if sig != self.sig:
             self.sig, self.cached = sig, list_entries(dir)
-        return self.cached
+        return list(self.cached)                          # a copy: callers must not mutate the index
 
     def invalidate(self) -> None:
         self.sig, self.cached = None, []
