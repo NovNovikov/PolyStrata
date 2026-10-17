@@ -225,7 +225,7 @@ void last_turn() {
     a = sys + head + think;
     e.ask(a);
     b = sys + head + text(4, 300) + head + think;
-    check(e.ask(b) == 4096, "without the place, the checkpoint before the last token is past where they differ");
+    check(e.ask(b) == 0, "without a semantic boundary, a rewritten turn is read from its start");
 }
 
 void limits() {
