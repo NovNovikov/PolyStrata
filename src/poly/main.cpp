@@ -797,6 +797,9 @@ int serve(Session& ss, const Options& o) {
                             }
                             if (out == strata::poly::Conversations<Engine>::SOut::empty) {
                                 refuse("invalid", false, "no complete session to save");
+                            } else if (out == strata::poly::Conversations<Engine>::SOut::memory) {
+                                // "not enough RAM" in the reason: the server's own handler looks for those words
+                                refuse("memory", false, "not enough RAM to save the session");
                             } else if (out == strata::poly::Conversations<Engine>::SOut::io) {
                                 refuse("io", published,
                                        published ? "the file is saved whole, but its folder could not be flushed" :

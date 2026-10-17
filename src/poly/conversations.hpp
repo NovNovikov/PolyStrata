@@ -219,7 +219,7 @@ public:
         return !s.seq.empty() && !s.marks.empty() && s.marks.back().pos > 0;
     }
 
-    enum class SOut { saved, empty, io };
+    enum class SOut { saved, empty, io, memory };
     enum class SLoad { ok, missing, unreadable, foreign, no_ram };
 
     /// SAVE <path>: the current conversation whole.  Its rows go to the engine's end and the state there is in
@@ -241,13 +241,13 @@ public:
         const int64_t end = len(s), from = saved(s);
         if (from < end) {   // the rows the engine still holds alone: the save and the slot both take them
             const BlobPtr fresh = blob((size_t) (end - from) * e_.row_bytes());
-            if (!fresh) return SOut::empty;
+            if (!fresh) return SOut::memory;   // the host could not hold the rows' copy: the server's memory kind
             e_.save_rows(from, end - from, fresh->p.get());
             s.rows.push_back({fresh, from, end - from, end - from});
         }
         if (s.marks.back().pos != end) {   // the state of the conversation's end, a checkpoint of the engine's now
             const BlobPtr hold = blob(e_.state_bytes());
-            if (!hold) return SOut::empty;
+            if (!hold) return SOut::memory;
             e_.save_state(hold->p.get());
             s.marks.push_back({end, hold});
         }
@@ -431,11 +431,16 @@ private:
         size_t count = 0, bytes = 0;
     };
 
-    // The bytes the host holds for a slot (its session-file blobs are on the disk and count nothing).
+    // The bytes the host holds for a slot (its session-file blobs are on the disk and count nothing).  A blob
+    // parked conversations share between them counts once.
     static size_t droppings(const Slot& s) {
+        std::vector<const Blob*> seen;
+        for (const Checkpoint& m : s.marks) seen.push_back(m.state.get());
+        for (const Rows& r : s.rows) seen.push_back(r.blob.get());
+        std::sort(seen.begin(), seen.end());
+        seen.erase(std::unique(seen.begin(), seen.end()), seen.end());
         size_t b = 0;
-        for (const Checkpoint& m : s.marks) b += m.state->bytes;
-        for (const Rows& r : s.rows) b += r.blob->bytes;
+        for (const Blob* p : seen) b += p->bytes;
         return b;
     }
 

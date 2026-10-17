@@ -165,6 +165,29 @@ public:
         size_t bytes = 0;        // the payloads plus the header, as the file is sized
     };
 
+    // The header's counts, once they are held against the file's size: junk counts are refused before any
+    // memory is asked for them.
+    struct Head0 {
+        int64_t prompt = 0;
+        uint64_t sb = 0, rb = 0;
+        uint64_t n_seq = 0, n_marks = 0, n_rows = 0;
+    };
+
+    static bool head_ok(const std::filesystem::path& path, FILE* f, Head0& v, uint64_t& room) {
+        uint32_t magic = 0, version = 0;
+        if (!get(f, magic) || !get(f, version) || magic != kMagic || version != kVersion ||
+            !get(f, v.n_seq) || !get(f, (uint64_t&) v.prompt) || !get(f, v.sb) || !get(f, v.rb) ||
+            !get(f, v.n_marks) || !get(f, v.n_rows))
+            return false;
+        std::error_code ec;
+        const uint64_t file_bytes = (uint64_t) std::filesystem::file_size(path, ec);
+        if (ec) return false;
+        room = file_bytes >= 56 ? file_bytes - 56 : 0;   // the header's own 56 bytes come off first
+        if (v.n_seq > room / 4) return false;            // the seq's bytes alone will not fit this file
+        room -= v.n_seq * 4;
+        return true;
+    }
+
     static std::optional<Head> read_head(const std::filesystem::path& path) {
         FILE* f = nullptr;
 #if defined(_WIN32)
@@ -173,42 +196,43 @@ public:
         f = std::fopen(path.c_str(), "rb");
 #endif
         if (!f) return std::nullopt;
+        Head0 open;
+        uint64_t room = 0;
+        if (!head_ok(path, f, open, room)) {
+            std::fclose(f);
+            return std::nullopt;
+        }
         Head h;
-        uint32_t magic = 0, version = 0;
-        uint64_t n_seq = 0, n_marks = 0, n_rows = 0;
-        const bool ok = get(f, magic) && get(f, version) && magic == kMagic && version == kVersion &&
-                        get(f, n_seq) && get(f, (uint64_t&) h.prompt) && get(f, h.sb) && get(f, h.rb) &&
-                        get(f, n_marks) && get(f, n_rows);
-        if (!ok) {
+        h.seq.resize((size_t) open.n_seq);
+        if (open.n_seq && std::fread(h.seq.data(), 4, (size_t) open.n_seq, f) != (size_t) open.n_seq) {
             std::fclose(f);
             return std::nullopt;
         }
-        h.seq.resize((size_t) n_seq);
-        if (n_seq && std::fread(h.seq.data(), 4, (size_t) n_seq, f) != (size_t) n_seq) {
-            std::fclose(f);
-            return std::nullopt;
-        }
+        h.prompt = open.prompt;
+        h.sb = open.sb;
+        h.rb = open.rb;
         size_t payloads = 0;
-        for (uint64_t i = 0; i < n_marks; ++i) {
+        bool ok = true;
+        for (uint64_t i = 0; ok && i < open.n_marks; ++i) {
             uint64_t pos = 0, bytes = 0;
-            if (!get(f, pos) || !get(f, bytes) || std::fseek(f, (long) bytes, SEEK_CUR)) {
-                std::fclose(f);
-                return std::nullopt;
-            }
+            ok = get(f, pos) && get(f, bytes) && bytes + 16 <= room;   // the entry's own fields are in the file too
+            if (!ok) break;
+            room -= bytes + 16;
+            payloads += (size_t) bytes;
             h.mark_pos.push_back((int64_t) pos);
-            payloads += (size_t) bytes;
+            ok = std::fseek(f, (long) bytes, SEEK_CUR) == 0;
         }
-        for (uint64_t i = 0; i < n_rows; ++i) {
+        for (uint64_t i = 0; ok && i < open.n_rows; ++i) {
             uint64_t first = 0, count = 0, keep = 0, bytes = 0;
-            if (!get(f, first) || !get(f, count) || !get(f, keep) || !get(f, bytes) ||
-                std::fseek(f, (long) bytes, SEEK_CUR)) {
-                std::fclose(f);
-                return std::nullopt;
-            }
-            h.rows_last = (int64_t) (first + keep);
+            ok = get(f, first) && get(f, count) && get(f, keep) && get(f, bytes) && bytes + 32 <= room;
+            if (!ok) break;
+            room -= bytes + 32;
             payloads += (size_t) bytes;
+            h.rows_last = (int64_t) (first + keep);
+            ok = std::fseek(f, (long) bytes, SEEK_CUR) == 0;
         }
         std::fclose(f);
+        if (!ok) return std::nullopt;
         h.bytes = payloads + 64;   // the header's own fields, the size a write's reader sees
         return h;
     }
@@ -221,32 +245,34 @@ public:
         f = std::fopen(path.c_str(), "rb");
 #endif
         if (!f) return std::nullopt;
-        SessionView v;
-        uint32_t magic = 0, version = 0;
-        uint64_t n_seq = 0, n_marks = 0, n_rows = 0;
-        const bool head = get(f, magic) && get(f, version) && magic == kMagic && version == kVersion &&
-                          get(f, n_seq) && get(f, (uint64_t&) v.prompt) && get(f, v.sb) && get(f, v.rb) &&
-                          get(f, n_marks) && get(f, n_rows);
-        if (!head) {
+        Head0 open;
+        uint64_t room = 0;
+        if (!head_ok(path, f, open, room)) {
             std::fclose(f);
             return std::nullopt;
         }
-        v.seq.resize((size_t) n_seq);
-        bool ok = !n_seq || std::fread(v.seq.data(), 4, (size_t) n_seq, f) == (size_t) n_seq;
-        v.marks.resize((size_t) n_marks);
+        SessionView v;
+        v.prompt = open.prompt;
+        v.sb = open.sb;
+        v.rb = open.rb;
+        v.seq.resize((size_t) open.n_seq);
+        bool ok = !open.n_seq || std::fread(v.seq.data(), 4, (size_t) open.n_seq, f) == (size_t) open.n_seq;
+        v.marks.resize((size_t) open.n_marks);
         for (auto& m : v.marks) {
             uint64_t pos = 0, bytes = 0;
-            ok = ok && get(f, pos) && get(f, bytes);
+            ok = ok && get(f, pos) && get(f, bytes) && bytes + 16 <= room;
             if (!ok) break;
+            room -= bytes + 16;
             m.pos = (int64_t) pos;
             m.state.resize((size_t) bytes);
             ok = !bytes || std::fread(m.state.data(), 1, (size_t) bytes, f) == (size_t) bytes;
         }
-        v.rows.resize((size_t) n_rows);
+        v.rows.resize((size_t) open.n_rows);
         for (auto& r : v.rows) {
             uint64_t first = 0, count = 0, keep = 0, bytes = 0;
-            ok = ok && get(f, first) && get(f, count) && get(f, keep) && get(f, bytes);
+            ok = ok && get(f, first) && get(f, count) && get(f, keep) && get(f, bytes) && bytes + 32 <= room;
             if (!ok) break;
+            room -= bytes + 32;
             r.first = (int64_t) first;
             r.count = (int64_t) count;
             r.keep = (int64_t) keep;

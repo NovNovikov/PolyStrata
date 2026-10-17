@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <random>
 
 using strata::poly::CacheOptions;
@@ -238,7 +239,7 @@ int main() {
         Conversations<Fake> stranger(e4, options(dir));
         const auto alien = stranger.sideload(store / name, 2560, err, tokens, rbytes, touched);
         check(alien == Conversations<Fake>::SLoad::unreadable && !err.empty(), "a file of another engine's shapes is refused");
-        // a restore replaces the outgoing conversation, the file's own one takes the engine
+        // A restore replaces the conversation that was in the engine
         Fake e5;
         Conversations<Fake> second(e5, options(dir));
         std::vector<int32_t> other = text(91, 120);
@@ -278,6 +279,70 @@ int main() {
             kept.resume(switch_to);   // the prompt parks: its file goes to the dir
         }
         check(files_in(dir) <= 2, "the cap leaves only the newest files");
+    }
+
+    // Unfriendly directories: a junk .bin (what else can happen: whatever file a client leaves over, or a
+    // truncated one) in the session dir only has to be ignored, and a truncated session file is refused with
+    // nothing half-read.  The constructor scans, so this must also be given a pass without crashing at startup.
+    {
+        std::error_code wipe;
+        std::filesystem::remove_all(dir, wipe);
+        std::filesystem::create_directories(dir);
+        // a junk file of huge lies, its magic and version fine
+        const std::filesystem::path junk = dir / "junk.bin";
+        {
+            FILE* f = std::fopen(junk.string().c_str(), "wb");
+            const uint32_t magic = strata::poly::SessionFile::kMagic, version = strata::poly::SessionFile::kVersion;
+            std::fwrite(&magic, 4, 1, f);
+            std::fwrite(&version, 4, 1, f);
+            const uint64_t n_seq = ~0ull / 2, nonsense = 9;
+            std::fwrite(&n_seq, 8, 1, f);          // its place in the layout: right after the version
+            for (int field = 0; field < 5; ++field) std::fwrite(&nonsense, 8, 1, f);   // prompt, sb, rb, marks, rows
+            std::fclose(f);
+        }
+        const std::filesystem::path junk2 = dir / "junk2.bin";
+        std::ofstream(junk2, std::ios::binary) << std::string(3, 'x');   // not a session file at all
+        {
+            Fake e;
+            Conversations<Fake> kept(e, options(dir));   // the scan of the junk must not crash
+            check(kept.parked() == 0, "junk files in the session dir are not conversations");
+            const std::vector<int32_t> ids = base;
+            const int64_t from = kept.resume(ids);
+            check(from == 0, "junk in the dir does not stand in for a conversation");
+        }
+        // a truncated but real file: cut a session file in half and try to bring it in
+        const std::filesystem::path store = dir / "store";
+        std::filesystem::create_directories(store);
+        Fake w;
+        Conversations<Fake> warden(w, options(dir));
+        std::vector<int32_t> ids = base;
+        const int64_t w_from = warden.resume(ids);
+        go_on(w, warden, ids, w_from);
+        warden.prompt_was((int64_t) ids.size());
+        size_t bytes = 0;
+        bool published = false;
+        const std::string name = "deadbeefdeadbeef-300.bin";
+        const auto out = warden.snapshot(store, name, {}, bytes, published);
+        check(out == Conversations<Fake>::SOut::saved, "the reference file for the truncation is written");
+        {
+            std::ifstream in(store / name, std::ios::binary);
+            std::string all{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+            all.resize(all.size() / 2);           // the seq readable, the payloads not there
+            std::ofstream half(store / "short.bin", std::ios::binary);
+            half.write(all.data(), (std::streamsize) all.size());
+        }
+        Fake b;
+        Conversations<Fake> brought(b, options(dir));
+        std::string err;
+        int64_t tokens = 0;
+        size_t rbytes = 0;
+        bool touched = false;
+        const auto half = brought.sideload(store / "short.bin", 2560, err, tokens, rbytes, touched);
+        check(half == Conversations<Fake>::SLoad::unreadable, "a cut-off file is refused, not half-read");
+        check(!touched, "a refusal of a file touches no engine state");
+
+        std::error_code wipe_final;
+        std::filesystem::remove_all(store, wipe_final);
     }
 
     std::error_code ec;
