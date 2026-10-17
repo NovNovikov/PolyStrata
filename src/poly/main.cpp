@@ -782,20 +782,15 @@ int serve(Session& ss, const Options& o) {
                             std::printf("SWAIT capture %lld\n",   // the state comes off the device in one copy
                                         (long long) session_phase_limit_s(engine.state_bytes()));
                             std::fflush(stdout);
-                            strata::poly::Conversations<Engine>::SOut out;
                             const char* flaw = nullptr;
-                            try {
-                                out = ss.kept.snapshot(home, name,
-                                                       [&](uint64_t done, uint64_t total) {
-                                                           std::printf("SESSION %llu %llu\n",
-                                                                       (unsigned long long) done,
-                                                                       (unsigned long long) total);
-                                                           std::fflush(stdout);
-                                                       },
-                                                       bytes, published, &flaw);
-                            } catch (const std::bad_alloc&) {
-                                refuse("memory", published, "not enough RAM to save the session");
-                            }
+                            const auto out = ss.kept.snapshot(home, name,
+                                                             [&](uint64_t done, uint64_t total) {
+                                                                 std::printf("SESSION %llu %llu\n",
+                                                                             (unsigned long long) done,
+                                                                             (unsigned long long) total);
+                                                                 std::fflush(stdout);
+                                                             },
+                                                             bytes, published, &flaw);
                             if (out == strata::poly::Conversations<Engine>::SOut::empty) {
                                 refuse("invalid", false, "no complete session to save");
                             } else if (out == strata::poly::Conversations<Engine>::SOut::memory) {
