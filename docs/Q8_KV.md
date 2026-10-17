@@ -118,9 +118,7 @@ The three run configs (`strata-tiel.json`, `strata-ornith.json` and `strata-occa
   is not offered for it.
 - **Gemma 4 is out of v1.** `--kv q8_0` with a `gemma4` file is rejected cleanly at load
   (`--kv q8_0 is only supported for qwen35moe models in v1; this is a 'gemma4' model`), not run.
-- No ROCm/HIP port: on a HIP build `--kv q8_0` is rejected cleanly
-  (`--kv q8_0 is not supported on this backend (CUDA only)`) and the engine exits, rather than doing something
-  different. The HIP build itself was not run here (no ROCm on this machine).
+- ROCm/HIP: the same kernels, measured below on an AMD card (it was rejected on HIP until that was done).
 - The default path stays byte-identical to the last release.
 
 ## The comparison with another implementation
@@ -135,7 +133,7 @@ Full transcript in the T8.5 report.
 ## Files touched
 
 - `src/poly/engine.hpp` — `KvFmt` and `Options::kv_format` (default `kFp16`).
-- `src/poly/main.cpp` — `--kv fp16|q8_0` parsing, help text, the HIP rejection.
+- `src/poly/main.cpp` — `--kv fp16|q8_0` parsing and help text.
 - `src/poly/engine.cpp` — the `qwen35moe`-only check and the clean rejection for other architectures.
 - `src/poly/qwen35.hpp`, `src/poly/qwen35.cpp` — the Q8_0 cache pointers, allocation, save/load, the row-size
   print, and the attention path that reads codes+scales.
@@ -153,5 +151,20 @@ Full transcript in the T8.5 report.
 - **CUDA:** builds clean; the test-suite run is **116/117**. The one failure, `ple_parity`, is a missing model
   file (`.../Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00002-of-00002.gguf: cannot open`), unrelated to this change.
   `poly_kv_q8_test` passes (0.23 s).
-- **HIP:** build deferred — this machine has no ROCm. The clean-rejection guard above is in place.
+- **HIP:** builds clean for gfx1201; `poly_kv_q8_test` passes (91,530 values checked) on an RX 9070 XT.
+
+## On an AMD card
+
+RX 9070 XT (16 GB, gfx1201), Ryzen 7 9800X3D, 30 GB of RAM, Fedora, ROCm 7 from AMD's wheels;
+`Tiel-Coder-35B-A3B-MTP-UD-Q4_K_XL.gguf`, `--kv-whole`, a 2 GiB conversation cache. fp16 at 131072 against Q8_0
+at 196608, each a fresh server:
+
+| | experts in VRAM | 256-token answer | 4.5K prompt | 64K prompt | answer after it |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| fp16, 131072 | 4415 (7.9 GiB) | 110-127 tok/s | 1,814-1,822 tok/s | 2,065 tok/s | 66 tok/s |
+| Q8_0, 196608 | 4729 (8.4 GiB) | 106-130 tok/s | 1,843-1,862 tok/s | 2,075 tok/s | 63 tok/s |
+
+Greedy with `--no-draft`, seven prompts: the four short ones gave the same answers; a docstring, a two-sentence
+summary of a 24K-character prompt and a list of names from a 60K-character one took other words from the 249th,
+14th and first character on, each answer as right as the fp16 one.
 - **SYCL:** not applicable; that is a separate engine.

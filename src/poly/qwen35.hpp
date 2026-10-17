@@ -42,6 +42,7 @@ protected:
     void block_attend(int64_t pos, int n) override;
     void block_rows(int64_t pos, int n) override;
     int head_key(int il, int n) const override;
+    bool batch_heads() const override { return true; }
     int64_t turn(int64_t row) const override;
 
 private:
@@ -68,6 +69,7 @@ private:
 
     void gdn(Block& B, int n);
     void attn(Block& B, int64_t pos, int n);
+    void attn_rows(Block& B, int n);
     void attn_store(Block& B, int64_t pos, int n);
     void turn_of(int64_t row, int32_t* thw) const;
     const int32_t* turns(int64_t pos, int n, int64_t* first);

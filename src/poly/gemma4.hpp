@@ -48,6 +48,7 @@ protected:
     void load_drafter() override;
     void draft_step(int32_t token, int i) override;
     int head_key(int il, int n) const override;
+    bool batch_heads() const override { return true; }
 
 private:
     void mlp(const Layer& L, int il, int n, float* out);
@@ -77,6 +78,7 @@ private:
 
     void load_draft_shape();
     void attn(Block& B, int64_t pos, int n);
+    void attn_rows(Block& B, int n);
     void store(const float* x, uint16_t* cache, const Block& B, int64_t pos, int n);
     template <class F>
     void window_runs(int64_t pos, F&& f) const;
