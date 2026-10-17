@@ -281,6 +281,24 @@ int main() {
         check(files_in(dir) <= 2, "the cap leaves only the newest files");
     }
 
+    // A part that refuses to fill its bytes (the engine is not there) fails the whole write and leaves no file.
+    {
+        std::error_code wipe;
+        std::filesystem::remove_all(dir, wipe);
+        std::filesystem::create_directories(dir);
+        strata::poly::SessionFile::SessionPart bad;
+        bad.bytes = 64;
+        bad.fill = [](void*, size_t, size_t) { return false; };
+        std::vector<std::pair<int64_t, strata::poly::SessionFile::SessionPart>> marks(1, {8, bad});
+        strata::poly::SessionFile::WStat st;
+        const bool ok = strata::poly::SessionFile::write_stream(dir, "refused.bin", 8, 8, 8, base, marks, {}, &st);
+        check(!ok, "a refusing part fails the write");
+        check(!st.published, "a failed write publishes nothing");
+        check(!std::filesystem::exists(dir / "refused.bin") &&
+                  !std::filesystem::exists(dir / "refused.bin.tmp"),
+              "a failed write leaves no file behind");
+    }
+
     // Unfriendly directories: a junk .bin (what else can happen: whatever file a client leaves over, or a
     // truncated one) in the session dir only has to be ignored, and a truncated session file is refused with
     // nothing half-read.  The constructor scans, so this must also be given a pass without crashing at startup.

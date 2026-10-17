@@ -251,18 +251,17 @@ public:
             e_.save_state(hold->p.get());
             s.marks.push_back({end, hold});
         }
-        SessionView v;
-        v.seq = s.seq;
-        v.prompt = s.prompt;
-        v.sb = e_.state_bytes();
-        v.rb = e_.row_bytes();
+        std::vector<std::pair<int64_t, SessionFile::SessionPart>> parts;
+        parts.reserve(s.marks.size());
         for (const Checkpoint& m : s.marks)
-            v.marks.push_back({m.pos, std::vector<uint8_t>(m.state->p.get(), m.state->p.get() + m.state->bytes)});
+            parts.push_back({m.pos, SessionFile::part_of(m.state->p.get(), m.state->bytes)});
+        std::vector<SessionFile::StreamRows> rows;
+        rows.reserve(s.rows.size());
         for (const Rows& r : s.rows)
-            v.rows.push_back({r.first, r.count, r.keep,
-                              std::vector<uint8_t>(r.blob->p.get(), r.blob->p.get() + r.blob->bytes)});
+            rows.push_back({r.first, r.count, r.keep, SessionFile::part_of(r.blob->p.get(), r.blob->bytes)});
         SessionFile::WStat st;
-        const bool ok = SessionFile::write(dir, name, v, &st, emit);
+        const bool ok = SessionFile::write_stream(dir, name, s.prompt, e_.state_bytes(), e_.row_bytes(), s.seq,
+                                                  parts, rows, &st, emit);
         file_bytes = st.bytes;
         published = st.published;
         if (o_.log) {
@@ -584,35 +583,37 @@ private:
             s.rows.push_back({b, from, end - from, end - from});
         }
         if (disk) {
-            // the file takes the whole chain and all the rows: the blobs then free the host memory
-            SessionView v;
-            v.seq = s.seq;
-            v.prompt = s.prompt;
-            v.sb = e_.state_bytes();
-            v.rb = e_.row_bytes();
+            // the file takes the whole chain and all the rows, streamed from where they live: the blobs exist
+            // and the engine reads its own tail straight to the file, so nothing is copied whole into RAM
+            std::vector<std::pair<int64_t, SessionFile::SessionPart>> parts;
+            parts.reserve(s.marks.size());
+            for (const Checkpoint& m : s.marks)
+                parts.push_back({m.pos, SessionFile::part_of(m.state->p.get(), m.state->bytes)});
+            std::vector<SessionFile::StreamRows> rows;
+            rows.reserve(s.rows.size() + 1);
             size_t file_bytes = 0;
-            for (const Checkpoint& m : s.marks) {
-                v.marks.push_back({m.pos, std::vector<uint8_t>(m.state->p.get(), m.state->p.get() + m.state->bytes)});
-                file_bytes += m.state->bytes;
-            }
             for (const Rows& r : s.rows) {
-                v.rows.push_back({r.first, r.count, r.keep,
-                                  std::vector<uint8_t>(r.blob->p.get(), r.blob->p.get() + r.blob->bytes)});
+                rows.push_back({r.first, r.count, r.keep, SessionFile::part_of(r.blob->p.get(), r.blob->bytes)});
                 file_bytes += r.blob->bytes;
             }
-            if (from < end) {   // the rows the engine still holds alone; the file has to have them too
-                const BlobPtr fresh = blob(bytes);
-                if (!fresh) return false;
-                e_.save_rows(from, end - from, fresh->p.get());
-                v.rows.push_back({from, end - from, end - from,
-                                  std::vector<uint8_t>(fresh->p.get(), fresh->p.get() + fresh->bytes)});
+            if (from < end) {   // the rows the engine still holds alone, whole rows straight from the engine
+                SessionFile::SessionPart tail;
+                tail.bytes = (uint64_t) bytes;
+                tail.align = e_.row_bytes();
+                tail.fill = [this, from](void* dst, size_t off, size_t n) {
+                    e_.save_rows(from + (int64_t) (off / e_.row_bytes()), (int64_t) (n / e_.row_bytes()),
+                                 (uint8_t*) dst);
+                    return true;
+                };
+                rows.push_back({from, end - from, end - from, tail});
                 file_bytes += bytes;
             }
             const std::string name = SessionFile::name_for(s.seq);
-            if (SessionFile::write(o_.session_dir, name, v)) {
+            if (SessionFile::write_stream(o_.session_dir, name, s.prompt, e_.state_bytes(), e_.row_bytes(), s.seq,
+                                          parts, rows)) {
                 s.disk = name;
                 s.disk_marks.clear();
-                for (const SessionView::Mark& m : v.marks) s.disk_marks.push_back(m.pos);
+                for (const Checkpoint& m : s.marks) s.disk_marks.push_back(m.pos);
                 s.disk_bytes = file_bytes;
                 s.marks.clear();
                 s.rows.clear();

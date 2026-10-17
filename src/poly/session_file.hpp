@@ -10,10 +10,12 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #if !defined(_WIN32)
@@ -64,11 +66,55 @@ public:
         size_t bytes = 0;   // the file's size as the read side will see it
     };
 
-    // Writes the whole slot; false on any I/O failure (the caller then forgets the conversation, as a RAM park
-    // that does not fit is forgotten).  `say(done, total)`, when given, is called for every megabyte written; the
-    // caller turns it into the line protocol's progress lines.
+    // One payload read straight from where it lives (a parked blob, or the engine's own rows) into the file's
+    // staging buffer, without a full host copy first.  `fill(dst, offset, n)` copies bytes [offset, offset+n)
+    // of the part; every span of a part with `align > 1` is a whole number of the alignment (an engine's rows
+    // are read whole).  Everything referenced must outlive the write: the engine is idle between requests, the
+    // same contract as the Qwen engine's SessionKvSource.  A false fill fails the write (no file left behind).
+    struct SessionPart {
+        uint64_t bytes = 0;
+        uint64_t align = 1;
+        std::function<bool(void* dst, size_t offset, size_t n)> fill;
+    };
+
+    static SessionPart part_of(const uint8_t* p, size_t bytes) {
+        SessionPart part;
+        part.bytes = bytes;
+        part.fill = [p](void* dst, size_t off, size_t n) {
+            std::memcpy(dst, p + off, n);
+            return true;
+        };
+        return part;
+    }
+
+    struct StreamRows {
+        int64_t first = 0, count = 0, keep = 0;
+        SessionPart part;
+    };
+
+    // Write() of any whole-session blob bytes and write_stream() give the file the same bytes on disk: one
+    // recorder sees both.
     static bool write(const std::filesystem::path& dir, const std::string& name, const SessionView& v,
                       WStat* st = nullptr, const std::function<void(uint64_t, uint64_t)>& say = {}) {
+        std::vector<std::pair<int64_t, SessionPart>> marks;
+        marks.reserve(v.marks.size());
+        for (const SessionView::Mark& m : v.marks)
+            marks.push_back({m.pos, part_of(m.state.data(), m.state.size())});
+        std::vector<StreamRows> rows;
+        rows.reserve(v.rows.size());
+        for (const SessionView::Rows& r : v.rows)
+            rows.push_back({r.first, r.count, r.keep, part_of(r.data.data(), r.data.size())});
+        return write_stream(dir, name, v.prompt, v.sb, v.rb, v.seq, marks, rows, st, say);
+    }
+
+    // Streams the file with the payloads arriving as parts (no full host copy): `seq` is referenced, not
+    // copied (it must outlive the write); each mark's part is one record's state and each rows record's part
+    // is its block, in the file's order.  Same refusal contract as write():
+    static bool write_stream(const std::filesystem::path& dir, const std::string& name, int64_t prompt,
+                             uint64_t sb, uint64_t rb, const std::vector<int32_t>& seq,
+                             const std::vector<std::pair<int64_t, SessionPart>>& marks,
+                             const std::vector<StreamRows>& rows, WStat* st = nullptr,
+                             const std::function<void(uint64_t, uint64_t)>& say = {}) {
         if (st) *st = WStat{};
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
@@ -92,10 +138,21 @@ public:
             return rc == 0 ? 0 : (errno == EINVAL || errno == ENOTSUP || errno == EROFS ? 1 : -1);
 #endif
         };
-        const uint64_t total_first = (uint64_t) v.seq.size() * 4;
-        uint64_t total = total_first;
-        for (const SessionView::Mark& m : v.marks) total += m.state.size() + 16;
-        for (const SessionView::Rows& r : v.rows) total += r.data.size() + 32;
+        uint64_t total = (uint64_t) seq.size() * 4;
+        uint64_t payload = total;
+        size_t align = 1;
+        for (const auto& [pos, part] : marks) {
+            total += 16 + part.bytes;
+            payload += part.bytes;
+            if (part.align > 1) align = (size_t) part.align;
+        }
+        for (const StreamRows& r : rows) {
+            total += 32 + r.part.bytes;
+            payload += r.part.bytes;
+            if (r.part.align > 1) align = (size_t) r.part.align;
+        }
+        const size_t kChunk = (size_t) 4 << 20;
+        std::vector<uint8_t> buf(payload ? std::max(kChunk, align) : 0);
         uint64_t done = 0, next = 0;
         const auto mark = [&]() {
             if (say && done >= next) {
@@ -103,30 +160,52 @@ public:
                 next = done + ((uint64_t) 1 << 20);   // each MiB, as the server reads between answers
             }
         };
-        const auto payload = [&](const uint8_t* p, size_t bytes) {
-            const size_t put = std::fwrite(p, 1, bytes, f);
-            done += put;
-            mark();
-            return put == bytes;
+        const auto stream = [&](const SessionPart& p, const char*& fail) {
+            uint64_t off = 0;
+            while (off < p.bytes) {
+                uint64_t n = p.bytes - off;
+                if (n > buf.size()) n = buf.size();
+                if (p.align > 1) n -= n % p.align;
+                if (n == 0) {   // the part's bytes do not hold on its own alignment
+                    fail = "the part's size and alignment disagree";
+                    return false;
+                }
+                if (!p.fill(buf.data(), (size_t) off, (size_t) n)) {
+                    fail = "the engine would not hand over its payload";
+                    return false;
+                }
+                const size_t put = std::fwrite(buf.data(), 1, (size_t) n, f);
+                done += put;
+                mark();
+                if (put != n) {
+                    fail = "the write fell short";
+                    return false;
+                }
+                off += n;
+            }
+            return true;
         };
-        bool ok = put(f, kMagic) && put(f, kVersion) && put(f, (uint64_t) v.seq.size()) &&
-                  put(f, (uint64_t) v.prompt) && put(f, v.sb) && put(f, v.rb) &&
-                  put(f, (uint64_t) v.marks.size()) && put(f, (uint64_t) v.rows.size());
-        if (!v.seq.empty()) ok = payload((const uint8_t*) v.seq.data(), (size_t) v.seq.size() * 4);
-        for (const SessionView::Mark& m : v.marks) {
-            ok = ok && put(f, (uint64_t) m.pos) && put(f, (uint64_t) m.state.size());
-            if (ok && !m.state.empty()) ok = payload(m.state.data(), m.state.size());
+        const char* fail = nullptr;
+        bool ok = put(f, kMagic) && put(f, kVersion) && put(f, (uint64_t) seq.size()) && put(f, (uint64_t) prompt) &&
+                  put(f, sb) && put(f, rb) && put(f, (uint64_t) marks.size()) && put(f, (uint64_t) rows.size());
+        if (ok && !seq.empty())
+            ok = stream(part_of((const uint8_t*) seq.data(), (size_t) seq.size() * 4), fail);
+        for (const auto& [pos, part] : marks) {
+            if (!ok) break;
+            ok = put(f, (uint64_t) pos) && put(f, (uint64_t) part.bytes);
+            if (ok) ok = stream(part, fail);
         }
-        for (const SessionView::Rows& r : v.rows) {
-            ok = ok && put(f, (uint64_t) r.first) && put(f, (uint64_t) r.count) && put(f, (uint64_t) r.keep) &&
-                 put(f, (uint64_t) r.data.size());
-            if (ok && !r.data.empty()) ok = payload(r.data.data(), r.data.size());
+        for (const StreamRows& r : rows) {
+            if (!ok) break;
+            ok = put(f, (uint64_t) r.first) && put(f, (uint64_t) r.count) && put(f, (uint64_t) r.keep) &&
+                 put(f, (uint64_t) r.part.bytes);
+            if (ok) ok = stream(r.part, fail);
         }
         if (ok && say && done < total) say(done, total);
         ok = ok && std::fflush(f) == 0;
 #ifdef POLY_DEBUG_SESSION
-        std::fprintf(stderr, "write: seq=%zu marks=%zu rows=%zu ok=%d ret=%d\n", v.seq.size(), v.marks.size(),
-                     v.rows.size(), (int) ok, (int) (size_t) (v.seq.empty() ? 1 : 0));
+        std::fprintf(stderr, "write_stream: seq=%zu marks=%zu rows=%zu ok=%d\n", seq.size(), marks.size(),
+                     rows.size(), (int) ok);
 #endif
         std::fclose(f);
         if (!ok) {
