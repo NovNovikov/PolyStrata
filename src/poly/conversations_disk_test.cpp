@@ -259,6 +259,20 @@ int main() {
         check(more_from == (int64_t) ids.size(), "the restored conversation is where it left off");
         go_on(e5, second, more, more_from);
         check(e5.holds(more), "the conversation read on from the restore is bit for bit the reread's result");
+        // the file's payloads are in the view and in their blobs at once while the restore mounts: a host that
+        // cannot take both gets the refusal before the engine is touched
+        {
+            Fake e6;
+            CacheOptions o2 = options(dir);
+            const size_t whole = (size_t) std::filesystem::file_size(store / name);
+            o2.admit = [whole](size_t asked) { return asked < 2 * whole; };   // one file, not two
+            Conversations<Fake> scarce(e6, o2);
+            std::string err2;
+            bool freeze = false;
+            const auto short_of = scarce.sideload(store / name, 2560, err2, tokens, rbytes, freeze);
+            check(short_of == Conversations<Fake>::SLoad::no_ram, "a host two files short is refused before the engine");
+            check(!freeze, "a refusal of the mount touches no engine state");
+        }
         std::error_code wipe;
         std::filesystem::remove_all(store, wipe);
     }

@@ -73,7 +73,7 @@ public:
         };
         pick();
         ++clock_;
-        if (at > 0 && !slots_[best].disk.empty() && !materialize(best)) {
+        while (at > 0 && !slots_[best].disk.empty() && !materialize(best)) {
             slots_[best] = Slot{};   // the file is gone or not this engine's any more: look at what is left
             pick();
         }
@@ -84,14 +84,23 @@ public:
             e_.reset();
         } else if (best != cur_ || at < len(cur())) {
             const bool disk_in = best != cur_ && !slots_[best].disk.empty();
-            if (best != cur_) enter(best, at);
-            const uint8_t* state = state_at(cur(), at);
-            std::vector<uint8_t> kept_state;   // a conversation come back from a file: branch() would free the blob
-            if ((disk_in || !slots_[cur_].disk.empty()) && state) kept_state.assign(state, state + e_.state_bytes());
-            // The conversation is left at `at`.  If the prompt the client sent for it went on from there, the
-            // client may send that again, so the conversation is parked and this one goes on in a copy.
-            if (same >= cur().prompt || !branch(at)) cut(cur(), at);
-            e_.load_state(kept_state.empty() ? state_at(cur(), at) : kept_state.data(), at);
+            if (best != cur_ && !enter(best, at)) {
+                // the file vanished or its memory ran out while the engine came onto it: a prompt nothing kept
+                // starts like, the leaving one parks if it can, as the at==0 way does
+                if (!cur().seq.empty() && park(slots_.size())) cur_ = take(cur_);
+                slots_[cur_] = Slot{};
+                e_.reset();
+                at = 0;
+            } else {
+                const uint8_t* state = state_at(cur(), at);
+                std::vector<uint8_t> kept_state;   // a conversation come back from a file: branch() would free the blob
+                if ((disk_in || !slots_[cur_].disk.empty()) && state)
+                    kept_state.assign(state, state + e_.state_bytes());
+                // The conversation is left at `at`.  If the prompt the client sent for it went on from there, the
+                // client may send that again, so the conversation is parked and this one goes on in a copy.
+                if (same >= cur().prompt || !branch(at)) cut(cur(), at);
+                e_.load_state(kept_state.empty() ? state_at(cur(), at) : kept_state.data(), at);
+            }
         }
         cur().stamp = clock_;
         // every way resume() leaves the engine at the conversation's last token (read(), branch()/cut(), adopt());
@@ -344,6 +353,10 @@ private:
     // the engine's writes last.  `tokens` is what the engine holds, the file's conversation when its rows reach
     // its end and the deepest checkpoint row-covered when they do not (its tail is the next prompts' to redo).
     SLoad mount(SessionView v, std::string& err, int64_t& tokens, size_t file_bytes, bool& touched) {
+        if (o_.admit && !o_.admit(2 * file_bytes)) {   // the file's payloads are here and their blobs at once
+            err = "not enough RAM to read it: the file's payloads would not stay in RAM";
+            return SLoad::no_ram;
+        }
         std::vector<Checkpoint> marks;
         std::vector<Rows> rows;
         try {
@@ -651,10 +664,14 @@ private:
         return out;
     }
     // Slot i takes the engine, with its rows before `need` back in the caches.  The conversation that leaves is
-    // parked if it can be.  Rows that both have from the same blob are in the caches already.
-    void enter(size_t i, int64_t need) {
+    // parked if it can be.  Rows that both have from the same blob are in the caches already.  False: the
+    // incoming conversation's file would not come in; the engine and the leaving conversation stand as they were.
+    bool enter(size_t i, int64_t need) {
         const Clock::time_point t0 = Clock::now();
-        if (!slots_[i].disk.empty()) materialize(i);   // resume() checked that this works
+        if (!slots_[i].disk.empty() && !materialize(i)) {   // resume() normally has this brought over already
+            slots_[i] = Slot{};
+            return false;
+        }
         const Slot& in = slots_[i];
         int64_t have = 0;
         for (size_t k = 0; k < in.rows.size() && k < cur().rows.size() && in.rows[k].blob == cur().rows[k].blob; ++k) {
@@ -669,6 +686,7 @@ private:
         cur_ = i;
         slots_[i].held = true;
         say("restored", need, t0, slots_.size());
+        return true;
     }
 
     // Parks the current conversation whole and goes on at `at` in a copy of its start, which shares what is
@@ -729,8 +747,9 @@ private:
     }
 
     // A conversation whose blobs are in its session file reads them back.  False: the file is gone or not this
-    // engine's any more (the model or its row size changed); the file goes, and the caller forgets the
-    // conversation.
+    // engine's any more (the model or its row size changed; the file goes, and the caller forgets the
+    // conversation), or the host could not take its payloads at once (the file stays where it is).  The slot is
+    // filled before anything of it is placed: a half materialize leaves the caller the file, not half a slot.
     bool materialize(size_t i) {
         Slot& s = slots_[i];
         const std::optional<SessionView> v = SessionFile::read(o_.session_dir / s.disk);
@@ -739,18 +758,28 @@ private:
             std::filesystem::remove(o_.session_dir / s.disk, ec);
             return false;
         }
-        for (const SessionView::Mark& m : v->marks) {
-            const BlobPtr b = blob(m.state.size());
-            if (!b) return false;   // no memory for it: the conversation stays on the disk for later
-            std::memcpy(b->p.get(), m.state.data(), m.state.size());
-            s.marks.push_back({m.pos, b});
+        std::vector<Checkpoint> marks;
+        std::vector<Rows> rows;
+        try {
+            marks.reserve(v->marks.size());
+            for (const SessionView::Mark& m : v->marks) {
+                const BlobPtr b = blob(m.state.size());
+                if (!b) throw std::bad_alloc();   // no memory for it: the conversation stays on the disk for later
+                std::memcpy(b->p.get(), m.state.data(), m.state.size());
+                marks.push_back({m.pos, b});
+            }
+            rows.reserve(v->rows.size());
+            for (const SessionView::Rows& r : v->rows) {
+                const BlobPtr b = blob(r.data.size());
+                if (!b) throw std::bad_alloc();
+                std::memcpy(b->p.get(), r.data.data(), r.data.size());
+                rows.push_back({b, r.first, r.count, r.keep});
+            }
+        } catch (...) {   // no memory (the new blob or the vector): nothing of the slot was replaced
+            return false;
         }
-        for (const SessionView::Rows& r : v->rows) {
-            const BlobPtr b = blob(r.data.size());
-            if (!b) return false;
-            std::memcpy(b->p.get(), r.data.data(), r.data.size());
-            s.rows.push_back({b, r.first, r.count, r.keep});
-        }
+        s.marks = std::move(marks);
+        s.rows = std::move(rows);
         s.disk.clear();
         s.disk_marks.clear();
         s.disk_bytes = 0;
