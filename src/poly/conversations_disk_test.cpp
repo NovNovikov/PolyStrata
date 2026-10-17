@@ -4,6 +4,7 @@
 //
 //   g++ -std=c++20 src/poly/conversations_disk_test.cpp -o conversations_disk_test && ./conversations_disk_test
 #include "conversations.hpp"
+#include "session_file.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -84,7 +85,7 @@ void go_on(Fake& e, Conversations<Fake>& kept, const std::vector<int32_t>& ids, 
     kept.turn_at(-1);
     for (int64_t i = from; i < (int64_t) ids.size();) {
         const bool last = i == (int64_t) ids.size() - 1;
-        const int64_t m = last ? 1 : kept.until_checkpoint(i, 100);
+        const int64_t m = last ? 1 : std::min(kept.until_checkpoint(i, 100), (int64_t) ids.size() - i);
         kept.before(i, last);
         e.eval(ids.data() + i, m);
         kept.read(ids.data() + i, m);
@@ -185,6 +186,80 @@ int main() {
         const int64_t from = kept.resume(other);
         check(from == 0, "a file of another engine is not come back to");
         check(files_in(dir) == 0, "the file of another engine is taken away");
+    }
+
+    // SAVE <path>: the whole conversation to a file the server names, rows to the engine's end and the state
+    // there; a RESTORE of it in a fresh engine holds the conversation bit for bit and goes on from it.
+    {
+        Fake e;
+        Conversations<Fake> kept(e, options(dir));
+        std::vector<int32_t> ids = base;
+        const int64_t from = kept.resume(ids);
+        go_on(e, kept, ids, from);
+        kept.prompt_was((int64_t) ids.size());
+        const std::filesystem::path store = dir / "store";
+        std::filesystem::create_directories(store);
+        const std::string name = "a1b2c3d4e5f60718-300.bin";
+        size_t bytes = 0;
+        bool published = false;
+        bool read_progress = false;
+        const auto out = kept.snapshot(store, name,
+                                       [&read_progress](uint64_t, uint64_t) { read_progress = true; },
+                                       bytes, published);
+        check(out == Conversations<Fake>::SOut::saved, "the save of a whole conversation writes its file");
+        check(published && bytes > 0 && bytes < (size_t) (1 << 20), "the save published a file of its payloads");
+        check(read_progress, "the write called its progress");
+        const std::optional<strata::poly::SessionFile::Head> h = strata::poly::SessionFile::read_head(store / name);
+        check(h && h->seq == ids, "the file's head carries the whole conversation");
+        check((size_t) bytes == (size_t) std::filesystem::file_size(store / name), "the save's count is the file's");
+        check(e.holds(ids), "the save leaves the engine's conversation alone");
+        // a save of an empty cache has nothing to save
+        Fake e2;
+        Conversations<Fake> fresh(e2, options(dir));
+        size_t nothing = 0;
+        const auto out2 = fresh.snapshot(store, "empty.bin", {}, nothing, published);
+        check(out2 == Conversations<Fake>::SOut::empty, "nothing complete to save is refused");
+        // RESTORE: a new engine takes the file whole and continues it
+        Fake e3;
+        Conversations<Fake> brought(e3, options(dir));   // a fresh engine has none of the conversation
+        std::string err;
+        int64_t tokens = 0;
+        size_t rbytes = 0;
+        bool touched = false;
+        const auto got = brought.sideload(store / name, 2560, err, tokens, rbytes, touched);
+        check(got == Conversations<Fake>::SLoad::ok, "the restore reads the file's conversation in");
+        check(tokens == (int64_t) ids.size() && rbytes == bytes, "the restore holds the file's counts");
+        check(touched && e3.holds(ids), "after the restore the engine holds the conversation bit for bit");
+        // the refusal kinds the server forwards: unknown file, this engine's geometry gone
+        const auto gone = brought.sideload(store / "no-such-file.bin", 2560, err, tokens, rbytes, touched);
+        check(gone == Conversations<Fake>::SLoad::missing, "an unknown file is refused as missing: the server's invalid");
+        Fake e4;
+        e4.state = 16;   // another engine: the same file is not its format any more
+        Conversations<Fake> stranger(e4, options(dir));
+        const auto alien = stranger.sideload(store / name, 2560, err, tokens, rbytes, touched);
+        check(alien == Conversations<Fake>::SLoad::unreadable && !err.empty(), "a file of another engine's shapes is refused");
+        // a restore replaces the outgoing conversation, the file's own one takes the engine
+        Fake e5;
+        Conversations<Fake> second(e5, options(dir));
+        std::vector<int32_t> other = text(91, 120);
+        const int64_t other_from = second.resume(other);
+        go_on(e5, second, other, other_from);
+        second.prompt_was((int64_t) other.size());
+        int64_t second_tokens = 0;
+        const auto took = second.sideload(store / name, 2560, err, second_tokens, rbytes, touched);
+        check(took == Conversations<Fake>::SLoad::ok && second_tokens == (int64_t) ids.size(),
+              "the restore replaces the conversation that was in the engine");
+        check(second.seq() == ids && e5.holds(ids), "the engine and the cache both hold the file's conversation");
+        // and the conversation continues from the file without rereading a token
+        std::vector<int32_t> more = ids;
+        const auto extra = text(99, 40);
+        more.insert(more.end(), extra.begin(), extra.end());
+        const int64_t more_from = second.resume(more);
+        check(more_from == (int64_t) ids.size(), "the restored conversation is where it left off");
+        go_on(e5, second, more, more_from);
+        check(e5.holds(more), "the conversation read on from the restore is bit for bit the reread's result");
+        std::error_code wipe;
+        std::filesystem::remove_all(store, wipe);
     }
 
     // The files take session_max_mib at most: the least recently used goes.  The conversations are long enough

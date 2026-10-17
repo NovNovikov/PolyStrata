@@ -321,8 +321,15 @@ private:
 // What the conversation cache is told on the command line.
 struct CacheFlags {
     CacheOptions o;
-    long long min_free_mib = 2560;   // parking leaves this much physical RAM free
+    long long min_free_mib = 2560;       // parking leaves this much physical RAM free
+    long long min_save_free_mib = 4096;  // a session save and the disk, this much between them
 };
+
+// The Qwen engine's (strata::core's) bounded allowances for the line protocol's session steps: 60 s plus one
+// second per 4 MiB (a slow disk or network folder at 4 MiB/s), at most an hour.
+int64_t session_phase_limit_s(uint64_t bytes) {
+    return std::min<int64_t>(3600, 60 + (int64_t) (bytes >> 22));
+}
 
 struct Session {
     Engine& engine;
@@ -594,7 +601,7 @@ struct Slot {
     Clock::time_point t0;
 };
 
-int serve(Session& ss) {
+int serve(Session& ss, const Options& o) {
     Engine& engine = ss.engine;
     std::vector<Slot> slots((size_t) engine.sequences() - 1);
     std::printf("INFO context=%d expert_slots=%d expert_cache_mib=%lld pool_workers=%d conversation_cache_mib=%lld "
@@ -727,6 +734,125 @@ int serve(Session& ss) {
         }
         if (line.rfind("BYIELD", 0) == 0) continue;
         lines.stop.store(false);   // a STOP that came between requests is stale
+        // SAVE <path> and RESTORE <path>: the line protocol's session files.  The server's auto checkpoints
+        // write whole sessions to their store and come back with them.  The answers' shapes and refusal words
+        // are the Qwen engine's (src/program/generate.cpp): the server reads the lines without caring which
+        // engine speaks them, and the same store gives it both.
+        if (line.rfind("SAVE ", 0) == 0 || line.rfind("RESTORE ", 0) == 0) {
+            const bool want = line.rfind("SAVE ", 0) == 0;
+            std::string path = line.substr(want ? 5 : 8);
+            const std::string::size_type at = path.find_first_not_of(' ');
+            if (at == std::string::npos) path.clear();
+            else {
+                const std::string::size_type sp = path.find(' ', at);
+                path = path.substr(at, (sp == std::string::npos ? path.size() : sp) - at);
+            }
+            const auto refuse = [](const char* kind, bool published, const std::string& reason) {
+                std::printf("SERR %s %c %s\n", kind, published ? '1' : '0', reason.c_str());
+            };
+            // what the Qwen engine refuses on its own flags, with its own words
+            if (o.batch > 0) {
+                refuse("invalid", false, "session files do not support --batch (parallel requests)");
+            } else if (!o.layer_split.empty()) {
+                refuse("invalid", false, "session files do not support --layer-split");
+            } else if (path.empty()) {
+                refuse("invalid", false, "missing path");
+            } else if (want) {
+                bool published = false;
+                size_t bytes = 0;
+                try {
+                    const std::filesystem::path p(path);
+                    const std::filesystem::path dir = p.parent_path();
+                    const std::string name = p.filename().string();
+                    const std::filesystem::path home = dir.empty() ? std::filesystem::path(".") : dir;
+                    if (name.empty()) {   // a path without a file name is not a file: no save
+                        refuse("invalid", false, "missing path");
+                    } else {
+                        std::error_code ec;
+                        const auto fs = std::filesystem::space(home, ec);
+                        const size_t need = ss.kept.save_bytes();
+                        if (!ec && fs.available < (uint64_t) need + ((uint64_t) ss.flags.min_save_free_mib << 20)) {
+                            std::fprintf(stderr, "strata-poly: the file needs %zu MiB, %lld of the disk besides; %s "
+                                                 "has %llu MiB free\n",
+                                         need >> 20, ss.flags.min_save_free_mib, path.c_str(),
+                                         (unsigned long long) (fs.available >> 20));
+                            refuse("storage", false, "the disk does not have the room the session file takes");
+                        } else {
+                            const Clock::time_point t0 = Clock::now();
+                            std::printf("SWAIT capture %lld\n",   // the state comes off the device in one copy
+                                        (long long) session_phase_limit_s(engine.state_bytes()));
+                            std::fflush(stdout);
+                            strata::poly::Conversations<Engine>::SOut out;
+                            try {
+                                out = ss.kept.snapshot(home, name,
+                                                       [&](uint64_t done, uint64_t total) {
+                                                           std::printf("SESSION %llu %llu\n",
+                                                                       (unsigned long long) done,
+                                                                       (unsigned long long) total);
+                                                           std::fflush(stdout);
+                                                       },
+                                                       bytes, published);
+                            } catch (const std::bad_alloc&) {
+                                refuse("memory", published, "not enough RAM to save the session");
+                            }
+                            if (out == strata::poly::Conversations<Engine>::SOut::empty) {
+                                refuse("invalid", false, "no complete session to save");
+                            } else if (out == strata::poly::Conversations<Engine>::SOut::io) {
+                                refuse("io", published,
+                                       published ? "the file is saved whole, but its folder could not be flushed" :
+                                                   "the file could not be written");
+                            } else {
+                                std::fprintf(stderr, "strata-poly: session saved %zu bytes to %s in %.1f ms\n",
+                                             bytes, path.c_str(), ms_since(t0));
+                                std::printf("SAVED %lld %zu %.1f\n", (long long) ss.kept.seq().size(), bytes,
+                                            ms_since(t0));
+                            }
+                        }
+                    }
+                } catch (const std::bad_alloc&) {
+                    refuse("memory", false, "not enough RAM to save the session");
+                } catch (const std::exception& e) {
+                    refuse("io", false, e.what());
+                }
+            } else {
+                bool touched = false;   // the engine's writes began: the answer to all failures after is fatal
+                long long tokens = 0;
+                size_t bytes = 0;
+                std::string err;
+                try {
+                    std::error_code ec;
+                    const uint64_t file_bytes = std::filesystem::file_size(std::filesystem::path(path), ec);
+                    const Clock::time_point t0 = Clock::now();
+                    std::printf("SWAIT read %lld\n",
+                                (long long) session_phase_limit_s(ec ? 0 : file_bytes));
+                    std::fflush(stdout);
+                    strata::poly::Conversations<Engine>::SLoad in =
+                        ss.kept.sideload(std::filesystem::path(path), ss.flags.min_free_mib, err, tokens, bytes,
+                                         touched);
+                    if (in != strata::poly::Conversations<Engine>::SLoad::ok) {
+                        refuse(in == strata::poly::Conversations<Engine>::SLoad::no_ram ? "memory" : "invalid",
+                               false, err);
+                    } else {
+                        std::fprintf(stderr, "strata-poly: session restored %lld tokens, %zu bytes from %s in "
+                                             "%.1f ms\n",
+                                     tokens, bytes, path.c_str(), ms_since(t0));
+                        std::printf("RESTORED %lld %zu %.1f\n", tokens, bytes, ms_since(t0));
+                    }
+                } catch (const std::exception& e) {   // the device state may have changed halfway: answer to none
+                    std::fprintf(stderr, "strata-poly: session restore %s failed: %s\n", path.c_str(), e.what());
+                    std::printf(touched ? "FATAL restoring the session file failed after the device state was "
+                                          "changed: %s\n" :
+                                          "SERR memory 0 %s\n",
+                                e.what());
+                    if (touched) {
+                        std::fflush(stdout);
+                        return 1;
+                    }
+                }
+            }
+            std::fflush(stdout);
+            continue;
+        }
         // BGEN <slot> <max_new> ... reads the prompt and picks its first token as GEN 1 does, then the request goes
         // on in that slot (BADM <slot> 1), or ends there (BADM <slot> 0)
         admit = -1;
@@ -1066,13 +1192,14 @@ void usage() {
                  "  --prompt-cache N       checkpoints kept of a conversation, about 150 MB of RAM each (default 6;\n"
                  "                         0 = a prompt is read from its start unless it goes on from the last token)\n"
                  "  --prompt-cache-every N a checkpoint every N prompt tokens, besides the one at a prompt's end\n"
-                 "                         (default 2048, 0 = none)\n"
-                 "  --conversation-cache-mib N   RAM for parked conversations, so that several can take turns\n"
+                 "                         (default 2048, 0 = none)\n"                 "  --conversation-cache-mib N   RAM for parked conversations, so that several can take turns\n"
                  "                         without being read again (default 0 = off)\n"
                  "  --conversation-cache-slots N        parked conversations at most (default 4)\n"
                  "  --conversation-cache-min-tokens N   a conversation shorter than this is not parked (default 1024)\n"
                  "  --conversation-cache-min-free-mib N park only while this much physical RAM stays free (default\n"
                  "                         2560)\n"
+                 "  --session-min-free-mib N     a session save asks this much disk room besides the file\n"
+                 "                         (default 4096, 0 = nothing)\n"
                  "  --batch N              N answers written together, each in a sequence of its own with its own\n"
                  "                         state and attention rows (default 0 = one at a time; at most 8);\n"
                  "                         --slots N is the same\n"
@@ -1166,6 +1293,7 @@ int main(int argc, char** argv) {
         else if (a == "--conversation-cache-min-free-mib") cache.min_free_mib = std::atoll(val());
         else if (a == "--session-dir") cache.o.session_dir = val();
         else if (a == "--session-max-mib") cache.o.session_max_mib = std::atoll(val());
+        else if (a == "--session-min-free-mib") cache.min_save_free_mib = std::atoll(val());
         else if (a == "--dump-layers") o.dump = true;
         else if (a == "--images") images = val();
         else if (a == "--image-pad") image_pad = std::atoi(val());
@@ -1238,7 +1366,7 @@ int main(int argc, char** argv) {
         Session ss(engine, eos, cache, lookup);
         int rc = 0;
         if (want_serve) {
-            rc = serve(ss);
+            rc = serve(ss, o);
         } else if ((long long) ids.size() + max_new > engine.max_context()) {
             throw std::runtime_error("the prompt and --max-new together exceed --max-context");
         } else if (check > 0) {

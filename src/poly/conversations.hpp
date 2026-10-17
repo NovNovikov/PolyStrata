@@ -212,10 +212,192 @@ public:
         s.held = true;
     }
 
-    /// The parked conversations, the bytes they hold, and how many were pushed out so far.
+    /// Whether the current conversation is complete: tokens, and one checkpoint to come back to.  This is what
+    /// the line protocol's SAVE needs (the Qwen engine refuses the save without it).
+    bool complete() const {
+        const Slot& s = slots_[cur_];
+        return !s.seq.empty() && !s.marks.empty() && s.marks.back().pos > 0;
+    }
+
+    enum class SOut { saved, empty, io };
+    enum class SLoad { ok, missing, unreadable, foreign, no_ram };
+
+    /// SAVE <path>: the current conversation whole.  Its rows go to the engine's end and the state there is in
+    /// the file, so a return from a restart reads the conversation on from its last token.  The blobs the host
+    /// lacks are captured from the engine now, and the conversation keeps them (a later park has the copies in
+    /// already).  `emit(done, total)`, when given, is the write's progress in payload bytes.  `empty`: there is
+    /// nothing complete to save; `io`: the file could not be written (the caller reports `file_bytes` and
+    /// `published` either way, as the server's line protocol needs).
+    SOut snapshot(const std::filesystem::path& dir, const std::string& name,
+                  const std::function<void(uint64_t, uint64_t)>& emit, size_t& file_bytes, bool& published) {
+        file_bytes = 0;
+        published = false;
+        if (!cur().disk.empty() && !materialize(cur_)) {   // the blobs are still in the conversation's file
+            slots_[cur_] = Slot{};
+            return SOut::empty;
+        }
+        Slot& s = cur();
+        if (!complete()) return SOut::empty;
+        const int64_t end = len(s), from = saved(s);
+        if (from < end) {   // the rows the engine still holds alone: the save and the slot both take them
+            const BlobPtr fresh = blob((size_t) (end - from) * e_.row_bytes());
+            if (!fresh) return SOut::empty;
+            e_.save_rows(from, end - from, fresh->p.get());
+            s.rows.push_back({fresh, from, end - from, end - from});
+        }
+        if (s.marks.back().pos != end) {   // the state of the conversation's end, a checkpoint of the engine's now
+            const BlobPtr hold = blob(e_.state_bytes());
+            if (!hold) return SOut::empty;
+            e_.save_state(hold->p.get());
+            s.marks.push_back({end, hold});
+        }
+        SessionView v;
+        v.seq = s.seq;
+        v.prompt = s.prompt;
+        v.sb = e_.state_bytes();
+        v.rb = e_.row_bytes();
+        for (const Checkpoint& m : s.marks)
+            v.marks.push_back({m.pos, std::vector<uint8_t>(m.state->p.get(), m.state->p.get() + m.state->bytes)});
+        for (const Rows& r : s.rows)
+            v.rows.push_back({r.first, r.count, r.keep,
+                              std::vector<uint8_t>(r.blob->p.get(), r.blob->p.get() + r.blob->bytes)});
+        SessionFile::WStat st;
+        const bool ok = SessionFile::write(dir, name, v, &st, emit);
+        file_bytes = st.bytes;
+        published = st.published;
+        if (o_.log) {
+            const Held h = held(cur_);
+            std::fprintf(o_.log, "strata-poly: session saved %s: %lld tokens, %zu marks, %zu bytes to %s\n",
+                         ok ? "done" : st.dir_flush_unsupported ? "done without the folder's flush" : "refused",
+                         (long long) end, s.marks.size(), st.bytes, name.c_str());
+            std::fprintf(o_.log,
+                         "strata-poly: conversation cache: parked=%zu bytes=%zu evictions=%zu\n",
+                         h.count, h.bytes, evictions_);
+        }
+        return ok ? SOut::saved : SOut::io;
+    }
+
+    /// RESTORE <path>: the file's conversation takes the engine whole; the outgoing one is given up, as the
+    /// Qwen engine's restore does (the parked ones stay).  `floor` is the RAM floor, the conversation cache's
+    /// (`conversation-cache-min-free-mib`).  What is asked before the engine is touched: the parse's peak and
+    /// then the blobs, that copy the payloads — short twice (a first short gives the sessions' copies up, as
+    /// Qwen's reclaim does), or the file unknown, not this engine's format any more, or no RAM, is a refusal
+    /// `err` says.  The engine's writes begin after; a failure there is not this method's to answer — the
+    /// caller stops the engine, for a device state change began.  `touched` is set once the engine's writes
+    /// begin: the caller answers a failure after it with the protocol's fatal line, and refuses before it.
+    SLoad sideload(const std::filesystem::path& path, int64_t floor_mib, std::string& err, int64_t& tokens,
+                   size_t& file_bytes, bool& touched) {
+        tokens = 0;
+        file_bytes = 0;
+        touched = false;
+        std::error_code ec;
+        const auto size = std::filesystem::file_size(path, ec);
+        if (ec) {
+            err = "not found";
+            return SLoad::missing;
+        }
+        file_bytes = (size_t) size;
+        const std::string why = std::to_string(size >> 20) + " MiB plus a floor of " +
+                                std::to_string(floor_mib) + " MiB needed";
+        if (o_.admit && !o_.admit((size_t) size)) {
+            err = "not enough RAM to read it (" + why + ")";
+            return SLoad::no_ram;
+        }
+        std::optional<SessionView> v = SessionFile::read(path);
+        if (!v || v->seq.empty()) {
+            err = "unreadable: not the format this engine writes";
+            return SLoad::unreadable;
+        }
+        if (v->sb != e_.state_bytes() || v->rb != e_.row_bytes()) {   // not this engine's any more
+            err = "the model or its shapes have changed since the file was written";
+            return SLoad::unreadable;
+        }
+        if (o_.admit && !o_.admit((size_t) size)) {   // the blobs copy the payloads too
+            size_t was = 0;   // the sessions' copies go up; the file replaces the sessions wholesale, as Qwen does
+            for (const Slot& z : slots_) was += droppings(z);
+            for (Slot& z : slots_) z = Slot{};
+            err = "not enough RAM to read it (" + why + ", " + std::to_string(was >> 20) +
+                  " MiB of the sessions' copies was given up for it)";
+            if (o_.admit && !o_.admit((size_t) size)) return SLoad::no_ram;
+        }
+        return mount(std::move(*v), err, tokens, (size_t) size, touched);
+    }
+
+    /// The bytes the engine holds that the SAVE of the whole session takes: the seq, the rows it did not save
+    /// yet, and one state more than the checkpoints' count (a save takes the state of the conversation's end).
+    size_t save_bytes() const {
+        const Slot& s = slots_[cur_];
+        return s.seq.size() * 4 + (size_t) (len(s) - saved(s)) * e_.row_bytes() +
+               (s.marks.size() + 1) * e_.state_bytes() + 128;
+    }
+
+    // The parked conversations, the bytes they hold, and how many were pushed out so far.
     size_t parked() const { return held(slots_.size()).count; }
     size_t parked_bytes() const { return held(slots_.size()).bytes; }
     size_t evictions() const { return evictions_; }
+
+private:
+    // sideload's placement: the conversation's blobs from the view (all the RAM questions answered before),
+    // the engine's writes last.  `tokens` is what the engine holds, the file's conversation when its rows reach
+    // its end and the deepest checkpoint row-covered when they do not (its tail is the next prompts' to redo).
+    SLoad mount(SessionView v, std::string& err, int64_t& tokens, size_t file_bytes, bool& touched) {
+        std::vector<Checkpoint> marks;
+        std::vector<Rows> rows;
+        try {
+            marks.reserve(v.marks.size());
+            for (const SessionView::Mark& m : v.marks) {
+                const BlobPtr b = blob(m.state.size());
+                if (!b) throw std::bad_alloc();
+                std::memcpy(b->p.get(), m.state.data(), m.state.size());
+                marks.push_back({m.pos, b});
+            }
+            rows.reserve(v.rows.size());
+            for (const SessionView::Rows& r : v.rows) {
+                const BlobPtr b = blob(r.data.size());
+                if (!b) throw std::bad_alloc();
+                std::memcpy(b->p.get(), r.data.data(), r.data.size());
+                rows.push_back({b, r.first, r.count, r.keep});
+            }
+        } catch (const std::bad_alloc&) {
+            err = "not enough RAM to read it: the file's payloads would not stay in RAM";
+            return SLoad::no_ram;
+        }
+        int64_t rows_last = 0;
+        for (const Rows& r : rows) rows_last = std::max(rows_last, r.first + r.keep);
+        Slot s;
+        s.seq = std::move(v.seq);
+        s.prompt = v.prompt;
+        s.stamp = ++clock_;
+        s.marks = std::move(marks);
+        s.rows = std::move(rows);
+        cut(s, rows_last);              // the file's tail past its rows is the next prompts' to read again
+        if (s.marks.empty()) {          // the chain did not reach a row-covered place
+            err = "unreadable: the file holds checkpoints no row covers";
+            return SLoad::unreadable;
+        }
+        const int64_t end = s.marks.back().pos;   // the state at the deepest row-covered checkpoint
+        // from here on the engine is written to: a failure ends it, the caller stops the server off this
+        touched = true;
+        e_.reset();
+        slots_[cur_] = Slot{};
+        for (const Rows& r : s.rows) {
+            const int64_t a = r.first, b = std::min(r.first + r.keep, end);
+            if (a < b) e_.load_rows(r.blob->p.get(), r.first, r.count, a, b - a);
+        }
+        e_.load_state(s.marks.back().state->p.get(), end);
+        const bool at_end = end == rows_last && end == len(s);   // the rows and the state both reach the last token
+        s.held = at_end;
+        slots_[cur_] = std::move(s);
+        tokens = len(slots_[cur_]);
+        if (o_.log)
+            std::fprintf(o_.log,
+                         "strata-poly: session restored %lld tokens of %zu bytes, %zu marks, the engine at "
+                         "%lld%s\n",
+                         (long long) tokens, file_bytes, slots_[cur_].marks.size(), (long long) end,
+                         at_end ? "" : " (the file's tail is cut where its rows end)");
+        return SLoad::ok;
+    }
+
 
 private:
     using Clock = std::chrono::steady_clock;
@@ -248,6 +430,14 @@ private:
     struct Held {
         size_t count = 0, bytes = 0;
     };
+
+    // The bytes the host holds for a slot (its session-file blobs are on the disk and count nothing).
+    static size_t droppings(const Slot& s) {
+        size_t b = 0;
+        for (const Checkpoint& m : s.marks) b += m.state->bytes;
+        for (const Rows& r : s.rows) b += r.blob->bytes;
+        return b;
+    }
 
     Slot& cur() { return slots_[cur_]; }
     const Slot& cur() const { return slots_[cur_]; }

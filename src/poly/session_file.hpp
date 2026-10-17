@@ -7,12 +7,19 @@
 // prompt that forks before it).
 #pragma once
 
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
+
+#if !defined(_WIN32)
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace strata::poly {
 
@@ -51,9 +58,18 @@ public:
         return out;
     }
 
+    struct WStat {
+        bool published = false;   // the new file's bytes are the name's now (the rename happened)
+        bool dir_flush_unsupported = false;   // POSIX fsync EINVAL: the save succeeded without that flush
+        size_t bytes = 0;   // the file's size as the read side will see it
+    };
+
     // Writes the whole slot; false on any I/O failure (the caller then forgets the conversation, as a RAM park
-    // that does not fit is forgotten).
-    static bool write(const std::filesystem::path& dir, const std::string& name, const SessionView& v) {
+    // that does not fit is forgotten).  `say(done, total)`, when given, is called for every megabyte written; the
+    // caller turns it into the line protocol's progress lines.
+    static bool write(const std::filesystem::path& dir, const std::string& name, const SessionView& v,
+                      WStat* st = nullptr, const std::function<void(uint64_t, uint64_t)>& say = {}) {
+        if (st) *st = WStat{};
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
         if (ec) return false;
@@ -65,19 +81,48 @@ public:
         f = std::fopen(tmp.c_str(), "wb");
 #endif
         if (!f) return false;
+        const auto flush_dir = [&]() -> int {   // 1 (no flush available), 0 (flushed), -1 (flush refused)
+#ifdef _WIN32
+            return 1;
+#else
+            const int d = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY);
+            if (d < 0) return errno == EINVAL || errno == ENOTSUP || errno == EACCES || errno == EROFS ? 1 : -1;
+            const int rc = ::fsync(d);
+            ::close(d);
+            return rc == 0 ? 0 : (errno == EINVAL || errno == ENOTSUP || errno == EROFS ? 1 : -1);
+#endif
+        };
+        const uint64_t total_first = (uint64_t) v.seq.size() * 4;
+        uint64_t total = total_first;
+        for (const SessionView::Mark& m : v.marks) total += m.state.size() + 16;
+        for (const SessionView::Rows& r : v.rows) total += r.data.size() + 32;
+        uint64_t done = 0, next = 0;
+        const auto mark = [&]() {
+            if (say && done >= next) {
+                say(done, total);
+                next = done + ((uint64_t) 1 << 20);   // each MiB, as the server reads between answers
+            }
+        };
+        const auto payload = [&](const uint8_t* p, size_t bytes) {
+            const size_t put = std::fwrite(p, 1, bytes, f);
+            done += put;
+            mark();
+            return put == bytes;
+        };
         bool ok = put(f, kMagic) && put(f, kVersion) && put(f, (uint64_t) v.seq.size()) &&
                   put(f, (uint64_t) v.prompt) && put(f, v.sb) && put(f, v.rb) &&
                   put(f, (uint64_t) v.marks.size()) && put(f, (uint64_t) v.rows.size());
-        if (!v.seq.empty()) ok = std::fwrite(v.seq.data(), 4, (size_t) v.seq.size(), f) == (size_t) v.seq.size();
+        if (!v.seq.empty()) ok = payload((const uint8_t*) v.seq.data(), (size_t) v.seq.size() * 4);
         for (const SessionView::Mark& m : v.marks) {
             ok = ok && put(f, (uint64_t) m.pos) && put(f, (uint64_t) m.state.size());
-            if (ok && !m.state.empty()) ok = std::fwrite(m.state.data(), 1, m.state.size(), f) == m.state.size();
+            if (ok && !m.state.empty()) ok = payload(m.state.data(), m.state.size());
         }
         for (const SessionView::Rows& r : v.rows) {
             ok = ok && put(f, (uint64_t) r.first) && put(f, (uint64_t) r.count) && put(f, (uint64_t) r.keep) &&
                  put(f, (uint64_t) r.data.size());
-            if (ok && !r.data.empty()) ok = std::fwrite(r.data.data(), 1, r.data.size(), f) == r.data.size();
+            if (ok && !r.data.empty()) ok = payload(r.data.data(), r.data.size());
         }
+        if (ok && say && done < total) say(done, total);
         ok = ok && std::fflush(f) == 0;
 #ifdef POLY_DEBUG_SESSION
         std::fprintf(stderr, "write: seq=%zu marks=%zu rows=%zu ok=%d ret=%d\n", v.seq.size(), v.marks.size(),
@@ -85,13 +130,29 @@ public:
 #endif
         std::fclose(f);
         if (!ok) {
-            std::filesystem::remove(tmp, ec);
+            std::error_code nix;
+            std::filesystem::remove(tmp, nix);
             return false;
         }
         const std::filesystem::path dst = dir / name;
         std::filesystem::remove(dst, ec);   // Windows rename does not replace, so take the old one first
         std::filesystem::rename(tmp, dst, ec);
-        return !ec;
+        if (ec) {
+            std::error_code nix;
+            std::filesystem::remove(tmp, nix);   // a failed rename does not leave the tmp around
+            return false;
+        }
+        // the name holds the new bytes; a folder flush on POSIX is what carries them through a power loss, and
+        // its refusal is a failed save of a file the name already published — the server knows `published`
+        const int flushed = flush_dir();
+        if (st) {
+            st->published = true;
+            st->dir_flush_unsupported = flushed == 1;
+            std::error_code nix;
+            const auto sz = std::filesystem::file_size(dst, nix);
+            st->bytes = !nix ? (size_t) sz : 0;
+        }
+        return flushed >= 0;
     }
 
     // The header without the payloads: enough for resume()'s scan (the tokens and where the checkpoints sit).
