@@ -64,6 +64,8 @@ public:
         bool published = false;   // the new file's bytes are the name's now (the rename happened)
         bool dir_flush_unsupported = false;   // POSIX fsync EINVAL: the save succeeded without that flush
         size_t bytes = 0;   // the file's size as the read side will see it
+        bool no_room = false;   // the write saw a full disk (ENOSPC / EDQUOT / EFBIG): the server's storage kind
+        const char* fail = nullptr;   // who refused, when the write failed
     };
 
     // One payload read straight from where it lives (a parked blob, or the engine's own rows) into the file's
@@ -91,21 +93,6 @@ public:
         int64_t first = 0, count = 0, keep = 0;
         SessionPart part;
     };
-
-    // Write() of any whole-session blob bytes and write_stream() give the file the same bytes on disk: one
-    // recorder sees both.
-    static bool write(const std::filesystem::path& dir, const std::string& name, const SessionView& v,
-                      WStat* st = nullptr, const std::function<void(uint64_t, uint64_t)>& say = {}) {
-        std::vector<std::pair<int64_t, SessionPart>> marks;
-        marks.reserve(v.marks.size());
-        for (const SessionView::Mark& m : v.marks)
-            marks.push_back({m.pos, part_of(m.state.data(), m.state.size())});
-        std::vector<StreamRows> rows;
-        rows.reserve(v.rows.size());
-        for (const SessionView::Rows& r : v.rows)
-            rows.push_back({r.first, r.count, r.keep, part_of(r.data.data(), r.data.size())});
-        return write_stream(dir, name, v.prompt, v.sb, v.rb, v.seq, marks, rows, st, say);
-    }
 
     // Streams the file with the payloads arriving as parts (no full host copy): `seq` is referenced, not
     // copied (it must outlive the write); each mark's part is one record's state and each rows record's part
@@ -152,7 +139,7 @@ public:
             if (r.part.align > 1) align = (size_t) r.part.align;
         }
         const size_t kChunk = (size_t) 4 << 20;
-        std::vector<uint8_t> buf(payload ? std::max(kChunk, align) : 0);
+        std::vector<uint8_t> buf(payload ? (size_t) std::min<uint64_t>(payload, std::max<size_t>(kChunk, align)) : 0);
         uint64_t done = 0, next = 0;
         const auto mark = [&]() {
             if (say && done >= next) {
@@ -160,7 +147,23 @@ public:
                 next = done + ((uint64_t) 1 << 20);   // each MiB, as the server reads between answers
             }
         };
-        const auto stream = [&](const SessionPart& p, const char*& fail) {
+        // a full disk (ENOSPC, or quota/over-limit where the platform counts them) is the server's storage kind
+        const auto lacked = [](int e) {
+            return false
+#ifdef ENOSPC
+                || e == ENOSPC
+#endif
+#ifdef EFBIG
+                || e == EFBIG
+#endif
+#ifdef EDQUOT
+                || e == EDQUOT
+#endif
+                ;
+        };
+        const char* fail = nullptr;
+        bool no_room = false;
+        const auto stream = [&](const SessionPart& p) {
             uint64_t off = 0;
             while (off < p.bytes) {
                 uint64_t n = p.bytes - off;
@@ -179,36 +182,46 @@ public:
                 mark();
                 if (put != n) {
                     fail = "the write fell short";
+                    no_room = lacked(errno);
                     return false;
                 }
                 off += n;
             }
             return true;
         };
-        const char* fail = nullptr;
         bool ok = put(f, kMagic) && put(f, kVersion) && put(f, (uint64_t) seq.size()) && put(f, (uint64_t) prompt) &&
                   put(f, sb) && put(f, rb) && put(f, (uint64_t) marks.size()) && put(f, (uint64_t) rows.size());
         if (ok && !seq.empty())
-            ok = stream(part_of((const uint8_t*) seq.data(), (size_t) seq.size() * 4), fail);
+            ok = stream(part_of((const uint8_t*) seq.data(), (size_t) seq.size() * 4));
         for (const auto& [pos, part] : marks) {
             if (!ok) break;
             ok = put(f, (uint64_t) pos) && put(f, (uint64_t) part.bytes);
-            if (ok) ok = stream(part, fail);
+            if (ok) ok = stream(part);
         }
         for (const StreamRows& r : rows) {
             if (!ok) break;
             ok = put(f, (uint64_t) r.first) && put(f, (uint64_t) r.count) && put(f, (uint64_t) r.keep) &&
                  put(f, (uint64_t) r.part.bytes);
-            if (ok) ok = stream(r.part, fail);
+            if (ok) ok = stream(r.part);
         }
         if (ok && say && done < total) say(done, total);
-        ok = ok && std::fflush(f) == 0;
+        if (ok) {
+            ok = std::fflush(f) == 0;
+            if (!ok) {
+                fail = "the flush refused";
+                no_room = lacked(errno);
+            }
+        }
 #ifdef POLY_DEBUG_SESSION
         std::fprintf(stderr, "write_stream: seq=%zu marks=%zu rows=%zu ok=%d\n", seq.size(), marks.size(),
                      rows.size(), (int) ok);
 #endif
         std::fclose(f);
         if (!ok) {
+            if (st) {
+                st->fail = fail;
+                st->no_room = no_room;
+            }
             std::error_code nix;
             std::filesystem::remove(tmp, nix);
             return false;
@@ -217,6 +230,10 @@ public:
         std::filesystem::remove(dst, ec);   // Windows rename does not replace, so take the old one first
         std::filesystem::rename(tmp, dst, ec);
         if (ec) {
+            if (st) {
+                st->fail = "the rename refused";
+                st->no_room = lacked(ec.value());
+            }
             std::error_code nix;
             std::filesystem::remove(tmp, nix);   // a failed rename does not leave the tmp around
             return false;

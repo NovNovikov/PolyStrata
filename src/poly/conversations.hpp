@@ -219,19 +219,22 @@ public:
         return !s.seq.empty() && !s.marks.empty() && s.marks.back().pos > 0;
     }
 
-    enum class SOut { saved, empty, io, memory };
+    enum class SOut { saved, empty, io, storage, memory };
     enum class SLoad { ok, missing, unreadable, foreign, no_ram };
 
     /// SAVE <path>: the current conversation whole.  Its rows go to the engine's end and the state there is in
     /// the file, so a return from a restart reads the conversation on from its last token.  The blobs the host
     /// lacks are captured from the engine now, and the conversation keeps them (a later park has the copies in
     /// already).  `emit(done, total)`, when given, is the write's progress in payload bytes.  `empty`: there is
-    /// nothing complete to save; `io`: the file could not be written (the caller reports `file_bytes` and
-    /// `published` either way, as the server's line protocol needs).
+    /// nothing complete to save; `storage`: the disk did not hold the file (the server's 507); `io`: the file
+    /// could not be written (the caller reports `file_bytes` and `published` either way, as the server's line
+    /// protocol needs, and `flaw`, when given, as the write's own words about it).
     SOut snapshot(const std::filesystem::path& dir, const std::string& name,
-                  const std::function<void(uint64_t, uint64_t)>& emit, size_t& file_bytes, bool& published) {
+                  const std::function<void(uint64_t, uint64_t)>& emit, size_t& file_bytes, bool& published,
+                  const char** flaw = nullptr) {
         file_bytes = 0;
         published = false;
+        if (flaw) *flaw = nullptr;
         if (!cur().disk.empty() && !materialize(cur_)) {   // the blobs are still in the conversation's file
             slots_[cur_] = Slot{};
             return SOut::empty;
@@ -273,7 +276,8 @@ public:
                          "strata-poly: conversation cache: parked=%zu bytes=%zu evictions=%zu\n",
                          h.count, h.bytes, evictions_);
         }
-        return ok ? SOut::saved : SOut::io;
+        if (flaw) *flaw = st.fail;
+        return ok ? SOut::saved : st.no_room ? SOut::storage : SOut::io;
     }
 
     /// RESTORE <path>: the file's conversation takes the engine whole; the outgoing one is given up, as the

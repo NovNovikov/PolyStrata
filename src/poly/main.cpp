@@ -783,6 +783,7 @@ int serve(Session& ss, const Options& o) {
                                         (long long) session_phase_limit_s(engine.state_bytes()));
                             std::fflush(stdout);
                             strata::poly::Conversations<Engine>::SOut out;
+                            const char* flaw = nullptr;
                             try {
                                 out = ss.kept.snapshot(home, name,
                                                        [&](uint64_t done, uint64_t total) {
@@ -791,7 +792,7 @@ int serve(Session& ss, const Options& o) {
                                                                        (unsigned long long) total);
                                                            std::fflush(stdout);
                                                        },
-                                                       bytes, published);
+                                                       bytes, published, &flaw);
                             } catch (const std::bad_alloc&) {
                                 refuse("memory", published, "not enough RAM to save the session");
                             }
@@ -800,10 +801,14 @@ int serve(Session& ss, const Options& o) {
                             } else if (out == strata::poly::Conversations<Engine>::SOut::memory) {
                                 // "not enough RAM" in the reason: the server's own handler looks for those words
                                 refuse("memory", false, "not enough RAM to save the session");
+                            } else if (out == strata::poly::Conversations<Engine>::SOut::storage) {
+                                refuse("storage", published,
+                                       "the disk does not have the room the session file takes");
                             } else if (out == strata::poly::Conversations<Engine>::SOut::io) {
                                 refuse("io", published,
                                        published ? "the file is saved whole, but its folder could not be flushed" :
-                                                   "the file could not be written");
+                                                   flaw ? "the file could not be written: " + std::string(flaw) :
+                                                          "the file could not be written");
                             } else {
                                 std::fprintf(stderr, "strata-poly: session saved %zu bytes to %s in %.1f ms\n",
                                              bytes, path.c_str(), ms_since(t0));
