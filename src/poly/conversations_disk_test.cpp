@@ -273,6 +273,54 @@ int main() {
             check(short_of == Conversations<Fake>::SLoad::no_ram, "a host two files short is refused before the engine");
             check(!freeze, "a refusal of the mount touches no engine state");
         }
+        // A memory that breaks at the third blob of a restore, two states building fine then stopping: the
+        // refusal comes before the engine is touched, the file stays whole, and the same file comes in after.
+        {
+            Fake e6;
+            CacheOptions o2 = options(dir);
+            o2.fail_blob_at = 3;
+            Conversations<Fake> scarce(e6, o2);
+            std::string err2;
+            bool freeze = false;
+            const auto mid = scarce.sideload(store / name, 2560, err2, tokens, rbytes, freeze);
+            check(mid == Conversations<Fake>::SLoad::no_ram, "a memory breaking inside the blobs is refused");
+            check(!freeze, "a refusal inside the blobs touches no engine state");
+            Conversations<Fake> again(e6, options(dir));
+            std::string err3;
+            bool freeze2 = false;
+            const auto retried = again.sideload(store / name, 2560, err3, tokens, rbytes, freeze2);
+            check(retried == Conversations<Fake>::SLoad::ok && tokens == (int64_t) ids.size() && freeze2,
+                  "with whole memory the same file comes in whole");
+        }
+        // A memory that breaks inside the materialize of a scanned file: the slot goes whole, the engine holds
+        // nothing of a half come-in, and the prompt is reread.
+        {
+            // a file of its own, at the top of the session dir for the scan to take
+            std::vector<int32_t> mine = base;
+            {
+                Fake w;
+                Conversations<Fake> warden(w, options(dir));
+                const int64_t w_from = warden.resume(mine);
+                go_on(w, warden, mine, w_from);
+                warden.prompt_was((int64_t) mine.size());
+                size_t wbytes = 0;
+                bool wpublic = false;
+                check(warden.snapshot(dir, "materialize-me.bin", {}, wbytes, wpublic) ==
+                          Conversations<Fake>::SOut::saved,
+                      "the materialize's own file is written");
+            }
+            Fake e7;
+            CacheOptions o3 = options(dir);
+            o3.fail_blob_at = 2;
+            Conversations<Fake> scarce(e7, o3);   // the scan put the newest file into a slot
+            check(scarce.parked() == 1, "the file rests in a slot as before");
+            const std::vector<int32_t> ids = text(7, 100);
+            const int64_t from = scarce.resume(ids);
+            check(from == 0, "the memory breaking inside the materialize sends the engine to the reread");
+            check(!e7.holds(ids) && !e7.holds(base), "the engine holds nothing of a half materialize");
+            std::error_code wipe3;   // gone for the later tests' file counts
+            std::filesystem::remove(dir / "materialize-me.bin", wipe3);
+        }
         std::error_code wipe;
         std::filesystem::remove_all(store, wipe);
     }

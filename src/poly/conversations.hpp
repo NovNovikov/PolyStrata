@@ -44,6 +44,7 @@ struct CacheOptions {
                                          ///< host memory of park_mib, as before
     int64_t session_max_mib = 16384;     ///< the session files take this much disk at most; the least recently used
                                          ///< goes first
+    int fail_blob_at = 0;                ///< a test's lever: the N-th blob allocation comes out null; 0: none
 };
 
 template<class E>
@@ -493,7 +494,9 @@ private:
         return nullptr;   // resume() only goes to positions reach() found
     }
 
-    static BlobPtr blob(size_t bytes) {
+    // A blob of `bytes`, or null: the host did not have them (or a test's lever asked this one to fail).
+    BlobPtr blob(size_t bytes) {
+        if (o_.fail_blob_at > 0 && ++blobs_ == o_.fail_blob_at) return nullptr;
         auto b = std::make_shared<Blob>();
         b->p.reset(new (std::nothrow) uint8_t[bytes]);
         b->bytes = bytes;
@@ -832,6 +835,7 @@ private:
     std::vector<Checkpoint> due_;   // inside()'s checkpoints, until read() makes them the conversation's
     std::vector<int64_t> after_;    // where the conversation's checkpoints are once that read is done
     int64_t turn_ = -1;             // turn_at()'s place in the prompt being read; -1: none
+    int blobs_ = 0;                 // the blobs ever asked for, for a test's fail_blob_at lever
 };
 
 }  // namespace strata::poly
