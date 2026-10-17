@@ -603,6 +603,9 @@ int serve(Session& ss) {
                 engine.max_context(), engine.cached_experts(), (long long) (engine.cached_gib() * 1024.0),
                 engine.threads(), (long long) ss.flags.o.park_mib, ss.flags.o.park_slots, ss.flags.min_free_mib,
                 (long long) engine.vram_free_mib(), (int) slots.size());
+    if (!ss.flags.o.session_dir.empty())
+        std::printf("INFO session_dir=%s session_max_mib=%lld\n", ss.flags.o.session_dir.string().c_str(),
+                    (long long) ss.flags.o.session_max_mib);
     std::printf("READY %d stop\n", engine.max_context());
     std::fflush(stdout);
 
@@ -1161,6 +1164,8 @@ int main(int argc, char** argv) {
         else if (a == "--conversation-cache-slots") cache.o.park_slots = std::atoi(val());
         else if (a == "--conversation-cache-min-tokens") cache.o.park_min = std::atoll(val());
         else if (a == "--conversation-cache-min-free-mib") cache.min_free_mib = std::atoll(val());
+        else if (a == "--session-dir") cache.o.session_dir = val();
+        else if (a == "--session-max-mib") cache.o.session_max_mib = std::atoll(val());
         else if (a == "--dump-layers") o.dump = true;
         else if (a == "--images") images = val();
         else if (a == "--image-pad") image_pad = std::atoi(val());
