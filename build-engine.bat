@@ -1,5 +1,6 @@
 @echo off
-REM Rebuilds the strata engine from this folder's sources (your fork branch).
+REM Rebuilds the strata engine (default) or another target (strata-poly, ...)
+REM from this folder's sources (your fork branch): build-engine.bat [target].
 REM Run it after pulling or editing src/, include/ or CMakeLists.txt, then
 REM restart the server. First run configures (needs internet once
 REM for deps); later runs only rebuild what changed.
@@ -13,6 +14,8 @@ REM - CMAKE_CUDA_RUNTIME_LIBRARY=Shared: avoids the static/DLL cudart clash
 REM   (upstream #585). CMAKE_CUDA_ARCHITECTURES=89 = RTX 4090.
 REM - -j 2: the box is RAM-tight while the model runs; more jobs page it dead.
 setlocal EnableExtensions
+set "STRATA_TARGET=strata"
+if not "%~1"=="" set "STRATA_TARGET=%~1"
 if not defined STRATA_BUILD_KEEP_OPEN (
     set "STRATA_BUILD_KEEP_OPEN=1"
     cmd /d /k call "%~f0" %*
@@ -30,10 +33,10 @@ if errorlevel 1 (
     echo ERROR: configure failed.
     exit /b 1
 )
-cmake --build build-filestream --target strata --config Release -j 2
+cmake --build build-filestream --target %STRATA_TARGET% --config Release -j 2
 if errorlevel 1 (
     echo ERROR: build failed.
     exit /b 1
 )
-echo OK: fresh engine at build-filestream\Release\strata.exe
+echo OK: fresh build at build-filestream\Release\%STRATA_TARGET%.exe
 echo Next: back up engine\strata.exe, copy the new one over it, restart the server.
