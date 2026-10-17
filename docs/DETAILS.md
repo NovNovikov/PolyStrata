@@ -1234,7 +1234,12 @@ engine's category (`error.kind`: `invalid`, `memory`, `storage`, `io`), never th
 failed after its new file had replaced the old one says so with `error.published: true` (below). A save or restore waits for the running request
 (the same queue), shows in `/status` and counts as activity for the idle unload. A later request whose messages
 continue the restored conversation reuses the restored state or its checkpoint; a short tail may be read again (35
-tokens in the measurement below). Only the deepest checkpoint is saved, so an edit further back reads more again.
+tokens in the measurement below). The file keeps the deepest checkpoint and every pinned one, so a prompt that
+branches from the conversation before the file's end (another request of the same turn, a message taken back) can
+mount a checkpoint at or below its fork instead of reading the prompt whole; the periodic marks between the pins are
+not saved (~118 MB each at the measured geometry), so an edit further back than the nearest pin reads more again.
+The slot picker prefers a file no longer than the prompt (its whole state restores and mounts) and takes a longer
+file only when nothing shorter matches, then the smallest one.
 Clients still send their messages (and images): the file holds engine state and token/image identity, not a chat
 export. Underneath, `strata --serve` takes `SAVE <path>` and `RESTORE <path>` on stdin between requests and answers
 `SAVED <tokens> <bytes> <ms>`, `RESTORED <tokens> <bytes> <ms>`, `SERR <kind> <published 0|1> <reason>` (failed,
@@ -1246,8 +1251,8 @@ engine's watchdog and by the server, then it counts as stuck. The next line clea
 every line: a malformed or unknown one, counts that are negative or go back, an allowance outside 1..3600 or a time
 that is not a finite number end the engine as out of step.
 
-One file holds the running state, the deepest checkpoint, every QSA layer's K/V up to the conversation's length and
-the draft layer's K/V. Format v1, little-endian, fixed-width integers, IEEE-754 floats (a big-endian build does not
+One file holds the running state, the deepest checkpoint and every pinned one, every QSA layer's K/V up to the
+conversation's length and the draft layer's K/V. Format v1, little-endian, fixed-width integers, IEEE-754 floats (a big-endian build does not
 compile): a 64-byte header (magic `STRSESS\x01`, version u32, header size u32, model fingerprint u64, config
 fingerprint u64, payload length u64, two reserved u64 that must be 0, a hash of the first 56 bytes), the payload
 (geometry, layer range, cvec flag, the live state, the checkpoints, the K/V layers; every array preceded by its u64
