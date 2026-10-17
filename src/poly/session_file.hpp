@@ -44,7 +44,9 @@ struct SessionView {
 class SessionFile {
 public:
     static constexpr uint32_t kMagic = 0x53505353u;   // "SSPS" little-endian
-    static constexpr uint32_t kVersion = 1;
+    // Version 1 could concatenate independently captured layer-major chunks into a single rows record.
+    // Its metadata cannot distinguish those corrupt parks from valid snapshots; reread rather than reuse them.
+    static constexpr uint32_t kVersion = 2;
 
     // A parked conversation's name: stable for the same token stream, so a repark overwrites its own file.
     static std::string name_for(const std::vector<int32_t>& seq) {
@@ -310,14 +312,12 @@ public:
         h.prompt = open.prompt;
         h.sb = open.sb;
         h.rb = open.rb;
-        size_t payloads = 0;
         bool ok = true;
         for (uint64_t i = 0; ok && i < open.n_marks; ++i) {
             uint64_t pos = 0, bytes = 0;
             ok = get(f, pos) && get(f, bytes) && bytes + 16 <= room;   // the entry's own fields are in the file too
             if (!ok) break;
             room -= bytes + 16;
-            payloads += (size_t) bytes;
             h.mark_pos.push_back((int64_t) pos);
             ok = std::fseek(f, (long) bytes, SEEK_CUR) == 0;
         }
@@ -326,13 +326,14 @@ public:
             ok = get(f, first) && get(f, count) && get(f, keep) && get(f, bytes) && bytes + 32 <= room;
             if (!ok) break;
             room -= bytes + 32;
-            payloads += (size_t) bytes;
             h.rows_last = (int64_t) (first + keep);
             ok = std::fseek(f, (long) bytes, SEEK_CUR) == 0;
         }
         std::fclose(f);
         if (!ok) return std::nullopt;
-        h.bytes = payloads + 64;   // the header's own fields, the size a write's reader sees
+        std::error_code ec;
+        h.bytes = (size_t) std::filesystem::file_size(path, ec);
+        if (ec) return std::nullopt;
         return h;
     }
 

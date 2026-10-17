@@ -40,7 +40,7 @@ uint64_t mix(uint64_t h, int32_t t) { return (h ^ (uint64_t) (uint32_t) t) * 0x9
 // The same engine conversations_test.cpp checks with: the recurrent state is a hash of the tokens read, and every
 // token leaves two rows.
 struct Fake {
-    static constexpr int64_t ctx = 1 << 16;
+    static constexpr int64_t ctx = 1 << 19;
     uint64_t h = 1;
     int64_t at = 0;
     size_t state = 8;
@@ -94,6 +94,29 @@ void go_on(Fake& e, Conversations<Fake>& kept, const std::vector<int32_t>& ids, 
     }
 }
 
+// One read can cross several checkpoints, as the server's text-only prefill does.
+void go_on_batch(Fake& e, Conversations<Fake>& kept, const std::vector<int32_t>& ids, int64_t from) {
+    kept.turn_at(-1);
+    std::vector<std::pair<int64_t, uint8_t*>> due;
+    const int64_t n = (int64_t) ids.size();
+    for (int64_t i = from; i < n;) {
+        const bool last = i == n - 1;
+        const int64_t m = last ? 1 : std::min<int64_t>(65536, n - 1 - i);
+        kept.before(i, last);
+        kept.inside(i, m, due);
+        int64_t done = 0;
+        for (const auto& d : due) {
+            e.eval(ids.data() + i + done, d.first - done);
+            done = d.first;
+            if (d.second) e.save_state(d.second);
+        }
+        e.eval(ids.data() + i + done, m - done);
+        kept.read(ids.data() + i, m);
+        i += m;
+    }
+    kept.prompt_was(n);
+}
+
 CacheOptions options(const std::filesystem::path& dir, int64_t park_min = 64) {
     CacheOptions o;
     o.checkpoints = 2;
@@ -108,15 +131,8 @@ CacheOptions options(const std::filesystem::path& dir, int64_t park_min = 64) {
 }  // namespace
 
 int main() {
-    // runs of this test leave no files behind: earlier ones carried over (std::rand() seeds the same every run)
+    // Each run owns one unique directory; do not remove another run's files from the shared temp directory.
     const std::chrono::steady_clock::rep tick = std::chrono::steady_clock::now().time_since_epoch().count();
-    for (const auto& de : std::filesystem::directory_iterator(std::filesystem::temp_directory_path())) {
-        const std::string n = de.path().filename().string();
-        if (de.is_directory() && n.rfind("poly-sessions-", 0) == 0) {
-            std::error_code wipe;
-            std::filesystem::remove_all(de.path(), wipe);
-        }
-    }
     const std::filesystem::path dir =
         std::filesystem::temp_directory_path() / ("poly-sessions-" + std::to_string(tick));
     std::filesystem::create_directories(dir);
@@ -213,6 +229,80 @@ int main() {
         std::filesystem::remove_all(own);
     }
 
+    // More than the writer's 4 MiB staging buffer. save_rows() is layer-major (all hashes, then all tokens),
+    // so concatenating separately saved chunks is NOT the bytes of one save_rows() over the whole span.
+    {
+        const std::filesystem::path own = dir / "large";
+        std::filesystem::create_directories(own);
+        CacheOptions o = options(own);
+        o.checkpoints = 6;
+        o.every = 16384;
+        const std::vector<int32_t> original = text(71, 300013);
+        Fake e;
+        Conversations<Fake> kept(e, o);
+        go_on_batch(e, kept, original, kept.resume(original));
+        check(e.holds(original), "the large original is a clean full read");
+        const std::vector<int32_t> ping = text(72, 101);
+        go_on_batch(e, kept, ping, kept.resume(ping));
+        const int64_t from = kept.resume(original);
+        check(from == (int64_t) original.size() - 1, "a large parked prompt resumes at its last checkpoint");
+        check(e.holds(std::vector<int32_t>(original.begin(), original.begin() + from)),
+              "all rows of a multi-chunk park restore in their original layer order");
+        go_on_batch(e, kept, original, from);
+        check(e.holds(original), "a hot engine reuses the large disk session exactly");
+
+        // Branch while the original is active, then return to it through a different parked conversation.
+        std::vector<int32_t> fork(original.begin(), original.begin() + 180000);
+        const auto tail = text(73, 500);
+        fork.insert(fork.end(), tail.begin(), tail.end());
+        const int64_t split = kept.resume(fork);
+        check(split > 0 && split < 180000, "the large fork restores an interior checkpoint");
+        go_on_batch(e, kept, fork, split);
+        check(e.holds(fork), "the large branch has the rows and state of a full reread");
+        go_on_batch(e, kept, ping, kept.resume(ping));
+        go_on_batch(e, kept, original, kept.resume(original));
+        check(e.holds(original), "returning from the branch preserves the original's rows");
+
+        // A restart also loads each opaque rows record using its own count, including a partial last record.
+        go_on_batch(e, kept, ping, kept.resume(ping));
+        Fake cold;
+        Conversations<Fake> restarted(cold, o);
+        go_on_batch(cold, restarted, fork, restarted.resume(fork));
+        check(cold.holds(fork), "a restarted engine forks from the large file exactly");
+        go_on_batch(cold, restarted, original, restarted.resume(original));
+        check(cold.holds(original), "a restarted engine restores the original after the fork");
+
+        const std::filesystem::path store = own / "save";
+        size_t bytes = 0;
+        bool published = false;
+        check(restarted.snapshot(store, "large.bin", {}, bytes, published) == Conversations<Fake>::SOut::saved,
+              "SAVE writes the materialized multi-record session");
+        Fake loaded;
+        Conversations<Fake> restored(loaded, o);
+        std::string err;
+        int64_t tokens = 0;
+        bool touched = false;
+        check(restored.sideload(store / "large.bin", 0, err, tokens, bytes, touched) ==
+                  Conversations<Fake>::SLoad::ok && loaded.holds(original),
+              "RESTORE mounts every record of the large saved session exactly");
+        // Old files do not say whether their opaque rows were captured as one block or wrongly concatenated.
+        std::filesystem::copy_file(store / "large.bin", own / "legacy.bin");
+        {
+            std::fstream legacy(own / "legacy.bin", std::ios::in | std::ios::out | std::ios::binary);
+            const uint32_t version = 1;
+            legacy.seekp(4);
+            legacy.write((const char*) &version, sizeof version);
+        }
+        check(restored.sideload(own / "legacy.bin", 0, err, tokens, bytes, touched) ==
+                  Conversations<Fake>::SLoad::unreadable && !touched && loaded.holds(original),
+              "a legacy file is refused before touching the live engine");
+        check(!strata::poly::SessionFile::read_head(own / "legacy.bin"),
+              "the startup scan does not admit legacy session files");
+        go_on_batch(loaded, restored, fork, restored.resume(fork));
+        check(loaded.holds(fork), "an interior fork after RESTORE also matches a full reread");
+        std::filesystem::remove_all(own);
+    }
+
     // Another engine (a different state size): the file is not this engine's any more, and the conversation is
     // reread instead.
     {
@@ -248,6 +338,7 @@ int main() {
         check(read_progress, "the write called its progress");
         const std::optional<strata::poly::SessionFile::Head> h = strata::poly::SessionFile::read_head(store / name);
         check(h && h->seq == ids, "the file's head carries the whole conversation");
+        check(h && h->bytes == bytes, "the scanned size includes tokens, checkpoint payloads and record headers");
         check((size_t) bytes == (size_t) std::filesystem::file_size(store / name), "the save's count is the file's");
         check(e.holds(ids), "the save leaves the engine's conversation alone");
         // a save of an empty cache has nothing to save
@@ -377,6 +468,32 @@ int main() {
             kept.resume(switch_to);   // the prompt parks: its file goes to the dir
         }
         check(files_in(dir) <= 2, "the cap leaves only the newest files");
+    }
+
+    // The disk limit includes the states, not only KV rows, both for newly parked and scanned sessions.
+    {
+        const std::filesystem::path own = dir / "state-budget";
+        std::filesystem::create_directories(own);
+        CacheOptions o = options(own);
+        o.session_max_mib = 1;
+        Fake e;
+        e.state = 300 << 10;
+        Conversations<Fake> kept(e, o);
+        const auto ping = text(85, 31);
+        for (int round = 0; round < 3; ++round) {
+            const auto ids = text(81 + round, 301);
+            go_on_batch(e, kept, ids, kept.resume(ids));
+            go_on_batch(e, kept, ping, kept.resume(ping));
+            check(files_in(own) == 1, "the disk cap counts checkpoint bytes when parking");
+        }
+        Fake cold;
+        cold.state = e.state;
+        Conversations<Fake> restarted(cold, o);
+        const auto ids = text(90, 301);
+        go_on_batch(cold, restarted, ids, restarted.resume(ids));
+        go_on_batch(cold, restarted, ping, restarted.resume(ping));
+        check(files_in(own) == 1, "the disk cap counts all bytes of scanned files too");
+        std::filesystem::remove_all(own);
     }
 
     // A part that refuses to fill its bytes (the engine is not there) fails the whole write and leaves no file.

@@ -611,35 +611,41 @@ private:
                 parts.push_back({m.pos, SessionFile::part_of(m.state->p.get(), m.state->bytes)});
             std::vector<SessionFile::StreamRows> rows;
             rows.reserve(s.rows.size() + 1);
-            size_t file_bytes = 0;
             for (const Rows& r : s.rows) {
                 rows.push_back({r.first, r.count, r.keep, SessionFile::part_of(r.blob->p.get(), r.blob->bytes)});
-                file_bytes += r.blob->bytes;
             }
-            if (from < end) {   // the rows the engine still holds alone, whole rows straight from the engine
+            // save_rows() is opaque and normally layer-major: two independently saved spans cannot be
+            // concatenated into one rows record. Give each bounded capture its own count and record, so
+            // load_rows() uses exactly the layout save_rows() wrote, also for a partial restore of that record.
+            const size_t rb = e_.row_bytes();
+            const int64_t chunk = rb ? (int64_t) std::max<size_t>(1, ((size_t) 4 << 20) / rb) : end - from;
+            for (int64_t first = from; first < end; ) {
+                const int64_t count = std::min(chunk, end - first);
                 SessionFile::SessionPart tail;
-                tail.bytes = (uint64_t) bytes;
-                tail.align = e_.row_bytes();
-                tail.fill = [this, from](void* dst, size_t off, size_t n) {
-                    e_.save_rows(from + (int64_t) (off / e_.row_bytes()), (int64_t) (n / e_.row_bytes()),
-                                 (uint8_t*) dst);
+                tail.bytes = (uint64_t) count * rb;
+                // A capture is indivisible; splitting it would change the engine's layer strides.
+                tail.align = tail.bytes;
+                tail.fill = [this, first, count, rb](void* dst, size_t off, size_t n) {
+                    if (off != 0 || n != (size_t) count * rb) return false;
+                    e_.save_rows(first, count, (uint8_t*) dst);
                     return true;
                 };
-                rows.push_back({from, end - from, end - from, tail});
-                file_bytes += bytes;
+                rows.push_back({first, count, count, tail});
+                first += count;
             }
             const std::string name = SessionFile::name_for(s.seq);
+            SessionFile::WStat st;
             if (SessionFile::write_stream(o_.session_dir, name, s.prompt, e_.state_bytes(), e_.row_bytes(), s.seq,
-                                          parts, rows)) {
+                                          parts, rows, &st)) {
                 s.disk = name;
                 s.disk_marks.clear();
                 for (const Checkpoint& m : s.marks) s.disk_marks.push_back(m.pos);
-                s.disk_bytes = file_bytes;
+                s.disk_bytes = st.bytes;
                 s.marks.clear();
                 s.rows.clear();
                 disk_fit(keep);
                 if (o_.log)
-                    std::fprintf(o_.log, "strata-poly: session file %s: %zu bytes\n", name.c_str(), file_bytes);
+                    std::fprintf(o_.log, "strata-poly: session file %s: %zu bytes\n", name.c_str(), st.bytes);
                 say("parked", end, t0, cur_);
                 s.held = false;
                 return true;

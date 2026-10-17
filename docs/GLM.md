@@ -237,6 +237,16 @@ Conversation cache card.
 It is off by default, as it is in `strata`. Without it the engine still keeps the last conversation: a next turn
 goes on from where it stopped, and an edit goes back to the nearest checkpoint.
 
+`--session-dir DIR` parks conversations in files instead of keeping their blobs in RAM. A parked file keeps the
+checkpoint chain, so a prompt may resume at an interior checkpoint as well as at the last one. KV rows are saved
+in separate blocks of at most 4 MiB (or one row if a row is larger); each block keeps the engine's own layer order
+and row count. `SAVE` / `RESTORE` through the server's `/slots/0` API use the same poly session format.
+
+Poly session format version 2 refuses version 1 files. The old streaming park could concatenate blocks in an
+order that the loader misread; the old file header cannot tell a damaged park from a valid snapshot. Old files
+are not converted: the engine rereads the prompt and writes a new cache, and an explicit restore of an old file
+is refused. This version change applies to poly sessions; the Qwen engine's session format is separate.
+
 ## Options
 
 | Option | Default | What it does |
