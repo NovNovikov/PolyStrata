@@ -5995,6 +5995,17 @@ def build_engine_poly(gpu, yes, llama, vision="none", toolkit=13) -> Path:
     # there (#220, its prompt path) is not this engine's
     nvcc, vcvars = install_build_tools({**gpu, "archs": archs, "toolkit": toolkit,
                                         "need_cuda": (12, 8) if max(archs) >= 120 else (12, 0)}, yes)
+    # what the toolkit label does not say: which nvcc install_build_tools actually picked.  On this box find_nvcc()
+    # returns v12.4 while the callers pass toolkit 13, and the build then dies in cudafe on the C++20 STL
+    # (0xC0000409, measured 2026-10-17): decide by the real version.
+    cuda_major = next((int(m.group(1)) for m in [re.search(r"[\\/]+v(\d+)\.\d+", str(nvcc), re.I)] if m),
+                      toolkit // 100 or toolkit)
+    if cuda_major < 13:
+        toolkit = 12
+        same = int(meta.get("toolkit", 13)) == toolkit
+        engine_ok = have and same and meta.get("src") == src and (cards <= built if release else set(archs) == built)
+        vision_ok = vision == "none" or ((eng / VEXE).exists() and meta.get("vision_src") == vsrc and
+                                         (was == "gpu" and same or was == "cpu" and vision == "cpu"))
     cuda_archs = ";".join(str(x) for x in archs)
     if not engine_ok:
         say("  strata-poly's source changed: compiling it again (only what changed, a few minutes) ..."
