@@ -382,6 +382,22 @@ int main() {
         }
         const std::filesystem::path junk2 = dir / "junk2.bin";
         std::ofstream(junk2, std::ios::binary) << std::string(3, 'x');   // not a session file at all
+        // another kind of lies: honest up to the counts, then a checkpoint count the file cannot hold whole
+        const std::filesystem::path junk3 = dir / "junk3.bin";
+        {
+            FILE* f = std::fopen(junk3.string().c_str(), "wb");
+            const uint32_t magic = strata::poly::SessionFile::kMagic, version = strata::poly::SessionFile::kVersion;
+            std::fwrite(&magic, 4, 1, f);
+            std::fwrite(&version, 4, 1, f);
+            const uint64_t zero = 0, many = ~0ull / 2, none = 0;
+            std::fwrite(&zero, 8, 1, f);   // the seq
+            std::fwrite(&zero, 8, 1, f);   // the prompt
+            std::fwrite(&zero, 8, 1, f);   // the state's bytes
+            std::fwrite(&zero, 8, 1, f);   // the row's bytes
+            std::fwrite(&many, 8, 1, f);   // the checkpoints' count: a resize this file cannot carry
+            std::fwrite(&none, 8, 1, f);
+            std::fclose(f);
+        }
         {
             Fake e;
             Conversations<Fake> kept(e, options(dir));   // the scan of the junk must not crash
@@ -389,6 +405,14 @@ int main() {
             const std::vector<int32_t> ids = base;
             const int64_t from = kept.resume(ids);
             check(from == 0, "junk in the dir does not stand in for a conversation");
+            // a RESTORE of the lying file asks for no memory: the server's invalid, not its memory kind
+            std::string err;
+            bool freeze = false;
+            int64_t tokens = 0;
+            size_t rbytes = 0;
+            const auto lies = kept.sideload(junk3, 2560, err, tokens, rbytes, freeze);
+            check(lies == Conversations<Fake>::SLoad::unreadable && !freeze,
+                  "the file's lying checkpoint count is refused, not asked for");
         }
         // a truncated but real file: cut a session file in half and try to bring it in
         const std::filesystem::path store = dir / "store";

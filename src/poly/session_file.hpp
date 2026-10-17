@@ -281,6 +281,9 @@ public:
         room = file_bytes >= 56 ? file_bytes - 56 : 0;   // the header's own 56 bytes come off first
         if (v.n_seq > room / 4) return false;            // the seq's bytes alone will not fit this file
         room -= v.n_seq * 4;
+        // each record carries its own fields (a state 16 bytes, a rows block 32): the counts of records the
+        // file cannot hold whole are junk
+        if (v.n_marks > room / 16 || v.n_rows > room / 32) return false;
         return true;
     }
 
