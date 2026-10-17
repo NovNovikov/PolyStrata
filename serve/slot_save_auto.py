@@ -182,7 +182,12 @@ def entry_pairs(meta: dict) -> list[tuple[int, str]]:
 
 def find_best(dir: Path, ids, keys: str, model: str, floor: int,
               entries=None) -> tuple[str, dict] | None:
-    """The longest stored prefix this prompt starts with (keys equal, prefix hash equal)."""
+    """The longest stored prefix this prompt starts with (keys equal, prefix hash equal).
+
+    The matched prefix length decides first: that is as deep as a restore can mount.
+    When two files match the same length, the one whose tokens end closest to the match
+    wins: size == length means the whole state mounts (nothing is re-read), anything
+    past the match is only checkpoints and a more expensive restore."""
     n_all = len(ids)
     all_entries = entries if entries is not None else list_entries(dir)
     entries = [(session, meta) for session, meta in all_entries
@@ -197,13 +202,21 @@ def find_best(dir: Path, ids, keys: str, model: str, floor: int,
     if not want:
         return None
     hashes = prefix_hashes(ids, sorted(want))
-    best: tuple[str, dict] | None = None
-    best_len = 0
+    best: tuple[tuple[int, int], str, dict] | None = None
     for session, meta in entries:
+        try:
+            size = int(meta.get("ntokens") or 0)
+        except (TypeError, ValueError):
+            size = 0
         for length, sha in entry_pairs(meta):
-            if length > best_len and hashes.get(length) == sha:
-                best, best_len = (session, meta), length
-    return best
+            if length not in hashes or hashes[length] != sha:
+                continue
+            rank = (length, -max(0, size - length))   # longer match first; past that, the state that mounts whole
+            if best is None or rank > best[0]:
+                best = (rank, session, meta)
+    if best is not None:
+        return best[1], best[2]
+    return None
 
 
 def covered(dir: Path, model: str, keys: str, sha_full: str, entries=None) -> bool:

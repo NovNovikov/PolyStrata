@@ -66,6 +66,38 @@ class Store(unittest.TestCase):
         self.assertIsNotNone(found)
         self.assertEqual(found[1]["ntokens"], 2500)
 
+    def put_pairs(self, ids, lengths):
+        """A file with indexed turn-boundary prefixes, like the engine's stage-2 metas."""
+        session = auto.entry_name(auto.prefix_sha(ids, len(ids)), len(ids))
+        (self.store / session).write_bytes(b"x" * 100)
+        auto.write_meta(self.store, session, {"model": MODEL, "keys": KEYS, "ntokens": len(ids),
+                                              "sha256": auto.prefix_sha(ids, lengths[0]),
+                                              "prefixes": [[n, auto.prefix_sha(ids, n)] for n in lengths],
+                                              "bytes": 100})
+        return session
+
+    def test_find_prefers_the_state_that_mounts_whole_at_the_same_match(self):
+        # both files share this prompt's first 1500 tokens; one is longer than the prompt
+        shared = make_ids(1500)
+        longer = self.put_pairs(shared + make_ids(1000, start=90000), [1500, 2500])
+        shorter = self.put_pairs(shared, [1500])
+        prompt = shared + [777, 778]
+        found = auto.find_best(self.store, prompt, KEYS, MODEL, 1)
+        self.assertIsNotNone(found)
+        self.assertEqual(found[0], shorter, "same match: the file that mounts whole (nothing re-read) wins")
+        self.assertEqual(found[1]["ntokens"], 1500)
+        # nothing shorter: the longer files still serve, the smaller overshoot first
+        (self.store / shorter).unlink()
+        (self.store / auto.meta_name(shorter)).unlink()
+        second = self.put_pairs(shared + make_ids(2000, start=180000), [1500, 3500])
+        found = auto.find_best(self.store, prompt, KEYS, MODEL, 1)
+        self.assertIsNotNone(found)
+        self.assertEqual(found[0], longer, "same match: less overshoot past the match is a cheaper restore")
+        # a longer match always beats a smaller overshoot
+        deeper = self.put_pairs(make_ids(1600), [1600])
+        found = auto.find_best(self.store, make_ids(1600) + [881, 882], KEYS, MODEL, 1)
+        self.assertIsNotNone(found)
+        self.assertEqual(found[0], deeper, "the longest match wins over any overshoot tie-break")
     def test_find_best_rejects_keys_model_floor_and_divergence(self):
         ids = make_ids(2000)
         self.put(ids)
