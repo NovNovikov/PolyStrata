@@ -59,27 +59,24 @@ int main() {
     });
     SessionSaveLive live; live.state_bytes = 1000; live.tokens = 100; live.images = 1; live.kv_layers = 2;
     const uint64_t floor = 1u << 20;
-    // Every selected position, first-tie preference, and explicit pins (a pin can be shallower).
-    for (size_t selected = 0; selected < 4; ++selected) for (bool pin : {false, true}) {
-        std::vector<ConversationCheckpoint> chain;
-        for (size_t i = 0; i < 4; ++i) chain.push_back(checkpoint(i == selected ? 300 : 100, pin && i == selected));
-        if (pin) chain[(selected + 1) % 4].ids.resize(500); // deeper, unpinned
-        auto before = *session_deepest_checkpoint(chain);
-        const auto* storage = session_deepest_checkpoint(chain)->gdn.data();
+    // The chain is untouchable for a save reclaim: its every checkpoint (the deepest and the pins) rides in the
+    // file, so only the caches are given up, and explicit pins among the parked stay parked.
+    {
+        std::vector<ConversationCheckpoint> chain{checkpoint(100), checkpoint(300), checkpoint(200, true), checkpoint(400)};
+        auto before = chain;
         ConversationCache cache(1u << 20, 10);
         park(cache, 10); park(cache, 20, true); park(cache, 30);
         std::vector<ConversationKv> kv(1); kv[0].k.resize(16384); cache.retain(std::move(kv), 100);
         const size_t bytes_before = cache.bytes();
-        size_t chain_bytes = 0; for (const auto& c : chain) chain_bytes += c.bytes();
         deny_alloc = true;
         auto freed = session_save_reclaim(chain, cache, live, floor, [] { return std::optional<uint64_t>(0); });
         deny_alloc = false;
-        check(chain.size() == 1 && same(chain[0], before), "selected checkpoint unchanged under pressure");
-        check(chain[0].gdn.data() == storage, "checkpoint moved without copying storage");
-        check(freed.checkpoints == 3 && freed.parked == 2 && cache.size() == 1, "pins survive, other entries reclaimed");
+        check(chain.size() == 4 && same(chain[0], before[0]) && same(chain[3], before[3]),
+              "the chain is unchanged under pressure");
+        check(freed.checkpoints == 0, "no checkpoint is released by a save reclaim");
+        check(freed.parked == 2 && cache.size() == 1, "pins survive in the park, other entries reclaimed");
         check(cache.evictions() == 2 && cache.retained_bytes() == 0, "cache accounting and retained buffers");
-        check(freed.bytes == bytes_before - cache.bytes() + chain_bytes - chain[0].bytes(), "released byte accounting");
-        check(session_deepest_checkpoint(chain)->ids == before.ids, "same file selection after reclaim");
+        check(freed.bytes == bytes_before - cache.bytes(), "released byte accounting");
         auto again = session_save_reclaim(chain, cache, live, floor, [] { return std::optional<uint64_t>(0); });
         check(again.bytes == 0 && again.checkpoints == 0 && again.parked == 0, "exhausted reclaim is idempotent");
     }
@@ -90,7 +87,7 @@ int main() {
         const auto before = chain;
         const auto bytes = cache.bytes(); auto sl = live;
         if (mode == 2) sl.state_bytes = UINT64_MAX;
-        const uint64_t need = session_save_peak_bytes(session_deepest_checkpoint(chain), sl);
+        const uint64_t need = session_save_peak_bytes(chain, sl);
         auto r = session_save_reclaim(chain, cache, sl, floor, [&]() -> std::optional<uint64_t> {
             if (mode == 1) return std::nullopt;
             return mode == 2 ? 0 : need + floor + (mode == 3 ? 1 : 0);
@@ -101,24 +98,25 @@ int main() {
     // Admit after any individual step; never clear the whole cache when one release suffices.
     for (int sufficient_after = 1; sufficient_after <= 4; ++sufficient_after) {
         std::vector<ConversationCheckpoint> chain{checkpoint(100), checkpoint(300), checkpoint(300)};
-        auto* selected_storage = chain[1].gdn.data();
         ConversationCache cache(1u << 20, 10); park(cache, 10); park(cache, 20);
         std::vector<ConversationKv> kv(1); kv[0].v.resize(100); cache.retain(std::move(kv), 100);
-        const auto need = session_save_peak_bytes(session_deepest_checkpoint(chain), live);
+        const auto need = session_save_peak_bytes(chain, live);
         int probes = 0;
         auto r = session_save_reclaim(chain, cache, live, floor, [&]() -> std::optional<uint64_t> {
             return probes++ >= sufficient_after ? need + floor : 0;
         });
-        check(probes == sufficient_after + 1, "stop immediately once RAM meets unchanged floor");
+        check(probes == std::min(sufficient_after, 3) + 1,
+              "stop as soon as RAM meets need + floor; the parked cache being empty ends the walk without a probe");
         check(r.parked == size_t(std::min(sufficient_after - 1, 2)), "one-at-a-time parked eviction");
-        check(r.checkpoints == size_t(sufficient_after == 4), "checkpoint eviction only after parked cache");
-        check(session_deepest_checkpoint(chain)->gdn.data() == selected_storage, "first deepest tie retained");
+        check(r.checkpoints == 0, "checkpoint eviction is gone: the file keeps the chain");
+        check(chain.size() == 3, "the chain is intact");
     }
     {
         std::vector<ConversationCheckpoint> chain{checkpoint(100, true), checkpoint(300, true), checkpoint(500)};
         ConversationCache cache(0, 0);
         auto r = session_save_reclaim(chain, cache, live, floor, [] { return std::optional<uint64_t>(0); });
-        check(r.checkpoints == 1 && chain.size() == 2 && chain[0].pinned && chain[1].pinned, "all pins survive in original order");
+        check(r.checkpoints == 0 && r.bytes == 0 && chain.size() == 3 &&
+              chain[0].pinned && chain[1].pinned, "empty caches: nothing to release, the chain survives whole");
         std::vector<ConversationCheckpoint> out; std::string why;
         check(!session_save_checkpoints(chain, live, [](uint64_t, std::string& w) { w = "low RAM"; return false; }, out, why)
               && out.empty() && why == "low RAM", "still refused before copying when reclamation is insufficient");

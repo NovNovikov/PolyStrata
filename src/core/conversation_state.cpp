@@ -380,8 +380,8 @@ bool session_live_stream_source(SessionStateSource& out, const SessionState& ss,
 }
 
 // The stream edition of conversation_snapshot_sources: descriptors only, no vectors, no
-// copies.  The deepest checkpoint is chosen exactly as session_checkpoints_to_save
-// chooses it, by pointer (session_deepest_checkpoint).
+// copies.  Every writable checkpoint streams (the same set session_checkpoints_to_save
+// keeps: the deepest and every pin, no layer splits).
 bool session_stream_snapshot(SavedConversationStream& stream, std::vector<SessionKvSource>& kv,
                              const ConversationView& view, const SessionState& ss,
                              const ModelGeometry& g, const QsaState& draft, std::string& error) {
@@ -392,12 +392,11 @@ bool session_stream_snapshot(SavedConversationStream& stream, std::vector<Sessio
     s.cvec = view.cvec;
     s.live.ids = &view.ids; s.live.imgs = &view.images; s.live.used = 0;
     if (!session_live_stream_source(s.live.state, ss, g, view.ids.size(), error)) return false;
-    if (const ConversationCheckpoint* deepest = session_deepest_checkpoint(view.checkpoints)) {
-        if (!deepest->stage_parts.empty())
-            return fail(error, "layer-split state cannot be saved");
+    for (const ConversationCheckpoint& c : view.checkpoints) {
+        if (!c.stage_parts.empty()) continue;
         SavedConversationStreamCheckpoint entry;
-        entry.ids = &deepest->ids; entry.imgs = &deepest->imgs; entry.used = deepest->used;
-        if (!session_checkpoint_stream_source(entry.state, *deepest, error)) return false;
+        entry.ids = &c.ids; entry.imgs = &c.imgs; entry.used = c.used;
+        if (!session_checkpoint_stream_source(entry.state, c, error)) return false;
         s.checkpoints.push_back(std::move(entry));
     }
     const int64_t upto = (int64_t) view.ids.size();

@@ -217,10 +217,12 @@ bool session_file_write_stream(const std::string& path, const SavedConversationS
                                const SessionWriteOptions& options = {}, SessionStatus* status = nullptr);
 
 // The checkpoints worth a disk write: the deepest one (the next turn's resume point when the live tail was
-// rewritten).  Earlier checkpoints only serve edits further back and cost ~118 MB each at this geometry.
+// rewritten) plus every explicit pin.  A pin is shallow when the live tail was rewritten past it, and a prompt
+// that branches from the conversation before the file's end can only mount a checkpoint at or below its fork:
+// without the pins such a restore mounts nothing and re-reads the prompt whole.  The periodic marks in between
+// serve edits only it holds and cost ~118 MB each at this geometry: not stored.  Layer-split checkpoints have
+// nothing to write (their parts live in the stages): skipped.
 std::vector<ConversationCheckpoint> session_checkpoints_to_save(const std::vector<ConversationCheckpoint>& chain);
-// The same choice without a copy (nullptr for an empty chain).
-const ConversationCheckpoint* session_deepest_checkpoint(const std::vector<ConversationCheckpoint>& chain);
 
 // What a SAVE copies into RAM besides what the engine already holds, for its RAM preflight.
 struct SessionSaveLive {
@@ -228,16 +230,17 @@ struct SessionSaveLive {
     uint64_t tokens = 0, images = 0;
     uint64_t kv_layers = 0;     // K/V sources (owned QSA layers + the draft)
 };
-// The peak, with saturating arithmetic: two copies of the deepest checkpoint (the list handed to the capture and the
-// one inside the captured image), the copied live state with its token and image lists, the K/V source directory,
-// the 16 MiB write buffer and 1 MiB for the small vectors.
-uint64_t session_save_peak_bytes(const ConversationCheckpoint* deepest, const SessionSaveLive& live);
+// The peak, with saturating arithmetic: two copies of every stored checkpoint (the list handed to the capture
+// and the one inside the captured image; layer-split checkpoints are not stored and not counted), the copied
+// live state with its token and image lists, the K/V source directory, the 16 MiB write buffer and 1 MiB for
+// the small vectors.
+uint64_t session_save_peak_bytes(const std::vector<ConversationCheckpoint>& keep, const SessionSaveLive& live);
 // The streaming peak: the 16 MiB write buffer, the small vectors, the token and image lists and the K/V source
 // directory.  No checkpoint or live copies (the --session-stream-save path admits this instead).
 uint64_t session_stream_peak_bytes(const SessionSaveLive& live);
 // The SAVE's RAM PREFLIGHT, BEFORE anything is copied: `admit` is asked for session_save_peak_bytes; only when it
-// agrees is the deepest checkpoint copied into `out`.  On a refusal nothing was allocated, `out` is empty, `chain`
-// and the live state are untouched and no file was opened.  Not a reservation.
+// agrees are the stored checkpoints of session_checkpoints_to_save copied into `out`.  On a refusal nothing was
+// allocated, `out` is empty, `chain` and the live state are untouched and no file was opened.  Not a reservation.
 bool session_save_checkpoints(const std::vector<ConversationCheckpoint>& chain, const SessionSaveLive& live,
                               const std::function<bool(uint64_t need_bytes, std::string& why)>& admit,
                               std::vector<ConversationCheckpoint>& out, std::string& why);

@@ -1264,9 +1264,9 @@ bool write_stream_guarded(const std::string& path, const SavedConversationStream
 } // namespace
 
 std::vector<ConversationCheckpoint> session_checkpoints_to_save(const std::vector<ConversationCheckpoint>& chain) {
-    const ConversationCheckpoint* deepest = session_deepest_checkpoint(chain);
-    if (!deepest) return {};
-    return {*deepest};
+    std::vector<ConversationCheckpoint> out;
+    for (const auto& c : chain) if (c.stage_parts.empty()) out.push_back(c);
+    return out;
 }
 
 // A stored checkpoint's byte parts as plain host ranges (no copy: the vectors stay put).
@@ -1295,21 +1295,10 @@ bool session_checkpoint_stream_source(SessionStateSource& out, const Conversatio
     return true;
 }
 
-const ConversationCheckpoint* session_deepest_checkpoint(const std::vector<ConversationCheckpoint>& chain) {
-    // A pinned shared prefix (pin=N) is the resume point the next queries want, so with one in the chain the file
-    // keeps the deepest PINNED checkpoint, not a deeper periodic one a long private suffix made past it.  No pin:
-    // the deepest, as before.
-    const ConversationCheckpoint* deepest = nullptr;
-    bool any_pinned = false;
-    for (const auto& c : chain) any_pinned = any_pinned || c.pinned;
-    for (const auto& c : chain)
-        if ((!any_pinned || c.pinned) && (!deepest || c.ids.size() > deepest->ids.size())) deepest = &c;
-    return deepest;
-}
-
-uint64_t session_save_peak_bytes(const ConversationCheckpoint* deepest, const SessionSaveLive& live) {
+uint64_t session_save_peak_bytes(const std::vector<ConversationCheckpoint>& keep, const SessionSaveLive& live) {
     uint64_t n = sat_add(kBlock, uint64_t(1) << 20);                          // write buffer, small vectors
-    if (deepest) n = sat_add(n, sat_mul(2, deepest->bytes()));                // the list and the image's copy
+    for (const auto& c : keep)
+        if (c.stage_parts.empty()) n = sat_add(n, sat_mul(2, c.bytes()));     // the list and the image's copy
     n = sat_add(n, live.state_bytes);                                         // the live running state
     n = sat_add(n, sat_mul(live.tokens, sizeof(int32_t)));                    // its token list
     n = sat_add(n, sat_mul(live.images, sizeof(ConversationImageKey)));       // its images
@@ -1329,9 +1318,8 @@ bool session_save_checkpoints(const std::vector<ConversationCheckpoint>& chain, 
                               const std::function<bool(uint64_t need_bytes, std::string& why)>& admit,
                               std::vector<ConversationCheckpoint>& out, std::string& why) {
     out.clear();
-    const ConversationCheckpoint* deepest = session_deepest_checkpoint(chain);
-    if (admit && !admit(session_save_peak_bytes(deepest, live), why)) return false;
-    if (deepest) out.push_back(*deepest);
+    if (admit && !admit(session_save_peak_bytes(chain, live), why)) return false;
+    for (const auto& c : chain) if (c.stage_parts.empty()) out.push_back(c);
     return true;
 }
 

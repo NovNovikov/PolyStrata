@@ -76,8 +76,8 @@ struct ConversationView {
 };
 // Disk save without capturing anything on the host: `stream` references the view (ids/images) and the live
 // pools, `kv` one streamed source per QSA layer then the draft (as conversation_snapshot_sources builds them).
-// The deepest checkpoint is chosen exactly as session_checkpoints_to_save chooses it, by pointer, without a
-// copy.  Caller has synchronized and must not run the session until the file is written.
+// Every checkpoint the view can give streams whole: the same set session_checkpoints_to_save keeps
+// (the deepest and every pin), by pointer, without a copy.  Caller has synchronized and must not run the session until the file is written.
 bool session_stream_snapshot(SavedConversationStream& stream, std::vector<SessionKvSource>& kv,
                              const ConversationView& view, const SessionState& session,
                              const ModelGeometry& g, const QsaState& draft, std::string& error);

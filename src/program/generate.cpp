@@ -10586,7 +10586,8 @@ int main(int argc, char** argv) {
                     try {
                         // bounds this session can ever restore (geometry, layer range, tokens, checkpoints, every
                         // state and K/V part), checked as the file is parsed and before each array is allocated; the
-                        // file size follows from them.  The RAM the parse needs at its peak is asked first.
+                        // file size follows from them.  The RAM the parse needs at its peak is asked first.  The
+                        // deepest checkpoint and every pin ride in the file now: accept a chain, not one entry.
                         strata::core::SessionReadLimits limits;
                         limits.progress = moving;
                         const uint64_t floor = (uint64_t) o.conversation_cache_min_free_mib << 20;
@@ -10616,7 +10617,7 @@ int main(int argc, char** argv) {
                         };
                         if (!strata::core::conversation_session_read_limits(
                                 limits, ss, g, mtp.kv_state(), (uint64_t) o.max_context,
-                                (uint64_t) std::max(o.prompt_cache, 1), err)) {
+                                8, err)) {   // the file keeps the deepest checkpoint plus every pin, not one entry
                             refuse(err, strata::core::SessionError::io);
                             continue;
                         }

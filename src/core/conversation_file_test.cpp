@@ -320,15 +320,18 @@ int main() {
         check(!session_model_fingerprint({{"x", (dir / "absent").string()}}, f4, error), "fingerprint of a missing file fails");
     }
 
-    // only the deepest checkpoint is worth a disk write: the next turn resumes from it
+    // the file keeps the deepest checkpoint and every pin: a prompt that branches before the file's end
+    // can only mount a checkpoint at or below its fork, so the pins ride along
     {
         std::vector<ConversationCheckpoint> chain;
         check(session_checkpoints_to_save(chain).empty(), "no checkpoints, none saved");
         chain.push_back(checkpoint(10, 2));
+        chain[0].pinned = true;
         chain.push_back(checkpoint(700, 3));
         chain.push_back(checkpoint(500, 4));
         const auto kept = session_checkpoints_to_save(chain);
-        check(kept.size() == 1 && same_checkpoint(kept[0], chain[1]), "deepest checkpoint kept, alone");
+        check(kept.size() == chain.size(), "every storable checkpoint is kept");
+        for (size_t i = 0; i < kept.size(); ++i) check(same_checkpoint(kept[i], chain[i]), "kept whole, in order");
     }
     // K/V streamed from its owner (no host copy): the same bytes as writing the captured image
     {
@@ -403,7 +406,7 @@ int main() {
         check(!fs::exists(q) && no_temp(dir), "failed streamed write leaves no file");
         // the preflight win: no checkpoint or live copies in the streamed peak
         SessionSaveLive live{1000000, 1000, 1, 3};
-        const uint64_t captured = session_save_peak_bytes(&original.checkpoints[0], live);
+        const uint64_t captured = session_save_peak_bytes(original.checkpoints, live);
         const uint64_t streamed = session_stream_peak_bytes(live);
         check(streamed < captured, "streamed preflight needs less than the captured one");
         check(streamed == (16u << 20) + (uint64_t(1) << 20) + 1000 * 4 + (uint64_t)sizeof(ConversationImageKey) +
@@ -679,29 +682,23 @@ int main() {
         check(session_phase_limit_s(0) == 60 && session_phase_limit_s(1198691396) == 60 + (1198691396 >> 22) &&
               session_phase_limit_s(UINT64_MAX) == 3600, "phase limit: 60 s + 1 s per 4 MiB, at most an hour");
     }
-    // A: the SAVE's RAM preflight comes BEFORE the checkpoint is copied
+    // A: the SAVE's RAM preflight comes BEFORE the checkpoints are copied
     {
         std::vector<ConversationCheckpoint> chain;
         chain.push_back(checkpoint(10, 2));
+        chain[0].pinned = true;
         chain.push_back(checkpoint(700, 3));
         chain.back().gdn.assign(8u << 20, 0x11);   // the deepest: an 8 MiB running state
         const auto before = chain;
         SessionSaveLive live;
         live.state_bytes = 5000; live.tokens = 1000; live.images = 1; live.kv_layers = 13;
-        check(session_deepest_checkpoint(chain) == &chain[1], "save: deepest chosen by reference");
-        {   // pin=N: the pinned checkpoint is the one kept, even when a deeper periodic one exists
-            auto pinned_chain = chain;
-            pinned_chain[0].pinned = true;
-            check(session_deepest_checkpoint(pinned_chain) == &pinned_chain[0], "save: a pinned shared prefix beats a deeper checkpoint");
-            check(session_deepest_checkpoint(chain) == &chain[1], "save: no pin, the deepest as before");
-        }
-        const uint64_t need = session_save_peak_bytes(&chain[1], live);
-        check(need >= 2 * (uint64_t) chain[1].bytes() + 5000 + 4000 + (16u << 20) &&
-              need <= 2 * (uint64_t) chain[1].bytes() + 5000 + 4000 + (18u << 20),
-              "save: the peak counts two checkpoint copies, the live state, tokens and the buffer");
+        const uint64_t copies = 2 * ((uint64_t) chain[0].bytes() + (uint64_t) chain[1].bytes());
+        const uint64_t need = session_save_peak_bytes(chain, live);
+        check(need >= copies + 5000 + 4000 + (16u << 20) && need <= copies + 5000 + 4000 + (18u << 20),
+              "save: the peak counts two copies of every kept checkpoint, the live state, tokens and the buffer");
         SessionSaveLive huge = live;
         huge.state_bytes = UINT64_MAX;
-        check(session_save_peak_bytes(&chain[1], huge) == UINT64_MAX, "save: the peak saturates");
+        check(session_save_peak_bytes(chain, huge) == UINT64_MAX, "save: the peak saturates");
         std::vector<ConversationCheckpoint> out(1);
         std::string why;
         uint64_t asked = 0;
@@ -714,9 +711,16 @@ int main() {
         for (size_t i = 0; same_chain && i < chain.size(); ++i) same_chain = same_checkpoint(chain[i], before[i]);
         check(same_chain, "save: a refusal leaves the live checkpoints untouched");
         const auto agree = [&](uint64_t, std::string&) { return true; };
-        check(session_save_checkpoints(chain, live, agree, out, why) && out.size() == 1 &&
-              same_checkpoint(out[0], chain[1]), "save: admitted, the deepest checkpoint is copied");
+        check(session_save_checkpoints(chain, live, agree, out, why) && out.size() == 2 &&
+              same_checkpoint(out[0], chain[0]) && same_checkpoint(out[1], chain[1]),
+              "save: admitted, the deepest and the pin are copied");
         check(session_save_checkpoints({}, live, agree, out, why) && out.empty(), "save: no checkpoints, none copied");
+        {   // a layer-split checkpoint cannot be written: it is omitted, the rest still saves
+            auto split = chain;
+            split[0].stage_parts.emplace_back();
+            check(session_save_checkpoints(split, live, agree, out, why) && out.size() == 1 &&
+                  same_checkpoint(out[0], split[1]), "save: a layer-split checkpoint is skipped, not fatal");
+        }
 #if defined(__linux__) && !defined(__SANITIZE_ADDRESS__) && !defined(STRATA_NO_RLIMIT_TEST)
         // under a real address-space limit that cannot hold one more copy: the refusal comes first, no bad_alloc;
         // and the same limit with an admitting preflight does fail at the copy (the test can see the difference)
@@ -763,7 +767,8 @@ int main() {
         SessionSaveLive sl; sl.state_bytes = source.live.bytes(); sl.tokens = source.live.ids.size();
         const auto freed = session_save_reclaim(source.checkpoints, parked, sl, 0,
                                                 [] { return std::optional<uint64_t>(0); });
-        check(freed.checkpoints == 1, "reclaim: a non-selected checkpoint released");
+        check(freed.checkpoints == 0 && freed.bytes == 0 && source.checkpoints.size() == expected.checkpoints.size(),
+              "reclaim: a save releases nothing from the chain, the kept set is the whole one");
         check(same_checkpoint(source.live, live_before), "reclaim: live state remains intact");
         check(session_file_write(after_path.string(), source, id, written, error), "reclaim: file written after pressure");
         check(slurp(before_path) == slurp(after_path), "reclaim: file byte-identical to original selection");

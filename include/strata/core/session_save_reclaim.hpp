@@ -10,17 +10,20 @@ struct SessionSaveReclaimed {
     size_t checkpoints = 0, parked = 0, bytes = 0;
 };
 
-// Called BEFORE session_save_checkpoints selects a pointer into chain. Probe after each
+// Called BEFORE session_save_checkpoints selects into chain. Probe after each
 // eviction: freed capacity is not necessarily physical RAM returned by the allocator.
 // No allocation is needed here. Unknown telemetry / sizes cannot justify cache eviction.
-// Preserve every explicit pin and exactly the checkpoint the file would have selected.
+// The chain is never touched: every checkpoint in it (the deepest and the pins) goes
+// into the file, so freeing its states would break the save it is making room for.
+// Only the caches are given up, in order: retained reuse, then parked conversations.
+// (For RESTORE see session_restore_reclaim below: the file replaces the outgoing
+// session whole, so its checkpoints may go too.)
 template<class Probe>
 SessionSaveReclaimed session_save_reclaim(std::vector<ConversationCheckpoint>& chain,
-                                        ConversationCache& cache, const SessionSaveLive& live,
-                                        uint64_t floor, Probe available) {
+                                         ConversationCache& cache, const SessionSaveLive& live,
+                                         uint64_t floor, Probe available) {
     SessionSaveReclaimed out;
-    const auto* selected = session_deepest_checkpoint(chain);
-    const uint64_t need = session_save_peak_bytes(selected, live);
+    const uint64_t need = session_save_peak_bytes(chain, live);
     auto room = available();
     auto done = [&] { return !room || need == UINT64_MAX || conversation_memory_admit(room, need, floor); };
     if (done()) return out;
@@ -37,17 +40,6 @@ SessionSaveReclaimed session_save_reclaim(std::vector<ConversationCheckpoint>& c
         out.bytes += before - cache.bytes();
         room = available();
         if (done()) return out;
-    }
-    size_t keep = selected ? size_t(selected - chain.data()) : chain.size();
-    // Erase from the back to preserve order, ties and the selected checkpoint's storage.
-    for (size_t i = chain.size(); i-- > 0;) {
-        if (i == keep || chain[i].pinned) continue;
-        out.bytes += chain[i].bytes();
-        chain.erase(chain.begin() + static_cast<std::ptrdiff_t>(i));
-        if (i < keep) --keep;
-        ++out.checkpoints;
-        room = available();
-        if (done()) break;
     }
     return out;
 }
