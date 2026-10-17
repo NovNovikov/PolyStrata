@@ -177,6 +177,42 @@ int main() {
         check(e.holds(ids), "the branch read on from the file's checkpoint is bit for bit the reread's result");
     }
 
+    // A follow-up that starts like the current conversation but diverges before its end: the conversation parks to
+    // a file and goes on in a copy, which keeps its own checkpoints (the file-parked slot holds none of them), so
+    // the engine has a state to come back to.  What the copy read on gives is bit for bit a reread's result.
+    {
+        const std::filesystem::path own = dir / ("poly-sessions-frk-" + std::to_string(tick));
+        std::filesystem::create_directories(own);
+        Fake e;
+        CacheOptions o1 = options(own);
+        o1.checkpoints = 8;   // an early checkpoint survives, as --prompt-cache 6 keeps one in a real run
+        Conversations<Fake> kept(e, o1);
+        std::vector<int32_t> ids = base;
+        int64_t from = kept.resume(ids);
+        check(from == 0, "the first read starts from the first token");
+        go_on(e, kept, ids, from);
+        kept.prompt_was((int64_t) ids.size());
+        const std::vector<int32_t> said = text(55, 20);   // the answer, as the server reads it
+        kept.turn_at(-1);
+        for (size_t k = 0; k < said.size(); ++k) {
+            const bool last = k + 1 == said.size();
+            kept.before(300 + (int64_t) k, last);
+            e.eval(&said[k], 1);
+            kept.read(&said[k], 1);
+        }
+        std::vector<int32_t> mine = ids;
+        mine.insert(mine.end(), said.begin(), said.end());   // the client's next request holds the whole chat
+        mine[250] = (int32_t) 49999;   // the re-render differs inside the prompt, so the copy is a branch
+        const auto tail = text(56, 15);
+        mine.insert(mine.end(), tail.begin(), tail.end());
+        from = kept.resume(mine);
+        check(files_in(own) == 1, "the branched-away conversation left one session file");
+        check(from == 200, "the copy goes on from its last checkpoint, not the diverged tail");
+        go_on(e, kept, mine, from);
+        check(e.holds(mine), "the copy read on from its own checkpoint is bit for bit the reread's result");
+        std::filesystem::remove_all(own);
+    }
+
     // Another engine (a different state size): the file is not this engine's any more, and the conversation is
     // reread instead.
     {

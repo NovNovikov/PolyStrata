@@ -694,19 +694,28 @@ private:
 
     // Parks the current conversation whole and goes on at `at` in a copy of its start, which shares what is
     // saved.  False: it cannot be parked.
-    bool branch(int64_t at) {        const size_t from = cur_;
+    bool branch(int64_t at) {
+        const size_t from = cur_;
+        // the copy keeps its start's checkpoints and rows: taken before park() clears them, which park()
+        // does when the session dir takes them into a file, else the copy would be a sequence nothing
+        // comes back to
+        std::vector<Checkpoint> marks;
+        std::vector<Rows> rows;
+        {
+            const Slot& a = slots_[from];
+            for (const Checkpoint& m : a.marks)
+                if (m.pos <= at) marks.push_back(m);
+            for (const Rows& r : a.rows)
+                if (r.first < at) rows.push_back({r.blob, r.first, r.count, std::min(r.keep, at - r.first)});
+        }
         if (!park(slots_.size())) return false;
         const size_t to = take(from);
         const Slot& a = slots_[from];
         Slot b;
         b.seq.assign(a.seq.begin(), a.seq.begin() + (std::ptrdiff_t) at);
         b.prompt = std::min(a.prompt, at);
-        if (a.disk.empty()) {   // a file-parked conversation keeps no blobs: its copy needs none of them
-            for (const Checkpoint& m : a.marks)
-                if (m.pos <= at) b.marks.push_back(m);
-            for (const Rows& r : a.rows)
-                if (r.first < at) b.rows.push_back({r.blob, r.first, r.count, std::min(r.keep, at - r.first)});
-        }
+        b.marks = std::move(marks);
+        b.rows = std::move(rows);
         slots_[to] = std::move(b);
         cur_ = to;
         return true;
