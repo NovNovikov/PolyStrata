@@ -3428,8 +3428,14 @@ class Service:
                     and hasattr(self.engine, "session_file"))
 
     def auto_session_keys(self, ids, sampling) -> str:
-        """The fingerprint a stored session must match: model plus the request's cache keys."""
-        return f"{self.model}\n{StrataEngine.sampling_keys(sampling or {})}{self.engine.turn_key(ids)}"
+        """The fingerprint a stored session must match: model plus sampling.
+
+        Deliberately WITHOUT turn_key (the last-turn position): it moves with every
+        follow-up, so keying on it would make follow-up restores impossible.  The GEN
+        line still carries the current turn_at for the engine's own placement; the
+        engine re-verifies every restore by tokens, so a wider candidate set here is
+        safe (a miss only costs a re-read)."""
+        return f"{self.model}\n{StrataEngine.sampling_keys(sampling or {})}"
 
     def _auto_store(self):
         """The auto store dir, or None (no store: never fails the request)."""

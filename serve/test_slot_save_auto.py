@@ -217,7 +217,9 @@ class FakeEngine(StrataEngine):
         self.proc = FakeProc(self)
 
     def turn_key(self, ids):
-        return ""
+        # production-like: the last turn starts a fixed tail before the end,
+        # so longer prompts get different keys (this is what broke follow-ups)
+        return f" turn_at={len(ids) - 7}" if len(ids) > 7 else ""
 
 
 class Hooks(unittest.TestCase):
@@ -416,7 +418,7 @@ class SessionMockEngine(MockEngine):
         self.restored: list[str] = []
 
     def turn_key(self, ids):
-        return ""
+        return f" turn_at={len(ids) - 7}" if len(ids) > 7 else ""
 
     def session_file(self, action, path):
         if action == "save":

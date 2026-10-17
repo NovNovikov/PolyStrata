@@ -1159,9 +1159,11 @@ restores the longest stored prefix of its prompt. The file holds the whole finis
 session; it is indexed under every turn-start prefix inside it (the same turn markers
 the GEN line's turn_at uses, so this is template-agnostic), and the engine reuses the
 matching prefix from the restored file. A mismatch re-reads the prompt: always
-correct, at most slower. Matching is by token prefix plus the request's cache keys (model,
-sampling, turn); the engine still applies its own model and config fingerprints and refuses
-a foreign file. `--slot-save-min-tokens` (default 1024) skips prefixes below the floor,
+correct, at most slower. Matching is by token prefix plus model and sampling (turn_at
+is deliberately excluded: it moves with every follow-up, so keying on it would make
+follow-up restores impossible; the GEN line still carries the current one for the
+engine's own placement). The engine still applies its own model and config fingerprints
+and refuses a foreign file. `--slot-save-min-tokens` (default 1024) skips prefixes below the floor,
 `--slot-save-max-count` / `--slot-save-max-mb` cap the store (LRU by mtime, auto files
 only: manual saves are never touched; 0 = unlimited). Completions save; a session idle
 longer than `--slot-save-idle-seconds` (default 60, -1 = disabled) is flushed, and the
