@@ -10590,13 +10590,28 @@ int main(int argc, char** argv) {
                         strata::core::SessionReadLimits limits;
                         limits.progress = moving;
                         const uint64_t floor = (uint64_t) o.conversation_cache_min_free_mib << 20;
-                        limits.admit = [floor, &o](uint64_t need, std::string& why) {
+                        bool reclaimed = false;
+                        limits.admit = [&checks, &conversations, &reclaimed, floor, &o](uint64_t need, std::string& why) {
                             const auto mem = strata::core::sample_host_memory();
                             const std::optional<uint64_t> avail = mem ? std::optional<uint64_t>(mem->available) : std::nullopt;
                             if (strata::core::conversation_memory_admit(avail, need, floor)) return true;
+                            if (reclaimed) {
+                                why = "not enough RAM to read it (" + std::to_string(need >> 20) + " MiB plus a floor of " +
+                                      std::to_string((long long) o.conversation_cache_min_free_mib) + " MiB needed, " +
+                                      ram_note(mem) + ")";
+                                return false;
+                            }
+                            // the file replaces the outgoing session whole, so its reconstructible caches
+                            // are given up here before the parse refuses for good and costs a full re-read
+                            reclaimed = true;
+                            const auto freed = strata::core::session_restore_reclaim(
+                                checks, conversations, need, floor, strata::core::available_host_bytes);
+                            const auto after = strata::core::sample_host_memory();
+                            const std::optional<uint64_t> avail_after = after ? std::optional<uint64_t>(after->available) : std::nullopt;
+                            if (strata::core::conversation_memory_admit(avail_after, need, floor)) return true;
                             why = "not enough RAM to read it (" + std::to_string(need >> 20) + " MiB plus a floor of " +
-                                  std::to_string((long long) o.conversation_cache_min_free_mib) + " MiB needed, " +
-                                  ram_note(mem) + ")";
+                                  std::to_string((long long) o.conversation_cache_min_free_mib) + " MiB needed, reclaimed " +
+                                  std::to_string(freed.bytes >> 20) + " MiB of the outgoing session, " + ram_note(after) + ")";
                             return false;
                         };
                         if (!strata::core::conversation_session_read_limits(

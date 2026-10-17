@@ -1,6 +1,8 @@
 // CPU only: pressure is injected through telemetry, not by exhausting the host.
 #include "strata/core/session_save_reclaim.hpp"
+#include <algorithm>
 #include <cstdio>
+#include <exception>
 #include <cstdlib>
 #include <new>
 
@@ -39,6 +41,22 @@ static void park(ConversationCache& cache, int tokens, bool pin = false) {
     check(cache.put(std::move(c)), "fixture parked");
 }
 int main() {
+#ifdef _DEBUG
+    _set_abort_behavior(0, _CALL_REPORTFAULT);   // no error boxes from a failing check
+    _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+#endif
+    std::set_terminate([] {   // a no-alloc guarantee violation unwinds nowhere: name it
+        std::fprintf(stderr, "FAIL: unexpected std::terminate (an allocation escaped the "
+                             "guaranteed-allocation-free probe)\n");
+        std::fflush(stderr);
+        std::abort();
+    });
     SessionSaveLive live; live.state_bytes = 1000; live.tokens = 100; live.images = 1; live.kv_layers = 2;
     const uint64_t floor = 1u << 20;
     // Every selected position, first-tie preference, and explicit pins (a pin can be shallower).
@@ -110,6 +128,39 @@ int main() {
         ConversationCache cache(0, 0);
         auto r = session_save_reclaim(chain, cache, live, floor, [] { return std::optional<uint64_t>(0); });
         check(!r.bytes && !r.checkpoints && !r.parked, "empty chain and disabled cache");
+    }
+    // RESTORE: the retained buffers, then parked conversations, then unpinned checkpoints
+    // go one at a time, probing between every step; probes index the sequence.
+    for (int ample_at = 0; ample_at <= 3; ++ample_at) {
+        std::vector<ConversationCheckpoint> chain{checkpoint(100), checkpoint(100), checkpoint(100)};
+        ConversationCache cache(1u << 20, 10); park(cache, 10); park(cache, 20);
+        std::vector<ConversationKv> kv(1); kv[0].v.resize(100); cache.retain(std::move(kv), 100);
+        const uint64_t need = 555;
+        int probes = 0;
+        auto r = session_restore_reclaim(chain, cache, need, floor, [&]() -> std::optional<uint64_t> {
+            return probes++ >= ample_at ? need + floor : 0;
+        });
+        check(probes == ample_at + 1, "restore: stop immediately once RAM meets need + floor");
+        check(r.parked == size_t(std::max(ample_at - 1, 0)), "restore: eviction stops where RAM allowed");
+        check(r.checkpoints == 0 && chain.size() == 3 && !chain[0].pinned && !chain[2].pinned,
+              "restore: checkpoints stay until the parked cache is empty");
+    }
+    {
+        std::vector<ConversationCheckpoint> chain{checkpoint(100, true), checkpoint(100), checkpoint(100, true)};
+        ConversationCache cache(1u << 20, 10); park(cache, 10);
+        auto r = session_restore_reclaim(chain, cache, 100, floor, [] { return std::optional<uint64_t>(0); });
+        check(chain.size() == 2 && chain[0].pinned && chain[1].pinned, "restore: pins survive");
+        check(!cache.size() && r.parked == 1 && r.checkpoints == 1, "restore: reclaimed under pressure");
+        auto again = session_restore_reclaim(chain, cache, 100, floor, [] { return std::optional<uint64_t>(0); });
+        check(again.bytes == 0 && again.checkpoints == 0 && again.parked == 0, "restore: exhausted is idempotent");
+    }
+    {
+        std::vector<ConversationCheckpoint> chain{checkpoint(100)};
+        ConversationCache cache(1u << 20, 10); park(cache, 10);
+        const auto before = chain;
+        auto r = session_restore_reclaim(chain, cache, UINT64_MAX, floor,
+                                         [] { return std::optional<uint64_t>(0); });
+        check(chain.size() == 1 && same(chain[0], before[0]) && !r.bytes, "restore: unknown need keeps everything");
     }
     std::printf("session_save_reclaim: %d checks passed\n", checks_run);
 }

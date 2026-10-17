@@ -1,4 +1,4 @@
-// Optional SAVE admission: free reconstructible host caches, never the live device state.
+// Optional SAVE/RESTORE admission: free reconstructible host caches, never the live device state.
 #pragma once
 
 #include "strata/core/conversation_file.hpp"
@@ -48,6 +48,50 @@ SessionSaveReclaimed session_save_reclaim(std::vector<ConversationCheckpoint>& c
         ++out.checkpoints;
         room = available();
         if (done()) break;
+    }
+    return out;
+}
+
+// RESTORE: the incoming file replaces the outgoing session whole, so every reconstructible
+// cache of the outgoing one may be given up when the parse refuses. The parse's own peak
+// arrives as `need`; probe after each eviction as above. Pins still survive (they are
+// explicit) and unknown telemetry still stops the search.
+template<class Probe>
+SessionSaveReclaimed session_restore_reclaim(std::vector<ConversationCheckpoint>& chain,
+                                             ConversationCache& cache, uint64_t need,
+                                             uint64_t floor, Probe available) {
+    SessionSaveReclaimed out;
+    auto room = available();
+    auto done = [&] { return !room || need == UINT64_MAX || conversation_memory_admit(room, need, floor); };
+    if (done()) return out;
+    if (cache.retained_bytes()) {
+        out.bytes += cache.retained_bytes();
+        { auto unused = cache.take_reuse(); }
+        room = available();
+        if (done()) return out;
+    }
+    for (bool progress = true; progress;) {
+        progress = false;
+        const size_t before = cache.bytes();
+        if (cache.evict_oldest()) {
+            ++out.parked;
+            out.bytes += before - cache.bytes();
+            room = available();
+            if (done()) return out;
+            progress = true;
+            continue;
+        }
+        // Erase from the back to preserve the order of what remains.
+        for (size_t i = chain.size(); i-- > 0;) {
+            if (chain[i].pinned) continue;
+            out.bytes += chain[i].bytes();
+            chain.erase(chain.begin() + static_cast<std::ptrdiff_t>(i));
+            ++out.checkpoints;
+            room = available();
+            if (done()) return out;
+            progress = true;
+            break;
+        }
     }
     return out;
 }

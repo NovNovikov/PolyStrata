@@ -128,6 +128,12 @@ if(STRATA_BUILD_CONVERSATION_TESTS)
   add_executable(session_save_reclaim_test src/core/session_save_reclaim_test.cpp src/core/conversation_file.cpp)
   target_include_directories(session_save_reclaim_test PRIVATE include)
   add_test(NAME session_save_reclaim_test COMMAND session_save_reclaim_test)
+  # the deny_alloc probe of this test assumes an empty std::vector allocates nothing: MSVC's
+  # debug CRT allocates the iterator proxy for even an empty vector, and the throw then escapes
+  # a noexcept constructor and calls std::terminate.  The probe needs the standard semantics:
+  # release runtime, iterator debug off.
+  set_property(TARGET session_save_reclaim_test PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+  target_compile_definitions(session_save_reclaim_test PRIVATE _ITERATOR_DEBUG_LEVEL=0)
 endif()
 
 if(STRATA_HIP_GFX906)

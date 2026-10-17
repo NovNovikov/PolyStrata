@@ -185,6 +185,10 @@ class FakeProc:
         elif cmd == "RESTORE":
             if self.engine.fail_dead:
                 self.engine.lines.put(None)
+            elif self.engine.fail_ram:
+                self.engine.lines.put(
+                    "SERR memory 0 session file: not enough RAM to read it (1291 MiB plus a floor of "
+                    "512 MiB needed, 1340 MiB available, source meminfo)\n")
             elif not Path(path).exists() or self.engine.fail:
                 self.engine.lines.put("SERR invalid 0 session file: saved with another model\n")
             else:
@@ -213,6 +217,7 @@ class FakeEngine(StrataEngine):
         self.lines = queue.Queue()
         self.fail = False
         self.fail_dead = False
+        self.fail_ram = False
         self.silence_s = 300.0
         self.proc = FakeProc(self)
 
@@ -263,6 +268,19 @@ class Hooks(unittest.TestCase):
         n = self.svc.auto_restore_session(self.ids + [1, 2, 3], self.sampling())
         self.assertEqual(n, 0)
         self.assertEqual(auto.list_entries(auto.auto_dir(self.dir.name)), [])
+
+    def test_engine_ram_refusal_keeps_the_pair(self):
+        """A memory SERR is about the box, not the file: keep it for a later attempt."""
+        self.svc.slot_save_auto = True
+        self.svc.auto_save_session(self.ids, [1, 2], self.sampling())
+        (session, _), = auto.list_entries(auto.auto_dir(self.dir.name))
+        self.engine.fail_ram = True
+        n = self.svc.auto_restore_session(self.ids + [1, 2, 3], self.sampling())
+        self.assertEqual(n, 0)
+        self.assertEqual([s for s, _ in auto.list_entries(auto.auto_dir(self.dir.name))], [session])
+        self.engine.fail_ram = False
+        n = self.svc.auto_restore_session(self.ids + [1, 2, 3], self.sampling())
+        self.assertEqual(n, 2002)
 
     def test_batch_engine_disables_hooks(self):
         self.svc.slot_save_auto = True

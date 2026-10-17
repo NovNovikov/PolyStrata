@@ -3531,9 +3531,14 @@ class Service:
         try:
             r = self.engine.session_file("restore", str(store / session))
         except SessionRefused as e:
-            # the engine judged the file itself (foreign model/config, corrupt): drop the
-            # pair so no later request trips on it again.  Any other failure (a dead or
-            # silent engine, I/O) says nothing about the file: keep it.
+            # A RAM refusal is not about the file: RAM comes and goes, the engine's own
+            # reclaim gives up the outgoing session first, so the pair stays for a later
+            # attempt.  Everything else (foreign model/config, corrupt format) cannot be
+            # fixed by waiting: drop the pair so no later request trips on it again.
+            if "not enough RAM" in str(e):
+                print(f"[strata] auto slot restore skipped ({session}): {e} "
+                      "(kept: RAM moves)", flush=True)
+                return 0
             print(f"[strata] auto slot restore rejected ({session}): {e}", flush=True)
             auto_sessions.remove_pair(store, session)
             self._auto_index.invalidate()
