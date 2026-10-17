@@ -1746,6 +1746,26 @@ class LastTurn(unittest.TestCase):
         ids = self.svc.encode_prompt(self.MSGS, None, {})
         self.assertEqual(StrataEngine("missing-executable", [], lazy=True).turn_key(ids), "")   # no Service's tokens
 
+    def test_assistant_history_checkpoints(self):
+        messages = [{"role": "system", "content": "s"}]
+        for n in range(6):
+            messages.extend(({"role": "user", "content": f"u{n}"},
+                             {"role": "assistant", "content": f"a{n}"}))
+        messages.append({"role": "user", "content": "next"})
+        ids = self.svc.encode_prompt(messages, None, {})
+
+        def end_of_prefix(message_count):
+            rendered = self.svc.render_prompt(messages[:message_count], None, {}, add_generation_prompt=False)
+            return len(self.tok.encode(rendered, parse_special=True))
+
+        # First assistant starts at message 2. The fifth assistant from the end starts at message 4; the last
+        # assistant ends after message 12. The positions are rendered-token prefixes, rather than assumptions about
+        # a particular template's control-token layout.
+        self.assertEqual(self.svc.assistant_checkpoint_positions(messages, None, {}, ids),
+                         [end_of_prefix(2), end_of_prefix(4), end_of_prefix(13)])
+        self.assertEqual(self.engine.checkpoint_key(ids, {"strata_checkpoints": [9, 3, 9, len(ids) - 1]}),
+                         " checkpoints=3,9")
+
 
 class WarmStart(unittest.TestCase):
     """Opt-in "warm_start": the first turn of the last long prompt with tools (an agent's system prompt) is kept

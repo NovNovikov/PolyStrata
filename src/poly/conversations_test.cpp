@@ -74,11 +74,17 @@ struct Chat {
     std::vector<std::pair<int64_t, uint8_t*>> due;
     explicit Chat(const CacheOptions& o) : kept(e, o) {}
 
-    // A request as the server makes it: the prompt, where its last turn begins, then `reply` generated tokens.
+    // A request as the server makes it: the prompt, its semantic assistant-history boundaries, then `reply` tokens.
     // Returns where the prompt was taken up, and leaves the tokens the engine then holds in `ids`.
     int64_t ask(std::vector<int32_t>& ids, int reply = 3, int64_t turn = -1) {
+        return ask_at(ids, reply, turn > 0 ? std::vector<int64_t>{turn} : std::vector<int64_t>{});
+    }
+
+    // The service supplies semantic assistant-history boundaries as token-prefix lengths.  This test driver keeps
+    // the old one-boundary entry point above too, because it still exercises backwards-compatible callers.
+    int64_t ask_at(std::vector<int32_t>& ids, int reply, const std::vector<int64_t>& checkpoints) {
         const int64_t n = (int64_t) ids.size(), from = kept.resume(ids);
-        kept.turn_at(turn);
+        kept.checkpoints_at(checkpoints);
         check(from >= 0 && from < n && e.at == from, "a prompt is taken up before its last token");
         for (int64_t i = from; i < n;) {
             const bool last = i == n - 1;
@@ -93,7 +99,7 @@ struct Chat {
                 e.h ^= 0x5EEDull;
                 const int64_t back = kept.rewind();
                 check(back <= i && e.at == back && e.holds(kept.seq()), "a read given up leaves the last checkpoint");
-                return ask(ids, reply, turn);
+                return ask_at(ids, reply, checkpoints);
             }
             if (far > 0 && !last) {
                 kept.inside(i, m, due);
@@ -136,7 +142,6 @@ std::vector<int32_t> operator+(std::vector<int32_t> a, const std::vector<int32_t
 
 CacheOptions options(int64_t park_mib, int slots = 4) {
     CacheOptions o;
-    o.every = 2048;
     o.park_mib = park_mib;
     o.park_slots = slots;
     return o;
@@ -145,7 +150,7 @@ CacheOptions options(int64_t park_mib, int slots = 4) {
 void one_conversation() {
     Chat c(options(0));
     std::vector<int32_t> a = text(1, 5000);
-    check(c.ask(a) == 0, "a first prompt is read from its start");
+    check(c.ask_at(a, 3, {2048}) == 0, "a first prompt is read from its start");
     const std::vector<int32_t> turn1 = a;
     a = a + text(2, 300);
     check(c.ask(a) == (int64_t) turn1.size(), "a prompt that goes on from the reply goes on from the engine");
@@ -191,7 +196,7 @@ void shared_start() {
     Chat c(options(64));
     const std::vector<int32_t> sys = text(1, 5000);
     std::vector<int32_t> a = sys + text(2, 6000), sub = sys + text(3, 2500);
-    c.ask(a);
+    c.ask_at(a, 3, {4096});
     check(c.ask(sub) == 4096, "a prompt with the same start takes it from the checkpoint inside");
     check(c.kept.parked() == 1, "and the first conversation is kept whole");
     sub = sub + text(4, 100);
@@ -256,11 +261,10 @@ void limits() {
 // holding the prompt.
 void any_order() {
     std::mt19937 rng(11);
-    const int64_t every[] = {0, 64, 256, 1000}, budget[] = {0, 1, 64};
+    const int64_t budget[] = {0, 1, 64};
     for (int round = 0; round < 60; ++round) {
         CacheOptions o;
         o.checkpoints = (int) (rng() % 5);
-        o.every = every[rng() % 4];
         o.park_mib = budget[rng() % 3];
         o.park_slots = (int) (rng() % 4);
         o.park_min = rng() % 2 ? 200 : 0;
@@ -292,7 +296,7 @@ void any_order() {
 // A long prompt read in one go has more checkpoints due than a conversation keeps.  Only the ones it keeps get a
 // state, and they are the ones that reading up to each checkpoint in turn leaves: where a prompt that goes on
 // from each place is taken up says which are there.
-void long_read() {
+void semantic_boundaries() {
     std::vector<int64_t> left[2];
     const std::vector<int32_t> a = text(1, 31000);
     for (int way = 0; way < 2; ++way) {
@@ -301,7 +305,7 @@ void long_read() {
             Chat c(options(0));
             c.e.state = 1 << 20;
             std::vector<int32_t> first = a;
-            check(c.ask(first) == 0, "a first prompt is read from its start");
+            check(c.ask_at(first, 3, {2048, 8192, 16384}) == 0, "a first prompt is read from its start");
             std::vector<int32_t> b(a.begin(), a.begin() + place + 1);
             b = b + text(3, 5);
             left[way].push_back(c.ask(b));
@@ -309,9 +313,9 @@ void long_read() {
     }
     far = 0;
     check(left[0] == left[1], "a read past its checkpoints keeps the ones a read to each of them keeps");
-    const std::vector<int64_t> six = {0,     0,     0,     8192,  8192,  8192,  8192, 16384,
-                                      16384, 16384, 22528, 22528, 22528, 28672, 30720};
-    check(left[1] == six, "which are five of the fifteen inside, beside the one before the prompt's last token");
+    const std::vector<int64_t> expected = {2048, 2048, 2048, 8192, 8192, 8192, 8192, 16384,
+                                           16384, 16384, 16384, 16384, 16384, 16384, 16384};
+    check(left[1] == expected, "only the supplied semantic boundaries are retained beside the prompt end");
 }
 
 int main() {
@@ -330,7 +334,7 @@ int main() {
         any_order();
     }
     quits = 0;
-    long_read();
+    semantic_boundaries();
     std::printf("conversations_test: %d checks passed\n", checks);
     return 0;
 }

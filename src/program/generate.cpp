@@ -10714,6 +10714,10 @@ int main(int argc, char** argv) {
             // in prompt order.  With them the conversation cache matches a picture by its key and grid, not by its
             // embedding floats, so a picture encoded again with other bits still matches.  Absent: the embeddings' hash.
             std::vector<uint64_t> req_img_keys;
+            // Semantic history boundaries from the server's actual rendered chat template.  When present, they
+            // replace inferred turn/periodic checkpoints for this request: first assistant start, fifth-from-last
+            // assistant start, and the end of the last historical assistant message.
+            std::vector<int64_t> req_checkpoints;
             if (endp != nullptr) {   // GENI takes the same keys (#75: image requests were always greedy); its
                                      // embedding file path is the first token without an =
                 for (;;) {
@@ -10730,6 +10734,18 @@ int main(int argc, char** argv) {
                     else if (key == "cvec") req_cvec = std::atoi(tok.c_str() + eq + 1);
                     else if (key == "ckpt") req_ckpt = std::atoi(tok.c_str() + eq + 1) != 0;
                     else if (key == "pin") req_pin = std::max<long long>(0, std::atoll(tok.c_str() + eq + 1));
+                    else if (key == "checkpoints") {
+                        const char* q = tok.c_str() + eq + 1;
+                        while (*q != '\0') {
+                            char* qe = nullptr;
+                            const long long at = std::strtoll(q, &qe, 10);
+                            if (qe == q || at < 1) { req_checkpoints.clear(); break; }
+                            req_checkpoints.push_back(at);
+                            if (*qe == '\0') break;
+                            if (*qe != ',') { req_checkpoints.clear(); break; }
+                            q = qe + 1;
+                        }
+                    }
                     else if (key == "temperature") req_temperature = fv;
                     else if (key == "top_p") req_top_p = fv;
                     else if (key == "top_k") req_top_k = std::atoi(tok.c_str() + eq + 1);
@@ -10777,6 +10793,11 @@ int main(int argc, char** argv) {
                 continue;
             }
             const int64_t n = (int64_t) ids.size();
+            req_checkpoints.erase(std::remove_if(req_checkpoints.begin(), req_checkpoints.end(), [&](int64_t at) {
+                                      return at >= n - 1;
+                                  }), req_checkpoints.end());
+            std::sort(req_checkpoints.begin(), req_checkpoints.end());
+            req_checkpoints.erase(std::unique(req_checkpoints.begin(), req_checkpoints.end()), req_checkpoints.end());
             req_imgs.clear();
             if (geni && !o.vision) { std::printf("ERR this engine was started without --vision\n"); continue; }
             if (geni || !mrope_identity) {
@@ -11250,8 +11271,11 @@ int main(int argc, char** argv) {
             pp_reached = read_from;
             pp_exact = true;   // a restore, a checkpoint mount or a zeroed session: the state is exactly at read_from
             pp_t0 = r0;
-            pp_next_check = reread_to > 0 || !req_ckpt ? INT64_MAX : resume + o.prompt_cache_every;   // ckpt=0: none
-            pp_tail_saved = reread_to > 0 || !req_ckpt;   // ckpt=0 (#861): no tail checkpoint either
+            // Explicit semantic boundaries are read as individual cuts below.  Do not create the old periodic/tail
+            // snapshots around them: each service request then has only its three assistant-history checkpoints.
+            pp_next_check = reread_to > 0 || !req_ckpt || !req_checkpoints.empty()
+                                ? INT64_MAX : resume + o.prompt_cache_every;   // ckpt=0: none
+            pp_tail_saved = reread_to > 0 || !req_ckpt || !req_checkpoints.empty();
             {
                 std::lock_guard<std::mutex> lk(part_mu);
                 part_at.clear();
@@ -11745,12 +11769,12 @@ int main(int argc, char** argv) {
             if (pipe) ver_b.set_history(hist_n > 0 ? d_hist : nullptr, hist_n);
             bool cancelled = false;
             tr("prompt start", n - 1);
-            // The prompt is read in two parts when it has a turn boundary past `resume`: up to the last <|im_start|>
+            // The legacy path reads in two parts when it has a turn boundary past `resume`: up to the last <|im_start|>
             // (the conversation so far), a checkpoint there, then the new turn's header.  The next request of the same
             // chat renders the same history - but not always the same header or the thinking of this reply - so that
             // checkpoint is the one it reuses.
             int64_t turn_at = -1;
-            if (o.prompt_cache > 0 && o.turn_token >= 0)
+            if (req_checkpoints.empty() && o.prompt_cache > 0 && o.turn_token >= 0)
                 for (int64_t i = n - 1; i > resume; --i)
                     if (ids[(size_t) i] == o.turn_token) { turn_at = i; break; }
             // #458 (opt-in): a short turn of --tail-role-token's role right before the new assistant turn (the
@@ -11770,7 +11794,8 @@ int main(int argc, char** argv) {
             const int64_t last_turn = turn_at;   // ckpt=0 drops the split there, the root is still looked for before it
             if (!req_ckpt) turn_at = -1;
             int64_t root_at = -1;
-            if (o.prompt_cache > 0 && o.turn_token >= 0 && o.prompt_cache_root > 0 && (read_from == 0 || resumed_from0))
+            if (req_checkpoints.empty() && o.prompt_cache > 0 && o.turn_token >= 0 && o.prompt_cache_root > 0 &&
+                (read_from == 0 || resumed_from0))
                 for (int64_t i = 1; i < last_turn; ++i)
                     if (ids[(size_t) i] == o.turn_token) {
                         if (i >= o.prompt_cache_root) root_at = i;
@@ -11781,7 +11806,7 @@ int main(int argc, char** argv) {
                 return e != nullptr && std::atoi(e) != 0;
             }();
             // Only add a snapshot; the existing token and image checks still decide reuse.
-            const int64_t message_at = message_checkpoint && !multi_gpu && o.prompt_cache > 0
+            const int64_t message_at = req_checkpoints.empty() && message_checkpoint && !multi_gpu && o.prompt_cache > 0
                 ? strata::program::message_checkpoint_boundary(ids, resume, turn_at, o.turn_token) : -1;
             // pin=N (opt-in): one more place the prompt is read to and checkpointed.  One pinned prefix at a time: a
             // new pin replaces the old; it needs room for the root, the pin and a rotating checkpoint
@@ -11807,10 +11832,12 @@ int main(int argc, char** argv) {
                                  "%lld)\n", (long long) req_pin, (long long) read_from);
             }
             std::vector<int64_t> cuts = {reread_to, root_at, message_at, turn_at, n - 1};
+            cuts.insert(cuts.end(), req_checkpoints.begin(), req_checkpoints.end());
             if (pin_at >= 0) {
                 cuts.push_back(pin_at);
-                std::sort(cuts.begin(), cuts.end());   // the skipped -1s first, n - 1 still last
             }
+            std::sort(cuts.begin(), cuts.end());   // the skipped -1s first, n - 1 still last
+            cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
             int64_t at = read_from;
             for (const int64_t to : cuts) {
                 if (to <= at) continue;
@@ -11855,7 +11882,8 @@ int main(int argc, char** argv) {
                     break;
                 }
                 at = to;
-                if ((to == turn_at || to == root_at || to == message_at || to == pin_at) &&
+                const bool semantic_checkpoint = std::binary_search(req_checkpoints.begin(), req_checkpoints.end(), to);
+                if ((semantic_checkpoint || to == turn_at || to == root_at || to == message_at || to == pin_at) &&
                     !checkpoint_at(to, nullptr, to == message_at && to != turn_at && to != root_at && to != pin_at)) {   // the tail kind leaves first
                     std::printf("ERR saving a conversation checkpoint failed%s\n", ckpt_why.c_str());
                     return 1;

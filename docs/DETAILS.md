@@ -989,16 +989,16 @@ print(r.choices[0].message.content)
   and also takes only JSON from no `Origin`, PolyStrata's own page or a trusted origin - also when an API key is set.
 
 **Conversation cache.** A request that continues a chat reads only the part after what the engine already holds: the
-live session, or one of the checkpoints it keeps in RAM (up to 6, ~118 MB each, taken at the start of each new
-assistant turn and every 16K prompt tokens). A checkpoint is used only when the prompt starts with exactly its tokens
-and pictures. The oldest checkpoint - in practice the end of the system prompt, which every chat of the same client
-shares - is kept for good while the rest rotates by least recent use, so a NEW chat that shares that prefix starts
-reading after it instead of from token 0. A prompt read from the start is also checkpointed at the end of its system
-prompt when that is 2,048 tokens or more (engine 0.1.20; PR #62 + #65), so that root exists for agent clients with long
-system prompts and tool lists. Claude Code stamps its system prompt with a billing header that changes on every
-request (`cch=...`) and every session (the 4th part of `cc_version=`); the server pins both stamps (to `f`s, as
-llama.cpp does), so the system prompt and the tool list in front of it are the same prompt on every turn. Engine options: `--prompt-cache N` (0 = off), `--prompt-cache-every N`,
-`--prompt-cache-root N` (0 = no system-prompt checkpoint), `--turn-token ID`.
+live session, or one of the checkpoints it keeps in RAM (up to 6, ~118 MB each). For a chat request, the server renders
+and tokenizes the actual template and sends three semantic boundaries: before the first historical assistant message,
+before the fifth assistant message from the end, and after the last historical assistant message. Both Qwen and GLM
+engines use those boundaries instead of token intervals. A checkpoint is used only when the prompt starts with exactly
+its tokens and pictures. Raw engine clients that omit `checkpoints=` retain the legacy Qwen scheduling: the last turn's
+start, the system prompt's end, and `--prompt-cache-every` tokens. Claude Code stamps its system prompt with a billing
+header that changes on every request (`cch=...`) and every session (the 4th part of `cc_version=`); the server pins both
+stamps (to `f`s, as llama.cpp does), so the system prompt and the tool list in front of it are the same prompt on every
+turn. Engine options: `--prompt-cache N` (0 = off), `--prompt-cache-every N`, `--prompt-cache-root N` (0 = no
+system-prompt checkpoint), `--turn-token ID`.
 A one-shot request that no later request continues (a classification call, a probe) can send
 `"strata_checkpoint": false` in its body: it saves no checkpoint at its last turn nor every 16K tokens, so what
 follows the reused prefix (or the root) is read in one run, and its session is not kept or parked for a next request.
@@ -1011,9 +1011,8 @@ A request can say where the document ends: `"strata_prefix": {"messages": 1}` (t
 the question in one message) or `{"tokens": 12345}`. The engine reads the prompt in two parts there, keeps the checkpoint
 at the boundary pinned (retention never evicts it, a parked conversation holding it stays parked, `SAVE` keeps it) and,
 when a later question resumes from it, does not park the question it leaves. So the next question starts at the end of
-the document, and 20 questions cost one read of it. Without the field the server's checkpoints are where they were: the
-last turn's start, the system prompt's end and every `--prompt-cache-every` tokens, so a question that follows a long
-document in the same chat re-reads up to 16K tokens of it (55 s at 262K on a Tesla P100). The field is checked against the
+the document, and 20 questions cost one read of it. Without the field the normal assistant-history boundaries remain,
+so a question following a long document can reread the suffix after its nearest checkpoint. The field is checked against the
 prompt's own ids (the prefix is always the longest common start), a prefix that cannot be marked is said in the server's
 window and ignored, and a malformed field is a 400. One pinned prefix at a time per engine (a new one replaces it);
 it needs `--prompt-cache 3` or more. `tools/research_run.py` runs a document and a question list against a server with and

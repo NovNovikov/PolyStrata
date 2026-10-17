@@ -59,7 +59,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT))   # run as a script (run-<model>.bat) as well as a module
 from serve.frontend import (THINK_END, ChatTemplate, Event, OutputParser, anthropic_to_messages,  # noqa: E402
                             forced_call, gemma_model_turn, images_of, literal_tags, mark_think_literals,
-                            openai_to_messages, tool_choice_of, unmark_think_literals)
+                            openai_to_messages, TemplateRequestError, tool_choice_of, unmark_think_literals)
 from serve.mcp import McpCancelled, hub_from_config  # noqa: E402
 from serve import runconfig  # noqa: E402
 from serve import models as registry  # noqa: E402
@@ -1237,6 +1237,20 @@ class StrataEngine:
         at = next((i for i in range(len(ids) - 1, 0, -1) if ids[i] in self.turn_ids), None)
         return f" turn_at={at}" if at is not None else ""
 
+    @staticmethod
+    def checkpoint_key(ids, sampling) -> str:
+        """The assistant-history checkpoints that Service derived from the rendered prompt.
+
+        They are an internal engine key: malformed client-supplied values are ignored, and engines which do not
+        implement the key already skip it as an unknown protocol option.
+        """
+        points = (sampling or {}).get("strata_checkpoints")
+        if not isinstance(points, list):
+            return ""
+        valid = sorted({p for p in points if isinstance(p, int) and not isinstance(p, bool)
+                        and 0 < p < len(ids) - 1})
+        return " checkpoints=" + ",".join(str(p) for p in valid) if valid else ""
+
     def _send(self, text: str):
         btrace("send>", text[:60])
         try:
@@ -1520,7 +1534,7 @@ class StrataEngine:
             raise EngineDied("the engine is unavailable; this request was not sent")
         self.progress, self.progress_ms, self.reused = None, 0, 0
         born = self.gen                                 # the engine process this request is sent to
-        keys = self.sampling_keys(sampling or {})
+        keys = self.sampling_keys(sampling or {}) + self.turn_key(ids) + self.checkpoint_key(ids, sampling)
         out: list[int] = []
         pending: list[int] = []
         prompt, left = list(ids), int(max_new)
@@ -1897,7 +1911,7 @@ class StrataEngine:
         self.progress, self.progress_ms, self.reused = None, 0, 0
         self.prefill_tok_s_mean = None
         # an image request takes the same sampling keys as text (#75: it used to decode greedily whatever was asked)
-        keys = self.sampling_keys(sampling or {}) + self.turn_key(ids)
+        keys = self.sampling_keys(sampling or {}) + self.turn_key(ids) + self.checkpoint_key(ids, sampling)
         head = f"GENI {int(max_new)}{keys} {embeddings}" if embeddings else f"GEN {int(max_new)}{keys}"
         try:
             self.proc.stdin.write(f"{head} {','.join(str(int(t)) for t in ids)}\n")
@@ -3086,6 +3100,7 @@ class Service:
         self._auto_index = auto_sessions.StoreIndex()  # in-memory index of the auto store
         self._auto_last = None                        # last finished solo state (ids, generated, sampling)
         self.embeddings = threading.local()           # the current request's image embeddings file (GENI)
+        self.checkpoints = threading.local()          # semantic prompt anchors for the current request
         self.api_key = ""                              # when set, /v1/* needs it (Bearer or x-api-key)
         # #458 (opt-in, the config's "effort_position": "end"): a non-default reasoning effort goes in a short system
         # turn before the answer instead of the top of the prompt, so switching it keeps the cached conversation
@@ -4188,7 +4203,7 @@ class Service:
                 "ram": {"used_gib": scaled(hw.get("ram_used"), 2 ** 30, 1),
                         "total_gib": scaled(hw.get("ram_total"), 2 ** 30, 1)} if hw.get("ram_total") else None}}
 
-    def render_prompt(self, messages, tools, kwargs) -> str:
+    def render_prompt(self, messages, tools, kwargs, add_generation_prompt=True) -> str:
         """The template rendered.  #458: with `effort_end`, a request with a non-default effort (low, medium or no
         thinking) is rendered as a default one up to the answer - the same prompt start, so the conversation cache
         keeps it - and its effort follows in a short system turn right before the answer (thinking off: the template's
@@ -4203,8 +4218,10 @@ class Service:
                   "enable_thinking": not off}
         if self.call_format in ("gemma", "dsml") and tools:   # their templates read a tool as OpenAI sends it
             tools = [{"type": "function", "function": t} for t in tools]
+        if not add_generation_prompt:
+            return self.template.render(messages, tools=tools, add_generation_prompt=False, **kwargs)
         if not self.effort_end or (not off and effort in (None, "", "xhigh", "high")):
-            prompt = self.template.render(messages, tools=tools, **kwargs)
+            prompt = self.template.render(messages, tools=tools, add_generation_prompt=True, **kwargs)
             if self.call_format == "gemma":
                 return gemma_model_turn(prompt, not off)
             # GLM's template has no switch for thinking and always ends on an open <think>: closing it at once is
@@ -4219,6 +4236,12 @@ class Service:
         tail = "" if off else EFFORT_TURN.format(EFFORT_TEXT.get(effort, EFFORT_TEXT["medium"]))
         return history + tail + full[len(mine):]
 
+    def _encode_rendered_prompt(self, prompt, changed):
+        if not changed:
+            return self.tok.encode(prompt, parse_special=True)
+        prompt, plain = unmark_think_literals(prompt, self.literals)
+        return self.tok.encode(prompt, parse_special=True, plain=plain)
+
     def encode_prompt(self, messages, tools, kwargs) -> list[int]:
         """The request's prompt: the template rendered and tokenized.  #537: a <think> / </think> written inside a
         message's text is encoded as the text it is, not as the model's reasoning markers (the template's own are).
@@ -4226,10 +4249,42 @@ class Service:
         the control tokens the template writes are control tokens."""
         marked, marked_tools, changed = mark_think_literals(messages, tools, self.literals)
         prompt = self.render_prompt(marked, marked_tools, kwargs)
-        if not changed:
-            return self.tok.encode(prompt, parse_special=True)
-        prompt, plain = unmark_think_literals(prompt, self.literals)
-        return self.tok.encode(prompt, parse_special=True, plain=plain)
+        return self._encode_rendered_prompt(prompt, changed)
+
+    def assistant_checkpoint_positions(self, messages, tools, kwargs, ids) -> list[int]:
+        """Three stable history positions: first assistant start, fifth-from-last assistant start, last assistant end.
+
+        Each position is rendered and tokenized as a prefix, then accepted only when it is an exact token prefix of
+        the real request. Templates may alter earlier turns based on later messages; such a position is skipped rather
+        than risking a checkpoint whose state does not match the request.
+        """
+        assistants = [i for i, message in enumerate(messages) if isinstance(message, dict)
+                      and message.get("role") == "assistant"]
+        if not assistants:
+            return []
+        marked, marked_tools, changed = mark_think_literals(messages, tools, self.literals)
+        wanted = [assistants[0], assistants[max(0, len(assistants) - 5)], assistants[-1]]
+        positions = []
+
+        def prefix_position(message_count):
+            try:
+                prompt = self.render_prompt(marked[:message_count], marked_tools, kwargs,
+                                            add_generation_prompt=False)
+                prefix = self._encode_rendered_prompt(prompt, changed)
+            except (TemplateRequestError, ValueError):
+                return None
+            if not (0 < len(prefix) < len(ids)) or ids[:len(prefix)] != prefix:
+                return None
+            return len(prefix)
+
+        for index in wanted[:-1]:
+            position = prefix_position(index)
+            if position is not None:
+                positions.append(position)
+        position = prefix_position(wanted[-1] + 1)
+        if position is not None:
+            positions.append(position)
+        return sorted(set(positions))
 
     @contextlib.contextmanager
     def _turn(self, cancel=None):
@@ -4315,6 +4370,7 @@ class Service:
             messages, ids = self.drop_oldest_turns(messages, tools, kwargs, ids, max_new)
         if force and kwargs.get("enable_thinking", True) is False:
             ids = ids + self.tok.encode(force, parse_special=True)
+        checkpoint_positions = self.assistant_checkpoint_positions(messages, tools, kwargs, ids)
         self.embeddings.path = None
         self.embeddings.keys = None
         images = images_of(messages)
@@ -4409,6 +4465,11 @@ class Service:
             write_temporary(combined, [p for p, _ in encoded])
         if req is not None and req.get("strata_prefix") is not None:
             req["strata_prefix"] = self.resolve_prefix(req["strata_prefix"], messages, tools, kwargs, ids, bool(images))
+        # Image rows expand one placeholder into many engine tokens, so text-prefix positions would no longer be
+        # valid. The existing end checkpoint still covers those requests; textual chats get the three assistant
+        # history anchors. Thread-local state follows the request through _run without exposing an internal field in
+        # any API request or response.
+        self.checkpoints.positions = [] if images else checkpoint_positions
         return ids, kwargs.get("enable_thinking", True) is not False, max_new
 
     PREFIX_END = "\u0001strata-prefix-end\u0001"          # marks where a message's shared part ends in the rendered prompt
@@ -4581,6 +4642,9 @@ class Service:
         if defaults:                   # the request's own fields win (explicit 0 stays greedy)
             req_values = {k: v for k, v in (sampling or {}).items() if v is not None}
             sampling = {**defaults, **req_values}
+        checkpoints = getattr(self.checkpoints, "positions", [])
+        if checkpoints and (sampling or {}).get("strata_checkpoint") is not False:
+            sampling = {**(sampling or {}), "strata_checkpoints": checkpoints}
         # #123: read after the merge, so a budget shared through POST /settings is seen like the other keys
         budget = self.reasoning_budget(sampling) if thinking else None
         if budget and max_new and max_new > 0:

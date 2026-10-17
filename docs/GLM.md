@@ -274,7 +274,7 @@ is refused. This version change applies to poly sessions; the Qwen engine's sess
 | `--stage-ahead N` | 1024 | from N tokens, a batch copies those experts before the layer has chosen, as does every batch of a prompt of N tokens or more that is read several at a time; 0 = never |
 | `--cpu-share F` | as the times say | in a batch of fewer tokens than `--stage-ahead`, the share of the experts outside VRAM that the CPU computes while the others are copied: the ones the fewest tokens chose; 0 = none |
 | `--prompt-cache N` | 6 | checkpoints kept of a conversation; 0 = only a next turn is not read again |
-| `--prompt-cache-every N` | 2048 | a checkpoint every N prompt tokens, besides the one at a prompt's end; 0 = none |
+| `--prompt-cache-every N` | accepted for compatibility | old launch scripts may keep the option, but it no longer schedules checkpoints |
 | `--conversation-cache-mib N` | 0 | RAM for parked conversations; 0 = off |
 | `--conversation-cache-slots N` | 4 | parked conversations at most |
 | `--conversation-cache-min-tokens N` | 1024 | a shorter conversation is not parked |
@@ -283,6 +283,13 @@ is refused. This version change applies to poly sessions; the Qwen engine's sess
 | `--tail-skip N` | 0; setup gives Qwen3.6 6 | an expert outside VRAM that every token of a window ranks at place N+1 or later among its experts is left out: faster, and the answers move a little |
 
 `strata-poly` with no arguments prints the list, with the options for running it without the server.
+
+**Assistant-history checkpoints.** The server renders and tokenizes the actual chat template, then gives the engine
+up to three stable boundaries: before the first historical assistant message, before the fifth assistant message from
+the end, and after the last historical assistant message. `strata-poly` checkpoints those boundaries rather than every
+fixed number of tokens. The same `checkpoints=` protocol key is understood by the Qwen engine, so both backends use the
+same chat-history policy. A point is used only when its rendered token prefix exactly matches the request; templates
+whose shorter rendering does not form that prefix simply omit the unsafe point.
 
 `--kv q8_0` is new: it stores the attention K and V caches as ggml Q8_0 blocks and is opt-in for the
 `qwen35moe` models. [Q8_KV.md](Q8_KV.md) has the format, the measured VRAM saving (46.88% at 131072), the
