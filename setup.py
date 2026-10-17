@@ -6004,6 +6004,11 @@ def build_engine_poly(gpu, yes, llama, vision="none", toolkit=13) -> Path:
         bdir = ROOT / ("build-poly" if toolkit == 13 else "build-poly-cuda12")
         defs = ["-DSTRATA_ENABLE_CUDA=ON", "-DSTRATA_BUILD_TESTS=OFF", f"-DCMAKE_CUDA_ARCHITECTURES={cuda_archs}",
                 f"-DCMAKE_CUDA_COMPILER={nvcc}", f"-DSTRATA_GGML_DIR={llama}"]
+        # a CUDA 12 toolkit on this box: cudafe 12.4 dies on the C++20 STL with MSVC (measured 2026-10-17, the
+        # recipe build-engine.bat carries); C++17 builds, CMAKE_CUDA_RUNTIME_LIBRARY=Shared avoids the static
+        # cudart clash (upstream #585).  CUDA 13 does not need this.
+        if toolkit != 13:
+            defs += ["-DCMAKE_CUDA_STANDARD=17", "-DCMAKE_CUDA_RUNTIME_LIBRARY=Shared"]
         if min(archs) < CUDA13_MIN_ARCH:
             defs.append("-DSTRATA_EXPERIMENTAL_SM60=ON")
         cmake_build(ROOT, bdir, "strata-poly", defs, vcvars, "build-strata-poly.bat")
