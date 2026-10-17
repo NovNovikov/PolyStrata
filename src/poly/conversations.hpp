@@ -675,6 +675,7 @@ private:
             slots_[i] = Slot{};
             return false;
         }
+        e_.reset();   // the leaving conversation's state, ahead positions and the row-pool lower bound go first
         const Slot& in = slots_[i];
         int64_t have = 0;
         for (size_t k = 0; k < in.rows.size() && k < cur().rows.size() && in.rows[k].blob == cur().rows[k].blob; ++k) {
