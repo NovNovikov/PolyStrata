@@ -88,6 +88,13 @@ def _quant(name: str, types: dict) -> str | None:
     return quantized[0] if quantized else None
 
 
+def _aliases(value) -> list[str]:
+    """The config's other names for the model (#297: a list, or one comma-separated string); [] for anything else."""
+    if isinstance(value, str):
+        value = value.split(",")
+    return [x.strip() for x in value if isinstance(x, str) and x.strip()] if isinstance(value, list) else []
+
+
 def describe(config: Path) -> dict | None:
     """The registry's entry for a run config, or None when the file is not one."""
     try:
@@ -109,6 +116,7 @@ def describe(config: Path) -> dict | None:
         "quantization": None, "params_total": None, "params_active": None,
         "context": int(ctx) if ctx and str(ctx).isdigit() else None,
         "multimodal": bool(cfg.get("vision")),
+        "aliases": _aliases(cfg.get("aliases")),
         "mtp": bool(_arg(args, "--draft-model")) and "--no-draft" not in args,
         "ram_gb": None, "vram_gb": None,
         "status": "available", "problem": None,
@@ -173,6 +181,20 @@ def find(models: list[dict], name: str) -> dict | None:
             return e
     close = [e for e in models if low and low in e["id"].lower()]
     return close[0] if len(close) == 1 else None
+
+
+def resolve(models: list[dict], name) -> dict | None:
+    """#38: the model a request's `model` names: its name, one of its aliases or its config file's name, exactly (case
+    aside).  Never a part of a name, as find() takes: a client must not start a switch by a name that only looks
+    like one of them."""
+    if not isinstance(name, str) or not name.strip():
+        return None
+    low = name.strip().lower()
+    for e in models:
+        config = Path(e["config"])
+        if low in (e["id"].lower(), config.name.lower(), config.stem.lower(), *(a.lower() for a in e.get("aliases", ()))):
+            return e
+    return None
 
 
 def line(e: dict, current: str | None = None) -> str:

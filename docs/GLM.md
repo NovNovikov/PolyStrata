@@ -285,6 +285,7 @@ is refused. This version change applies to poly sessions; the Qwen engine's sess
 | `--conversation-cache-min-free-mib N` | 2560 | park only while this much physical RAM stays free |
 | `--eos-ids ID,ID,...` | from the GGUF | tokens that end a reply |
 | `--tail-skip N` | 0; setup gives Qwen3.6 6 | an expert outside VRAM that every token of a window ranks at place N+1 or later among its experts is left out: faster, and the answers move a little |
+| `STRATA_FREEZE_EXPERTS` | not set | hold the split of the routed experts between the card and the CPU still for the engine's whole run, so a greedy answer is a function of the request alone: same request, same answer, bit for bit. With guesses on (`--window` above 1 and a block or `--lookup`) the block's guesses and their windows still take their sizes from the machine's pace, which the freeze does not hold: on the cards measured so far it repeated with them on (RX 9060 XT, several thread counts and loads) and on one RTX 4070 laptop it did not — add `--window 1` for a repeat wherever the guesses are on. Measured cost: nothing measurable on the default path, 4-7% at a short prompt with the freeze set |
 
 `strata-poly` with no arguments prints the list, with the options for running it without the server.
 

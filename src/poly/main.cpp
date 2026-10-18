@@ -913,7 +913,11 @@ int serve(Session& ss, const Options& o) {
             try {
                 const Clock::time_point t0 = Clock::now();
                 const int before = engine.cached_experts();
+                // The operator's resize is the one thing a freeze gives way to (STRATA_FREEZE_EXPERTS):
+                // the cache it leaves is what every request after reads, and stays frozen again.
+                engine.unfreeze_experts();
                 engine.resize_cache((int) reserve);
+                engine.refreeze_experts();
                 const long long free_mib = (long long) engine.vram_free_mib();
                 std::fprintf(stderr, "strata-poly: VRAM %d MiB kept free: the expert cache %d -> %d of %d experts "
                                      "(%.2f of %.2f GiB), %lld MiB free now, in %.0f ms\n",
@@ -1235,7 +1239,10 @@ void usage() {
                  "  --tail-skip N          an expert outside VRAM that every token of a window ranks at place N+1\n"
                  "                         or later among its experts is left out: faster, and the answers move a\n"
                  "                         little (default 0 = none is; setup gives Qwen3.6 6)\n"
-                 "environment: STRATA_ROUTE_TAIL_SKIP=N  in place of --tail-skip (0 turns it off)\n");
+                 "environment: STRATA_ROUTE_TAIL_SKIP=N  in place of --tail-skip (0 turns it off)\n"
+                 "environment: STRATA_FREEZE_EXPERTS=1  hold the split of the routed experts between the card\n"
+                 "                         and the CPU still, so the same request gives the same greedy answer\n"
+                 "                         bit for bit; with guesses on, add --window 1 for a repeat everywhere\n");
 }
 
 }  // namespace

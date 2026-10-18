@@ -182,6 +182,10 @@ public:
 
     /// Forget the sequence.
     void reset();
+    /// STRATA_FREEZE_EXPERTS: lift the freeze for the caller's own cache change (the serve VRAM
+    /// resize); refreeze_experts() puts it back, and the resized cache is what every request reads.
+    void unfreeze_experts();
+    void refreeze_experts();
     /// The most tokens one eval() takes.
     int max_rows() const { return rows_; }
     /// Feed n tokens from position pos().  With want_logits, logits() then holds the scores of the token after the
@@ -523,6 +527,10 @@ protected:
     std::thread mapper_;                  ///< reads the experts' pages once after load, so they are mapped
     std::atomic<bool> map_quit_{false};
     void* st_ = nullptr;   ///< the stream everything but the staging ahead runs on
+    bool freeze_experts_ = false;            ///< STRATA_FREEZE_EXPERTS: the experts' split is frozen
+                                             ///< for the engine's whole run (see Engine::load())
+    bool freeze_experts_asked_ = false;      ///< the env was set: refreeze_experts() puts it back after the
+                                             ///< serve VRAM resize lifted it (unfreeze_experts())
     void* blas_ = nullptr; ///< cuBLAS on st_
     void* ev_ = nullptr;   ///< marks the router's copy to the host: ev_row_'s first, or a window's row's own
     void* ev_row_[8] = {}; ///< one for each token a window can have
