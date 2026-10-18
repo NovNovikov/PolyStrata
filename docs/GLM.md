@@ -162,6 +162,10 @@ The web app is at `http://127.0.0.1:8095`, and the API is the one the README des
 calls and streaming were checked through `/v1/chat/completions`. `"enable_thinking": false` in
 `chat_template_kwargs` turns thinking off.
 
+`"reasoning_effort"` takes GLM's own levels: `"low"`, `"high"` and `"max"` (the model's default), and `"none"`
+turns thinking off. The server passes the level as the model's own, so `"high"` is GLM's middle level there, not
+Qwen's xhigh; a client's `"medium"` means `high`, and `"xhigh"` or `"maximum"` mean `max`.
+
 ## How it uses the card
 
 The model has 45 layers. 42 of them choose 8 of 288 experts for every token, which makes 12,096 experts and most

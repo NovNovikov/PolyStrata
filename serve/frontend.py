@@ -138,18 +138,24 @@ IMAGE_PARTS = ("image_url", "input_image", "image")
 # enable_thinking=false for none.  Clients spell these many ways; everything maps onto those four.
 EFFORT = {"none": None, "off": None, "minimal": None, "disabled": None, "false": None,
           "low": "low", "medium": "medium", "high": "xhigh", "xhigh": "xhigh", "max": "xhigh", "maximum": "xhigh"}
+# GLM's template has its own three (low, high, max; max is its default): "high" is its own middle level there, not
+# xhigh, and "max" is the top.  effort_kwargs(value, call_format) picks the table; every other call format keeps
+# the table above, unchanged.  GLM has no "medium": a client's medium means its middle level, high.
+GLM_EFFORT = {"none": None, "off": None, "minimal": None, "disabled": None, "false": None,
+              "low": "low", "medium": "high", "high": "high", "max": "max", "maximum": "max", "xhigh": "max"}
 
 
-def effort_kwargs(value) -> dict:
+def effort_kwargs(value, call_format=None) -> dict:
     """A reasoning effort as given by a client -> the template's kwargs.  Unknown values are a 400, not a crash."""
     if value is None or value == "":
         return {}
     if value is False:
         return {"enable_thinking": False}
     key = str(value).strip().lower()
-    if key not in EFFORT:
+    table = GLM_EFFORT if call_format == "glm" else EFFORT
+    if key not in table:
         raise ValueError(f"unknown reasoning effort {value!r}: use none, low, medium or high")
-    level = EFFORT[key]
+    level = table[key]
     return {"enable_thinking": False} if level is None else {"reasoning_effort": level}
 
 
@@ -544,7 +550,7 @@ def tool_arguments(raw) -> dict:
     return {"arguments": json.dumps(raw, ensure_ascii=False)}
 
 
-def openai_to_messages(req: dict) -> tuple[list[dict], list[dict] | None, dict]:
+def openai_to_messages(req: dict, call_format: str | None = None) -> tuple[list[dict], list[dict] | None, dict]:
     """OpenAI Chat Completions -> (template messages, template tools, template kwargs)."""
     messages = []
     for i, m in enumerate(_object_list(req.get("messages"), "messages")):
@@ -577,14 +583,15 @@ def openai_to_messages(req: dict) -> tuple[list[dict], list[dict] | None, dict]:
     reasoning = req.get("reasoning") if isinstance(req.get("reasoning"), dict) else {}
     given = req.get("reasoning_effort")
     # `false` is a level (thinking off, effort_kwargs): an `or` between the two fields dropped it
-    kwargs.update(effort_kwargs(given if given is not None and given != "" else reasoning.get("effort")))
+    kwargs.update(effort_kwargs(given if given is not None and given != "" else reasoning.get("effort"),
+                                call_format))
     # the vLLM / llama.cpp convention: {"chat_template_kwargs": {"enable_thinking": false, "reasoning_effort": "low"}}
     ctk = req.get("chat_template_kwargs") or {}
     for k, v in ctk.items():
         if k == "enable_thinking" and not v:
             kwargs = {"enable_thinking": False}
         elif k == "reasoning_effort" and "enable_thinking" not in kwargs:
-            kwargs.update(effort_kwargs(v))
+            kwargs.update(effort_kwargs(v, call_format))
     # #25: earlier turns keep their thinking (Qwen3.6's template), as llama.cpp's --chat-template-kwargs passes it
     if isinstance(ctk.get("preserve_thinking"), bool):
         kwargs["preserve_thinking"] = ctk["preserve_thinking"]
@@ -620,7 +627,8 @@ def pin_billing_stamp(system: str) -> str:
     return "".join(s)
 
 
-def anthropic_to_messages(req: dict, think_unasked: bool = True) -> tuple[list[dict], list[dict] | None, dict]:
+def anthropic_to_messages(req: dict, think_unasked: bool = True,
+                          call_format: str | None = None) -> tuple[list[dict], list[dict] | None, dict]:
     """Anthropic Messages -> (template messages, template tools, template kwargs).  `think_unasked`: a request
     without "thinking", an effort or a budget gets the template's default (it thinks), as through 0.1.31; False
     renders a request without "thinking" or a budget without thinking, whatever its effort (#278, the config's
@@ -685,7 +693,7 @@ def anthropic_to_messages(req: dict, think_unasked: bool = True) -> tuple[list[d
         # reasoning_budget_tokens (#123) asks for thinking, so it thinks as before.
         kwargs["enable_thinking"] = False
     elif effort:
-        kwargs.update(effort_kwargs(effort))
+        kwargs.update(effort_kwargs(effort, call_format))
     elif isinstance(thinking, dict) and thinking.get("budget_tokens"):
         kwargs.update(budget_effort(thinking["budget_tokens"]))
     return _answers_in_call_order(_env_to_user(_late_system_to_user(messages))), tools, kwargs

@@ -12,8 +12,10 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT))
 
 import strata_tokenizer as ST  # noqa: E402
-from serve.frontend import ChatTemplate, OutputParser  # noqa: E402
-from serve.server import ByteTokenizer, MockEngine, Service  # noqa: E402
+from serve.frontend import (ChatTemplate, OutputParser, anthropic_to_messages,  # noqa: E402
+                            openai_to_messages)
+from serve.responses import template_kwargs  # noqa: E402
+from serve.server import ByteTokenizer, MockEngine, Service, clean_shared_defaults  # noqa: E402
 
 
 class PreTokenizer(unittest.TestCase):
@@ -110,6 +112,41 @@ class ServiceForGlm(unittest.TestCase):
         msgs = [{"role": "user", "content": "q"}]
         self.assertEqual(svc.render_prompt(msgs, None, {}), "q<|assistant|><think>")
         self.assertEqual(svc.render_prompt(msgs, None, {"enable_thinking": False}), "q<|assistant|><think></think>")
+
+    def test_glm_effort_levels_are_its_own(self):
+        # GLM's template has low, high and max (max is its default): the server passes the client's level as the
+        # model's own, so "high" is the middle level there and "max"/"xhigh" are the top (serve/frontend.py).
+        template = ("{%- set effective_reasoning_effort = reasoning_effort if reasoning_effort is defined and "
+                    "reasoning_effort in ['low', 'high'] else 'max' -%}"
+                    "{%- if effective_reasoning_effort is not none -%}<|system|>Reasoning Effort: "
+                    "{{ effective_reasoning_effort | capitalize }}{%- endif -%}"
+                    "{{ messages[0].content }}<|assistant|><think>")
+        svc = self.service(GlmTokens(), template)
+        msgs = [{"role": "user", "content": "q"}]
+        for given, want in (("low", "Low"), ("medium", "High"), ("high", "High"), ("max", "Max"),
+                            ("xhigh", "Max"), ("maximum", "Max")):
+            with self.subTest(given=given):
+                _, _, kw = openai_to_messages({"messages": msgs, "reasoning_effort": given}, "glm")
+                prompt = svc.render_prompt(msgs, None, kw)
+                self.assertIn(f"Reasoning Effort: {want}", prompt)
+        _, _, kw = openai_to_messages({"messages": msgs, "reasoning_effort": "none"}, "glm")
+        prompt = svc.render_prompt(msgs, None, kw)
+        self.assertIn("Reasoning Effort: Max", prompt)          # the template's effort line is always there
+        self.assertTrue(prompt.endswith("<think></think>"))     # and thinking off closes the open block
+        _, _, kw = anthropic_to_messages({"messages": msgs, "max_tokens": 50,
+                                          "output_config": {"effort": "high"}}, True, "glm")
+        self.assertEqual(kw, {"reasoning_effort": "high"})
+        self.assertEqual(template_kwargs({"reasoning": {"effort": "high"}}, {}, "glm"),
+                         {"reasoning_effort": "high"})
+        # the other call formats keep the old table: "high" is xhigh there (the Qwen template's own rule)
+        _, _, kw = openai_to_messages({"messages": msgs, "reasoning_effort": "high"})
+        self.assertEqual(kw, {"reasoning_effort": "xhigh"})
+        # the config's and the shared settings' level accepts the spellings effort_kwargs knows, so a GLM config
+        # can default to max
+        self.assertEqual(clean_shared_defaults({"reasoning_effort": "max"}), {"reasoning_effort": "max"})
+        self.assertEqual(clean_shared_defaults({"reasoning_effort": "xhigh"}), {"reasoning_effort": "xhigh"})
+        with self.assertRaises(ValueError):
+            clean_shared_defaults({"reasoning_effort": "huge"})
 
 
 if __name__ == "__main__":
