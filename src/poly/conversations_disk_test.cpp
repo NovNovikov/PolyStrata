@@ -83,7 +83,10 @@ std::vector<int32_t> text(int seed, int n) {
 
 // Reads `ids` into the engine from where resume() took it up, the way the server drives the reads.
 void go_on(Fake& e, Conversations<Fake>& kept, const std::vector<int32_t>& ids, int64_t from) {
-    kept.turn_at(-1);
+    // The engine now takes semantic boundaries from the caller; o.every is a legacy no-op.
+    std::vector<int64_t> boundaries;
+    for (int64_t p = 100; p < (int64_t) ids.size(); p += 100) boundaries.push_back(p);
+    kept.checkpoints_at(std::move(boundaries));
     for (int64_t i = from; i < (int64_t) ids.size();) {
         const bool last = i == (int64_t) ids.size() - 1;
         const int64_t m = last ? 1 : std::min(kept.until_checkpoint(i, 100), (int64_t) ids.size() - i);
@@ -96,7 +99,10 @@ void go_on(Fake& e, Conversations<Fake>& kept, const std::vector<int32_t>& ids, 
 
 // One read can cross several checkpoints, as the server's text-only prefill does.
 void go_on_batch(Fake& e, Conversations<Fake>& kept, const std::vector<int32_t>& ids, int64_t from) {
-    kept.turn_at(-1);
+    std::vector<int64_t> boundaries;
+    const int64_t interval = ids.size() > 65536 ? 16384 : 100;
+    for (int64_t p = interval; p < (int64_t) ids.size(); p += interval) boundaries.push_back(p);
+    kept.checkpoints_at(std::move(boundaries));
     std::vector<std::pair<int64_t, uint8_t*>> due;
     const int64_t n = (int64_t) ids.size();
     for (int64_t i = from; i < n;) {
