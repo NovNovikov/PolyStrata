@@ -96,6 +96,27 @@ class Units(unittest.TestCase):
         self.assertNotIn(("strata:gpu_power_watts", lab + ',gpu="0"'), got)   # not measured: no sample
         self.assertEqual(got[("strata:ram_total_bytes", lab)], 64 << 30)
 
+    def test_engine_memory_follows_the_json(self):
+        """What the card was asked for, what the engine holds, what the driver moved to the system's RAM: the whole
+        point of the reading (a card asked for more than it has crawls), so a scraper must see it."""
+        m = {"engine": {"model": "m", "max_context": 1000}, "live": {"state": "reading"}, "totals": {},
+             "hardware": {"engine_vram_used": 21 << 30, "engine_vram_asked": 23 << 30,
+                          "engine_vram_spilled": 2 << 30, "engine_vram_shared": 2 << 30,
+                          "engine_ram_used": 25 << 30, "engine_ram_asked": 24 << 30},
+             "memory": {"vram": {"engine_free_mib": 993, "expert_cache_mib": 7483}}}
+        lab = 'model_name="m"'
+        got = parse(render(m, Latencies().snapshot()))
+        self.assertEqual(got[("strata:engine_vram_used_bytes", lab)], 21 << 30)
+        self.assertEqual(got[("strata:engine_vram_asked_bytes", lab)], 23 << 30)
+        self.assertEqual(got[("strata:engine_vram_spilled_bytes", lab)], 2 << 30)
+        self.assertEqual(got[("strata:engine_ram_used_bytes", lab)], 25 << 30)
+        self.assertEqual(got[("strata:engine_ram_asked_bytes", lab)], 24 << 30)
+        self.assertEqual(got[("strata:engine_vram_free_mib", lab)], 993)
+        self.assertEqual(got[("strata:engine_expert_cache_mib", lab)], 7483)
+        got = parse(render({"engine": {"model": "m", "max_context": 1000}, "live": {}, "totals": {}},
+                           Latencies().snapshot()))
+        self.assertNotIn(("strata:engine_vram_used_bytes", lab), got)     # no telemetry: no sample, no zero
+
 
 class Endpoint(unittest.TestCase):
     @classmethod

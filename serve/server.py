@@ -762,6 +762,39 @@ def conversation_cache_view(info: dict, hist: list, totals: dict, parked: dict) 
             "last_prompt": last.get("prompt_tokens") if last else None}
 
 
+def memory_view(info: dict, hw: dict) -> dict:
+    """The engine's memory as the Monitor, GET /metrics and GET /v1/status show it, in MiB - what /v1/vram and the
+    engine's own INFO line never said between them:
+    - vram.total_mib / used_mib / free_mib: the whole card (NVIDIA's NVML), every process on it;
+    - vram.asked_mib: what the engine committed on the card (the driver's own per-process counter);
+    - vram.used_mib: what of it the engine really holds in the card's memory;
+    - vram.spilled_mib: what the driver moved to the system's RAM.  A card asked for more than it has does that,
+      and then an answer crawls (Engine::fill_expert_cache, and the -1024 MiB warning the engine prints);
+    - vram.engine_free_mib / reserve_mib / expert_slots / expert_cache_mib: the engine's own figures (poly);
+    - ram.total_mib / used_mib: the host's RAM, and ram.engine_asked_mib (committed) / engine_used_mib (resident)
+      for the engine process itself.
+    A reading that is not there is null (another OS, no engine running): nothing here invents a number."""
+    def mib(v):
+        return round(v / 2 ** 20) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    total, card_used = hw.get("gpu_mem_total"), hw.get("gpu_mem_used")
+    free = total - card_used if isinstance(total, (int, float)) and isinstance(card_used, (int, float)) else None
+    vram_cmd = info.get("vram") if isinstance(info.get("vram"), dict) else {}          # the VRAM command's answer
+    def told(key):                                                                     # an engine figure, in MiB
+        v = info.get(key, vram_cmd.get(key))
+        return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+    return {
+        "vram": {"total_mib": mib(total), "used_mib": mib(card_used), "free_mib": mib(free),
+                 "asked_mib": mib(hw.get("engine_vram_asked")), "engine_used_mib": mib(hw.get("engine_vram_used")),
+                 "spilled_mib": mib(hw.get("engine_vram_spilled")), "shared_mib": mib(hw.get("engine_vram_shared")),
+                 "engine_free_mib": told("vram_free_mib"), "reserve_mib": told("vram_reserve_mib") or told("reserve_mib"),
+                 "expert_slots": told("expert_slots"), "expert_cache_mib": told("expert_cache_mib")},
+        "ram": {"total_mib": mib(hw.get("ram_total")), "used_mib": mib(hw.get("ram_used")),
+                "engine_asked_mib": mib(hw.get("engine_ram_asked")), "engine_used_mib": mib(hw.get("engine_ram_used"))},
+    }
+
+
 _BTRACE = bool(os.environ.get("STRATA_BATCH_TRACE"))
 
 
@@ -4274,12 +4307,24 @@ class Service:
                     req["thinking"], req["output_config"] = {"type": "adaptive"}, {"effort": effort}
         return req
 
+    def engine_pids(self) -> list[int]:
+        """The ids of the engine processes that are running, every replica's: the telemetry reads their own GPU and
+        host memory (engine_vram_* / engine_ram_*), and the progress lines say it."""
+        engines = getattr(self.engine, "engines", None) or [self.engine]
+        out = []
+        for e in engines:
+            pid = getattr(getattr(e, "proc", None), "pid", None)
+            if pid:
+                out.append(int(pid))
+        return out
+
     def start_telemetry(self):
         """The hardware sampler behind GET /metrics (serve/telemetry.py), recording this server's tok/s too."""
         if getattr(self, "telemetry", None) is None:
             from serve.telemetry import Telemetry
             self.telemetry = Telemetry(extra=lambda: {"tok_s": self._tok_s(), "tok_s_mean": self._tok_s_mean(),
                                                     "prefill_tok_s_mean": self._prefill_tok_s_mean()},
+                                       pids=self.engine_pids,
                                        gpu_index=int(getattr(self, "gpu_index", 0) or 0),
                                        gpu_indices=getattr(self, "gpu_indices", None),
                                        amd=getattr(self, "backend", None) == "hip")
@@ -4404,6 +4449,7 @@ class Service:
         tel = self.telemetry.snapshot() if getattr(self, "telemetry", None) else {"now": {}, "history": {}, "static": {}}
         parked = self.conv_log.poll(getattr(self.engine, "log_path", None), getattr(self.engine, "log_start", None))
         return {"engine": engine, "live": live, "requests": hist[::-1][:None if all_requests else 12],
+                "memory": memory_view(engine, tel["now"]),
                 "conversation_cache": conversation_cache_view(engine, hist, totals, parked),
                 "requests_kept": len(hist), "totals": totals, "hardware": tel["now"],
                 "hardware_static":
@@ -4480,6 +4526,7 @@ class Service:
             "last_timings": last_t,
             "vram": dict((getattr(self.engine, "info", {}) or {}).get("vram") or {},
                          elastic=bool((getattr(self.engine, "info", {}) or {}).get("vram_elastic"))),
+            "memory": memory_view(getattr(self.engine, "info", {}) or {}, hw),
             "machine": {
                 "at": int(time.time()),
                 "gpu": {"name": static.get("gpu_name"), "used_mib": scaled(hw.get("gpu_mem_used"), 2 ** 20),
@@ -4882,18 +4929,52 @@ class Service:
         with self.status_lock:
             s = dict(self.status if st is None else st)
         el = now - s.get("started", now)
+        mem = self._memory_note()
         if s.get("first_token") is None:
             pr = getattr(self.engine, "progress", None)   # (position reached, prompt tokens): a reused prefix counts
             done = f"{pr[0]:,} of {pr[1]:,}" if pr and pr[1] else f"{s.get('prompt_tokens', 0):,}"   # as read (#29)
-            print(f"[strata] reading the prompt: {done} tokens, {el:.0f} s so far", flush=True)
+            # the speed the prompt is being read at, from the engine's own PP line (its own tokens read over its own
+            # milliseconds, so a rate that settles as the read goes on).  Without it this line said how long the read
+            # had taken and never how fast it went.
+            rate = getattr(self.engine, "prefill_tok_s_mean", None)
+            print(f"[strata] reading the prompt: {done} tokens, {el:.0f} s so far"
+                  f"{f', {rate:.1f} tok/s' if rate else ''}{mem}", flush=True)
         else:
             rate = s["generated"] / max(1e-6, now - s["first_token"])
             # #984: while a thinking budget applies, the thinking line shows it, not the request's max_tokens
             limit = (f"budget {s['thinking_budget']} (max {s.get('max_tokens')})"
                      if s["phase"] == "thinking" and s.get("thinking_budget") else f"max {s.get('max_tokens')}")
             print(f"[strata] {s['phase']}: {s['generated']} of {limit} tokens, {rate:.1f} tok/s, "
-                  f"{el:.0f} s", flush=True)
+                  f"{el:.0f} s{mem}", flush=True)
         return now
+
+    def _memory_note(self) -> str:
+        """`, VRAM 20.9 of 24.0 GB (asked 22.8 GB, 2.0 GB moved to the system's RAM), engine RAM 25.1 of 26.0 GB`
+        for the progress lines, or "" when the readings are not there (no telemetry, no engine running, another
+        OS).  The engine's own memory as the driver counts it: what it holds in VRAM, what it asked the card for,
+        and how much of that the driver moved to the system's RAM.  A card that is asked for more than it has
+        moves memory there and crawls (Engine::fill_expert_cache says so in its own comment), so this is the line
+        that says why a read is slow."""
+        hw = (self.telemetry.snapshot()["now"] if getattr(self, "telemetry", None) else None) or {}
+        gb = lambda v: v / 2 ** 30                                                # noqa: E731 - one expression, twice
+        vram, spilled, asked = (hw.get("engine_vram_used"), hw.get("engine_vram_spilled"),
+                                hw.get("engine_vram_asked"))
+        if vram is None:
+            return ""
+        parts = []
+        total = hw.get("gpu_mem_total")
+        parts.append(f"VRAM {gb(vram):.1f}{f' of {gb(total):.1f}' if total else ''} GB")
+        extra = []
+        if asked and asked > vram:
+            extra.append(f"asked {gb(asked):.1f} GB")
+        if spilled:
+            extra.append(f"{gb(spilled):.1f} GB moved to the system's RAM")
+        if extra:
+            parts[-1] += f" ({', '.join(extra)})"
+        ram, ram_total = hw.get("engine_ram_used"), hw.get("ram_total")
+        if ram:
+            parts.append(f"engine RAM {gb(ram):.1f}{f' of {gb(ram_total):.1f}' if ram_total else ''} GB")
+        return ", " + ", ".join(parts) if parts else ""
 
     def run(self, ids, thinking, tools, max_new, sampling, cancel, force=None) -> Iterator[tuple[str, object]]:
         """The request's events (see _run); with "prevent_sleep" in the config, the PC stays awake while it runs or waits."""

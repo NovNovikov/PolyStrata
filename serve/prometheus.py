@@ -158,3 +158,21 @@ def strata(m: dict, out: list, lab: str):
     metric("cpu", "gauge", "CPU busy, percent (hardware.cpu).", hw.get("cpu"))
     metric("ram_used_bytes", "gauge", "RAM in use (hardware.ram_used).", hw.get("ram_used"))
     metric("ram_total_bytes", "gauge", "RAM (hardware.ram_total).", hw.get("ram_total"))
+    # the engine process' own memory (Windows: the driver's per-process counters; the rest from psutil)
+    metric("engine_vram_used_bytes", "gauge", "What the engine holds in the card's memory (hardware.engine_vram_used).",
+           hw.get("engine_vram_used"))
+    metric("engine_vram_spilled_bytes", "gauge",
+           "Engine memory the driver moved to the system's RAM (hardware.engine_vram_spilled).",
+           hw.get("engine_vram_spilled"))
+    metric("engine_vram_asked_bytes", "gauge", "GPU memory the engine committed (hardware.engine_vram_asked).",
+           hw.get("engine_vram_asked"))
+    metric("engine_ram_used_bytes", "gauge", "Host RAM the engine holds (hardware.engine_ram_used).",
+           hw.get("engine_ram_used"))
+    metric("engine_ram_asked_bytes", "gauge", "Host RAM the engine committed (hardware.engine_ram_asked).",
+           hw.get("engine_ram_asked"))
+    memory = m.get("memory") or {}
+    vram_now = memory.get("vram") or {}
+    metric("engine_vram_free_mib", "gauge", "The engine's own free-VRAM figure (memory.vram.engine_free_mib).",
+           vram_now.get("engine_free_mib"))
+    metric("engine_expert_cache_mib", "gauge", "The experts' cache in VRAM (memory.vram.expert_cache_mib).",
+           vram_now.get("expert_cache_mib"))

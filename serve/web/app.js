@@ -231,7 +231,7 @@ function render(m) {
   if (live.queued > 0) setPill("queued", `${live.queued} queued`);
   if (tab === "monitor") renderMonitor(live, hw, st, eng, h, last, m.requests || [], m.totals, m.requests_kept);
   if (tab === "monitor") renderConvCache(m.conversation_cache);
-  if (tab === "about") renderAbout(eng, hw, st);
+  if (tab === "about") renderAbout(eng, hw, st, m.memory);
 }
 
 // #596: the conversation cache - the prompt's state the engine keeps between requests (always), and the whole
@@ -320,9 +320,19 @@ function renderMonitor(live, hw, st, eng, h, last, requests, totals, kept) {
   setMetric("gpu", hw.gpu_util == null ? null : fmt(hw.gpu_util), "%",
             multi ? per((g) => (g.util == null ? "–" : `${fmt(g.util)}%`)) : st.gpu_name || (st.gpu_note ? "not available" : ""));
   spark("sp-gpu", h.gpu_util, 100);
+  // the card's use, and the engine's own share of it (the driver's per-process counter): what it holds in VRAM,
+  // and how much of the engine the driver moved to the system's RAM (the spill that makes an answer crawl)
+  const spilled = hw.engine_vram_spilled || 0, engVram = hw.engine_vram_used;
+  const vramBits = [];
+  if (multi) vramBits.push(per((g) => (g.mem_used == null ? "–" : `${gb(g.mem_used)} GB`)));
+  else {
+    if (eng.expert_slots) vramBits.push(`${fmt(eng.expert_slots)} experts`);
+    if (engVram != null) vramBits.push(spilled > 0.25 * 1073741824
+      ? `engine ${gb(engVram)} GB, ${gb(spilled)} GB to RAM` : `engine ${gb(engVram)} GB`);
+    if (!vramBits.length && st.gpu_note) vramBits.push("not available on Windows AMD yet");
+  }
   setMetric("vram", hw.gpu_mem_used == null ? null : gb(hw.gpu_mem_used), hw.gpu_mem_total ? `/ ${gb(hw.gpu_mem_total, 0)} GB` : "GB",
-            multi ? per((g) => (g.mem_used == null ? "–" : `${gb(g.mem_used)} GB`))
-                  : eng.expert_slots ? `${fmt(eng.expert_slots)} experts cached` : (st.gpu_note ? "not available on Windows AMD yet" : ""));
+            vramBits.join(" · "));
   spark("sp-vram", h.gpu_mem_used, hw.gpu_mem_total);
   setMetric("temp", hw.gpu_temp == null ? null : fmt(hw.gpu_temp), "°C",
             multi ? per((g) => (g.temp == null ? "–" : `${fmt(g.temp)}°`)) : "");
@@ -408,14 +418,24 @@ function projectionText(c) {
          `${single ? ` (layer ${single.replace("single", "")}'s direction)` : ""}. Per chat in Sampling. Its package ` +
          "describes the vector as a refusal-direction projection; measure the speed yourself";
 }
-function renderAbout(eng, hw, st) {
+function renderAbout(eng, hw, st, mem) {
   const kv = {int8: "8-bit", q4_0: "4-bit (Hadamard-rotated)", fp16: "16-bit"}[eng.kv] || eng.kv;
+  // the engine process' own memory (GET /metrics's memory block): asked for, really held, and what of it the
+  // driver moved to the system's RAM - the figure that says why a read or an answer is slow
+  const vram = (mem || {}).vram || {}, ram = (mem || {}).ram || {};
+  const gbm = (v) => (v == null ? null : gb(v * 1048576));
   facts($("facts-engine"), [
     ["Model", eng.model],
     ["Engine", eng.version ? `v${eng.version}` : "built from source"],
     ["Context", eng.max_context ? `${fmt(eng.max_context)} tokens` : null],
     ["KV cache", kv ? `${kv}${eng.kv_resident ? `, streamed: ${fmt(eng.kv_resident)} positions per layer in VRAM, the rest in RAM` : ", all in VRAM"}` : null],
     ["Experts in VRAM", eng.expert_slots ? `${fmt(eng.expert_slots)} (${gb((eng.expert_cache_mib || 0) * 1048576)} GB)` : null],
+    ["Engine VRAM", vram.engine_used_mib == null ? null
+      : `${gbm(vram.engine_used_mib)} GB held${vram.asked_mib ? ` of ${gbm(vram.asked_mib)} GB asked for` : ""}` +
+        `${vram.spilled_mib ? `, ${gbm(vram.spilled_mib)} GB moved to the system's RAM` : ""}` +
+        `${vram.engine_free_mib != null ? ` (${gbm(vram.engine_free_mib)} GB free to the engine)` : ""}`],
+    ["Engine RAM", ram.engine_used_mib == null ? null
+      : `${gbm(ram.engine_used_mib)} GB in use${ram.engine_asked_mib ? ` of ${gbm(ram.engine_asked_mib)} GB committed` : ""}`],
     ["Speculation", eng.spec ? `MTP drafts up to ${Math.max(0, (eng.mtp_max || eng.spec) - 1)} tokens${eng.lookup ? ", prompt lookup on" : ""}` : null],
     ["Images", eng.images ? "on" : "off"],
     ["Experimental speed projection", projectionText(eng.cvec)],

@@ -8,6 +8,9 @@ A background thread samples once a second and keeps the last 60 readings of each
   Silicon GPU sits on the die, so there is no PCIe link.
 - CPU, RAM, disk: `psutil` when it is installed (setup installs it); without it the CPU and RAM readings fall back to
   the OS (Windows GlobalMemoryStatusEx / GetSystemTimes, Linux /proc) and the disk rate is absent.
+- The engine's own memory (with the `pids` callback): on Windows the driver's per-process GPU counters through PDH -
+  how much VRAM the engine asked for, how much it really holds, and how much of it the driver moved to the system's
+  RAM - and, from `psutil`, its host RAM committed and resident (see gpu_process_memory).
 Anything that cannot be read is None; nothing here can stop the server.
 """
 from __future__ import annotations
@@ -106,6 +109,115 @@ class _Nvml:
         out["pcie_rx_mb"] = rx / 1024.0 if rx is not None else None
         out["pcie_tx_mb"] = tx / 1024.0 if tx is not None else None
         return out
+
+
+# ------------------------------------------------------------------------ one process' GPU memory (Windows)
+# The driver's own per-process counters, the ones Task Manager's GPU tab shows, read through PDH (no pip package
+# and no process started): "Local Usage" is what the process holds in the card's memory - the real VRAM use -
+# "Non Local Usage" is what the driver moved to the system's RAM (what a card that was asked for more than it had
+# does, and what a crawl of an answer was full of), "Shared Usage" is host memory mapped into the process (its
+# pinned buffers), and "Total Committed" is everything the process has committed on that adapter - its ask,
+# local + shared.  NVML has no per-process figure on Windows.
+# the counter's name -> the series name the server and the web app use
+GPU_PROCESS_COUNTERS = {"Local Usage": "used", "Non Local Usage": "spilled", "Shared Usage": "shared",
+                        "Total Committed": "asked"}
+
+
+class _PdhRaw(ctypes.Structure):
+    """PDH_RAW_COUNTER.  The raw value is read, not the formatted one: the driver counts these three in 32 bits,
+    and PdhGetFormattedCounterValue saturates them at 2^31-1 (a 21 GiB VRAM use came back as exactly 2048 MiB),
+    while PdhGetRawCounterValue carries the whole 64-bit count WMI reports."""
+    class _FileTime(ctypes.Structure):
+        _fields_ = [("dwLowDateTime", ctypes.c_ulong), ("dwHighDateTime", ctypes.c_ulong)]
+    _fields_ = [("CStatus", ctypes.c_ulong), ("TimeStamp", _FileTime), ("FirstValue", ctypes.c_longlong),
+                ("SecondValue", ctypes.c_longlong), ("MultiCount", ctypes.c_ulong)]
+
+
+def _pdh():
+    """pdh.dll with the prototypes declared, or None where there is none (only Windows has these counters)."""
+    lib = getattr(_pdh, "_lib", False)
+    if lib is False:
+        lib = None
+        if os.name == "nt":
+            try:
+                lib = ctypes.WinDLL("pdh.dll")
+                lib.PdhOpenQueryW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+                lib.PdhOpenQueryW.restype = ctypes.c_ulong
+                lib.PdhExpandWildCardPathW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p,
+                                                       ctypes.POINTER(ctypes.c_ulong), ctypes.c_ulong]
+                lib.PdhExpandWildCardPathW.restype = ctypes.c_ulong
+                lib.PdhAddEnglishCounterW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_void_p,
+                                                      ctypes.POINTER(ctypes.c_void_p)]
+                lib.PdhAddEnglishCounterW.restype = ctypes.c_ulong
+                lib.PdhCollectQueryData.argtypes = [ctypes.c_void_p]
+                lib.PdhCollectQueryData.restype = ctypes.c_ulong
+                lib.PdhGetRawCounterValue.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong),
+                                                      ctypes.POINTER(_PdhRaw)]
+                lib.PdhGetRawCounterValue.restype = ctypes.c_ulong
+                lib.PdhCloseQuery.argtypes = [ctypes.c_void_p]
+                lib.PdhCloseQuery.restype = ctypes.c_ulong
+            except (OSError, AttributeError):
+                lib = None
+        _pdh._lib = lib
+    return lib
+
+
+def _counter_paths(pid, counter):
+    """A process' instances of one GPU counter, one per adapter it is on: "GPU Process Memory" is per process and
+    per adapter, and its instance name carries the pid ("pid_1234_luid_0x00000000_0x00020584_phys_0")."""
+    lib = _pdh()
+    want = rf"\GPU Process Memory(pid_{pid}*)\{counter}"
+    size = ctypes.c_ulong(0)
+    lib.PdhExpandWildCardPathW(None, want, None, ctypes.byref(size), 0)
+    if not size.value:
+        return []
+    buf = ctypes.create_unicode_buffer(size.value + 1)
+    if lib.PdhExpandWildCardPathW(None, want, buf, ctypes.byref(size), 0) != 0:
+        return []
+    return [p for p in buf[:size.value].split("\0") if p]
+
+
+def gpu_process_memory(pid):
+    """One process' GPU memory in bytes as the driver counts it (Windows): {"used", "spilled", "shared", "asked"},
+    or {} when it cannot be read (another OS, a process with no adapter instance, Windows without the counters).
+    Summed over the adapters the process has an instance on."""
+    lib = _pdh()
+    if lib is None or not pid:
+        return {}
+    query = ctypes.c_void_p()
+    if lib.PdhOpenQueryW(None, None, ctypes.byref(query)) != 0:
+        return {}
+    try:
+        counters = []
+        for counter, name in GPU_PROCESS_COUNTERS.items():
+            for path in _counter_paths(pid, counter):
+                h = ctypes.c_void_p()
+                if lib.PdhAddEnglishCounterW(query, path, None, ctypes.byref(h)) == 0:
+                    counters.append((name, h))
+        if not counters or lib.PdhCollectQueryData(query) != 0:
+            return {}
+        out = {}
+        for name, h in counters:
+            v = _PdhRaw()
+            if lib.PdhGetRawCounterValue(h, None, ctypes.byref(v)) == 0 and v.CStatus in (0, 1):
+                out[name] = out.get(name, 0) + v.FirstValue
+        return out
+    finally:
+        lib.PdhCloseQuery(query)
+
+
+def process_ram(ps, pid):
+    """One process' host RAM in bytes: "used" (resident, what it really has) and "asked" (committed: Windows'
+    private bytes, elsewhere the virtual size).  {} when it cannot be read."""
+    if ps is None or not pid:
+        return {}
+    try:
+        m = ps.Process(pid).memory_info()
+    except ps.Error:                          # gone, or not ours to read
+        return {}
+    out = {"used": getattr(m, "rss", None)}
+    out["asked"] = getattr(m, "private", None) or getattr(m, "vms", None)
+    return {k: v for k, v in out.items() if v}
 
 
 # ------------------------------------------------------------------------------------------------ AMD (Linux sysfs)
@@ -536,13 +648,15 @@ class Cgroup:
 
 # ------------------------------------------------------------------------------------------------ the sampler
 class Telemetry:
-    def __init__(self, extra=None, gpu_index=0, gpu_indices=None, amd=False):
+    def __init__(self, extra=None, gpu_index=0, gpu_indices=None, amd=False, pids=None):
         """`extra()` -> dict of more series to record each second (the server's tok/s).  `gpu_index`: the card the
         engine runs on, numbered as nvidia-smi and NVML number them (by PCI bus); `gpu_indices`: all of them when
         the model is split across several (issue #112) - the gpu_* readings are then their total (memory, power,
         PCIe traffic), mean (load) or hottest (temperature), and "gpus" has each card's own.  `amd`: the AMD backend's
-        cards, numbered as HIP numbers them, read from sysfs (#301)."""
+        cards, numbered as HIP numbers them, read from sysfs (#301).  `pids()` -> the engine process ids, whose own
+        GPU and host memory are then sampled too (engine_vram_* / engine_ram_*, see _engine_memory)."""
         self.extra = extra
+        self.pids = pids
         self.lock = threading.Lock()
         self.now: dict = {}
         self.hist = collections.defaultdict(lambda: collections.deque(maxlen=HISTORY))
@@ -643,12 +757,38 @@ class Telemetry:
             if used is not None:
                 s["ram_used"], s["ram_total"] = used, self.cgroup.mem
         s["disk_read_mb"], s["disk_write_mb"] = self._disk()
+        if self.pids:
+            s.update(self._engine_memory())
         if self.extra:
             try:
                 s.update(self.extra())
             except Exception:  # noqa: BLE001 - telemetry must never take the server down
                 pass
         return s
+
+    def _engine_memory(self):
+        """The engine process(es)' own memory in bytes, summed over them: `engine_vram_used` (held in the card's
+        memory), `engine_vram_spilled` (the part of it the driver keeps in the system's RAM - the spill a card
+        that was asked for more than it has does), `engine_vram_shared` (host memory mapped into it) and
+        `engine_vram_asked` (everything it committed on the adapter), plus `engine_ram_used` (resident) and
+        `engine_ram_asked` (committed) of the host's RAM.  Nothing readable means nothing added: the engine may
+        not be running, and this only feeds the Monitor."""
+        try:
+            pids = [int(p) for p in (self.pids() or []) if p]
+        except Exception:  # noqa: BLE001 - a sampler that raises takes the dashboard down
+            return {}
+        out, used, asked = {}, 0, 0
+        for pid in pids:
+            for k, v in gpu_process_memory(pid).items():
+                out[f"engine_vram_{k}"] = out.get(f"engine_vram_{k}", 0) + v
+            r = process_ram(self.ps, pid)
+            used += r.get("used") or 0
+            asked += r.get("asked") or 0
+        if used:
+            out["engine_ram_used"] = used
+        if asked:
+            out["engine_ram_asked"] = asked
+        return out
 
     def close(self):
         """Ends the sampler thread (a server that stops, a test's service): it used to run for the life of the process."""
@@ -660,7 +800,9 @@ class Telemetry:
             with self.lock:
                 self.now = s
                 for k in ("gpu_util", "gpu_mem_used", "gpu_temp", "gpu_power", "gpu_pcie_rx_mb", "cpu", "ram_used",
-                          "disk_read_mb", "tok_s", "prefill_tok_s_mean"):
+                          "disk_read_mb", "tok_s", "prefill_tok_s_mean",
+                          "engine_vram_used", "engine_vram_spilled", "engine_vram_shared", "engine_vram_asked",
+                          "engine_ram_used", "engine_ram_asked"):
                     v = s.get(k)
                     self.hist[k].append(round(v, 2) if isinstance(v, float) else v)
             self._stop.wait(1.0)

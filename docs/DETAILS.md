@@ -522,8 +522,11 @@ download continues where it stopped) and **starts the model**: your browser open
 app. It has three tabs:
 - **Chat:** streaming answers, the model's thinking (folded away once it answers), code with a copy button, pictures when
   images are on, and sampling and thinking-level settings. Chats stay in your browser.
-- **Monitor:** what the model is doing (reading the prompt, with progress, or writing, at how many tokens/s); GPU load,
-  VRAM, temperature, power and PCIe traffic; CPU, RAM and disk; the context in use; the last requests.
+- **Monitor:** what the model is doing (reading the prompt, with progress, at how many tokens/s, or writing); GPU load,
+  VRAM, temperature, power and PCIe traffic; CPU, RAM and disk; the context in use; the last requests. Its VRAM card
+  and the About tab also say the engine's own memory as the driver counts it: what it holds in VRAM, what it asked the
+  card for, how much of that the driver moved to the system's RAM, and the engine process' host RAM (committed and in
+  use). The server's progress lines carry the same numbers.
 
 On a Mac (Metal backend) the Monitor's GPU load and VRAM come from IOKit's IOAccelerator nodes - the driver's Device
 Utilization % and its in-use system memory, against the device's Metal working set - and the card says the rest: there
@@ -792,6 +795,18 @@ so a Monitor-tab panel and a Grafana panel read the same value: `strata:live_sta
 `strata:gpu_mem_total_bytes`, `strata:gpu_temp_celsius`, `strata:gpu_power_watts` (one sample per card, label
 `gpu`), `strata:cpu`, `strata:ram_used_bytes`, `strata:ram_total_bytes`. A value the server does not have (no GPU
 telemetry, an older engine) has no sample rather than a zero.
+
+The engine process' own memory, the same numbers the Monitor's VRAM card and About tab show (Windows; the driver's
+per-process GPU counters and the process' RAM), comes with it: `strata:engine_vram_used_bytes` (what it holds in the
+card's memory), `strata:engine_vram_asked_bytes` (what it committed on the card), `strata:engine_vram_spilled_bytes`
+(the part of that the driver keeps in the system's RAM - a card asked for more than it has does that, and then a
+read crawls), `strata:engine_ram_used_bytes` / `strata:engine_ram_asked_bytes` (the engine process' RAM, in use and
+committed), `strata:engine_vram_free_mib` (the engine's own free-VRAM figure) and `strata:engine_expert_cache_mib`
+(its experts' cache). `GET /metrics`' JSON answers the same in a `memory` block, in MiB: `memory.vram` is the whole
+card (`total_mib`, `used_mib`, `free_mib`) and the engine's part of it (`engine_used_mib` held, `asked_mib`
+committed, `spilled_mib` moved to the system's RAM, `shared_mib`, and the engine's `engine_free_mib`,
+`expert_slots`, `expert_cache_mib`, `reserve_mib`), `memory.ram` is the host's (`total_mib`, `used_mib`,
+`engine_used_mib`, `engine_asked_mib`). `GET /v1/status` answers the same `memory`.
 
 Ready to use, in `docs/monitoring/`: `prometheus.yml` (a scrape config, the API key as a bearer token),
 `servicemonitor.yaml` (the same for the Prometheus Operator) and `grafana-strata.json`, a Grafana dashboard to

@@ -5128,6 +5128,100 @@ class TelemetryNoDisks(unittest.TestCase):
                 t.close()
 
 
+class EngineMemory(unittest.TestCase):
+    """What the card was asked for, what the engine really holds of it, and how much of it the driver moved to the
+    system's RAM: memory_view behind GET /metrics, GET /v1/status and the Monitor, _memory_note behind the progress
+    lines, and Telemetry._engine_memory behind both."""
+
+    HW = {"gpu_mem_total": 24 * 2**10 * 2**20, "gpu_mem_used": 20 * 2**10 * 2**20, "ram_total": 128 << 30,
+          "ram_used": 64 << 30, "engine_vram_used": 21 * 2**20 * 2**10, "engine_vram_asked": 23 * 2**20 * 2**10,
+          "engine_vram_spilled": 2 * 2**20 * 2**10, "engine_vram_shared": 2 * 2**20 * 2**10,
+          "engine_ram_used": 25 << 30, "engine_ram_asked": 24 << 30}
+    INFO = {"vram_free_mib": 993, "expert_slots": 683, "expert_cache_mib": 7483}
+
+    def test_every_reading_in_mib(self):
+        from serve.server import memory_view
+        got = memory_view(self.INFO, self.HW)
+        self.assertEqual(got["vram"], {"total_mib": 24576, "used_mib": 20480, "free_mib": 4096, "asked_mib": 23552,
+                                       "engine_used_mib": 21504, "spilled_mib": 2048, "shared_mib": 2048,
+                                       "engine_free_mib": 993, "reserve_mib": None, "expert_slots": 683,
+                                       "expert_cache_mib": 7483})
+        self.assertEqual(got["ram"], {"total_mib": 131072, "used_mib": 65536, "engine_asked_mib": 24576,
+                                      "engine_used_mib": 25600})
+
+    def test_the_engine_figures_fall_back_to_its_vram_answer(self):
+        """Between requests /v1/status knows only what the last VRAM command said (engine.py's INFO line)."""
+        from serve.server import memory_view
+        got = memory_view({"vram": {"expert_slots": 512, "reserve_mib": 2048, "vram_free_mib": 1500}}, dict(self.HW))
+        self.assertEqual((got["vram"]["expert_slots"], got["vram"]["reserve_mib"], got["vram"]["engine_free_mib"]),
+                         (512, 2048, 1500))
+
+    def test_nothing_read_invents_nothing(self):
+        from serve.server import memory_view
+        none = {"total_mib": None, "used_mib": None, "free_mib": None, "asked_mib": None, "engine_used_mib": None,
+                "spilled_mib": None, "shared_mib": None, "engine_free_mib": None, "reserve_mib": None,
+                "expert_slots": None, "expert_cache_mib": None}
+        got = memory_view({}, {})
+        self.assertEqual(got["vram"], none)
+        self.assertEqual(got["ram"], {"total_mib": None, "used_mib": None, "engine_asked_mib": None,
+                                      "engine_used_mib": None})
+        got = memory_view({"expert_slots": True, "vram": {"reserve_mib": "2048"}}, {"engine_vram_used": True})
+        self.assertIsNone(got["vram"]["engine_used_mib"])          # a bool is not a reading
+        self.assertIsNone(got["vram"]["expert_slots"])
+        self.assertIsNone(got["vram"]["reserve_mib"])
+
+    def test_engine_pids_walk_the_engine_and_its_replicas(self):
+        from serve.server import Service
+        svc, none = Service.__new__(Service), SimpleNamespace(proc=None)
+        svc.engine = SimpleNamespace(proc=SimpleNamespace(pid=1234))
+        self.assertEqual(svc.engine_pids(), [1234])
+        svc.engine = SimpleNamespace(proc=none)                    # not started yet: no pid, no crash
+        self.assertEqual(svc.engine_pids(), [])
+        svc.engine = SimpleNamespace(engines=[none, SimpleNamespace(proc=SimpleNamespace(pid=7)),
+                                              SimpleNamespace(proc=SimpleNamespace(pid=8))])
+        self.assertEqual(svc.engine_pids(), [7, 8])                # --engines 2: every replica's process
+
+    def test_the_progress_note_says_asked_and_spilled(self):
+        from serve.server import Service
+        svc = Service.__new__(Service)
+        self.assertEqual(svc._memory_note(), "")                   # no telemetry: no note
+        now = {"gpu_mem_total": 24 << 30, "engine_vram_used": 20.8 * 2**30, "engine_vram_asked": 22.8 * 2**30,
+               "engine_vram_spilled": 2 << 30, "engine_ram_used": 25.1 * 2**30, "ram_total": 128 << 30}
+        svc.telemetry = SimpleNamespace(snapshot=lambda: {"now": now})
+        self.assertEqual(svc._memory_note(),
+                         ", VRAM 20.8 of 24.0 GB (asked 22.8 GB, 2.0 GB moved to the system's RAM), engine RAM "
+                         "25.1 of 128.0 GB")
+        now["engine_vram_asked"] = now["engine_vram_used"]         # nothing asked beyond what it holds: no "asked"
+        now["engine_vram_spilled"] = 0
+        self.assertEqual(svc._memory_note(), ", VRAM 20.8 of 24.0 GB, engine RAM 25.1 of 128.0 GB")
+        del now["ram_total"]
+        self.assertEqual(svc._memory_note(), ", VRAM 20.8 of 24.0 GB, engine RAM 25.1 GB")
+
+    def test_engine_memory_sums_the_processes(self):
+        from serve import telemetry
+        t = telemetry.Telemetry.__new__(telemetry.Telemetry)
+        t.pids, t.ps = lambda: [10, 20], None
+        with mock.patch.object(telemetry, "gpu_process_memory",
+                               lambda pid: {10: {"used": 1 << 30, "asked": 2 << 30, "spilled": 512 << 20},
+                                            20: {"used": 3 << 30, "asked": 4 << 30}}[pid]), \
+             mock.patch.object(telemetry, "process_ram",
+                               lambda ps, pid: {10: {"used": 5 << 30, "asked": 4 << 30},
+                                                20: {"used": 1 << 30}}[pid]):
+            self.assertEqual(t._engine_memory(), {"engine_vram_used": 4 << 30, "engine_vram_asked": 6 << 30,
+                                                 "engine_vram_spilled": 512 << 20, "engine_ram_used": 6 << 30,
+                                                 "engine_ram_asked": 4 << 30})
+        t.pids = lambda: [0, None]                                 # no engine running: nothing added
+        self.assertEqual(t._engine_memory(), {})
+        t.pids = lambda: 1 / 0                                     # a sampler that raises must not take anything down
+        self.assertEqual(t._engine_memory(), {})
+
+    def test_a_process_counter_read_without_a_pid_is_empty(self):
+        from serve import telemetry
+        self.assertEqual(telemetry.gpu_process_memory(0), {})
+        self.assertEqual(telemetry.process_ram(None, 4321), {})
+        self.assertEqual(telemetry.process_ram(SimpleNamespace(), 0), {})
+
+
 class SilentEngine(unittest.TestCase):
     """#481: an engine that prints nothing for engine_silence_s during a request (or never acknowledges a STOP) has
     lost step with the server: it is ended and the request fails with EngineDied, instead of waiting forever."""
