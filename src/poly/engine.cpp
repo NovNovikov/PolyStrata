@@ -1216,10 +1216,11 @@ void Engine::print_memory(const char* when) const {
     }
 #endif
     const auto mib = [](uint64_t n) { return double(n) / double(1u << 20); };
-    std::fprintf(stderr, "strata-poly: memory[%s] card=%d context=%d prompt_batch=%d read_chunk=%d sequences=%d: "
-                         "KV=%.2f MiB VRAM (full-context=%.2f MiB), rows=%.2f MiB VRAM, h_res_=%.2f MiB RAM (max=%.2f MiB)\n",
-                 when, device_, opt_.max_context, rows_, read_rows_, std::max(1, sequences()), mib(kv), mib(kv_full), mib(rows),
-                 mib(h_res), mib(row_limit));
+    std::fprintf(stderr, "strata-poly: memory[%s] card=%d context=%d sequences=%d: "
+                         "KV=%.2f MiB VRAM (full-context=%.2f MiB), rows=%.2f MiB VRAM (chunk=%d, batch=%d), "
+                         "h_res_=%.2f MiB RAM (max=%.2f MiB)\n",
+                 when, device_, opt_.max_context, std::max(1, sequences()), mib(kv), mib(kv_full), mib(rows),
+                 read_rows_, rows_, mib(h_res), mib(row_limit));
     std::fprintf(stderr, "strata-poly: memory[%s] card=%d VRAM allocations total=%.2f MiB: dense=%.2f, "
                          "experts=%.2f, KV=%.2f, staging=%.2f, rows=%.2f, other=%.2f; reserve=%d MiB\n",
                  when, device_, mib(device), mib(dense), mib(experts), mib(kv), mib(staging), mib(rows), mib(other),
@@ -1937,6 +1938,9 @@ void Engine::shared_scratch() {
 // The sequence's state, the caches and every buffer, once the weights are known.
 void Engine::alloc() {
     // --dump-layers prints one token's stages
+    if (opt_.read_chunk_tokens > 0 && opt_.prompt_batch > opt_.read_chunk_tokens) {
+        opt_.prompt_batch = opt_.read_chunk_tokens;
+    }
     rows_ = opt_.dump ? 1 : std::min(opt_.prompt_batch, opt_.max_context);
     const size_t chunk_limit = opt_.read_chunk_tokens > 0
         ? std::min((size_t) opt_.read_chunk_tokens, (size_t) opt_.max_context)

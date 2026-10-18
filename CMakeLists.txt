@@ -1,4 +1,4 @@
-﻿# Strata Engine - top-level build (P1.S1).
+# Strata Engine - top-level build (P1.S1).
 #
 # Targets (phase-1 Ă‚Â§P1.S1): `strata_artifact` (no CUDA dependency), `tests`.  `strata_plan` and the C++
 # `strata-pack` are added when their sources exist - a target with no sources would make the build graph
@@ -2133,6 +2133,10 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
   target_include_directories(poly_workers_test PRIVATE ${_strata_gg}/include)
   target_link_libraries(poly_workers_test PRIVATE ggml-cpu ggml-base Threads::Threads)
   add_test(NAME poly_workers_test COMMAND poly_workers_test)
+  # read chunking and buffer allocation unit test, without a model or GPU
+  add_executable(poly_read_chunk_test src/poly/read_chunk_test.cpp)
+  target_include_directories(poly_read_chunk_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  add_test(NAME poly_read_chunk_test COMMAND poly_read_chunk_test)
   # the card's MXFP4 product against ggml's dequantizer on random blocks, without a model; needs a card, run by hand
   add_executable(poly_mxfp4_test src/poly/mxfp4_test.cu)
   target_include_directories(poly_mxfp4_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${_strata_gg}/include
