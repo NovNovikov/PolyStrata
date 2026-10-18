@@ -198,6 +198,7 @@ void DeepSeek4::load_layer(int il) {
         std::memcpy(B.by_token.data(), home(*t).data(*t), B.by_token.size() * sizeof(int32_t));
         for (int32_t e : B.by_token)
             if (e < 0 || e >= n_expert_) throw std::runtime_error(t->name + " names an expert the layer has not");
+        pin_host_weights(B.by_token.data(), B.by_token.size() * sizeof(int32_t));
     }
 
     if (il == n_layer_ - 1) {   // the output's read of the streams, on the card that has the output

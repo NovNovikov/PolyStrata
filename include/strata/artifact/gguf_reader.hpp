@@ -32,6 +32,8 @@
 #include <set>
 #include <stdexcept>
 #include <algorithm>
+#include <functional>
+#include <cerrno>
 
 #include "strata/artifact/gguf_split.hpp"
 #include "strata/core/geometry.hpp"
@@ -256,20 +258,27 @@ struct TensorInfo {
 class Cursor {
 public:
     Cursor(const uint8_t* base, size_t size) : base_(base), size_(size) {}
+    Cursor(size_t size, std::function<void(uint64_t, void*, size_t)> reader)
+        : base_(nullptr), size_(size), reader_(std::move(reader)) {}
     void need(size_t n) const {
-        if (pos_ + n > size_) throw std::runtime_error("GGUF: unexpected end of file in header");
+        if (pos_ > size_ || n > size_ - pos_) throw std::runtime_error("GGUF: unexpected end of file in header");
     }
     template <class T> T read() {
         need(sizeof(T));
         T v;
-        std::memcpy(&v, base_ + pos_, sizeof(T));
+        if (reader_) reader_(pos_, &v, sizeof(T));
+        else std::memcpy(&v, base_ + pos_, sizeof(T));
         pos_ += sizeof(T);
         return v;
     }
     std::string str() {
         const uint64_t n = read<uint64_t>();
         need((size_t)n);
-        std::string s(reinterpret_cast<const char*>(base_ + pos_), (size_t)n);
+        std::string s;
+        if (reader_) {
+            s.resize((size_t) n);
+            if (n) reader_(pos_, &s[0], (size_t) n);
+        } else s.assign(reinterpret_cast<const char*>(base_ + pos_), (size_t)n);
         pos_ += (size_t)n;
         return s;
     }
@@ -279,6 +288,7 @@ private:
     const uint8_t* base_;
     size_t size_;
     size_t pos_ = 0;
+    std::function<void(uint64_t, void*, size_t)> reader_;
 };
 
 enum class MetaType : uint32_t { U8 = 0, I8, U16, I16, U32, I32, F32, BOOL, STRING, ARRAY, U64, I64, F64 };
@@ -358,7 +368,7 @@ inline MetaValue read_value(Cursor& c, MetaType t, int depth = 0) {
 
 class GgufFile {
 public:
-    explicit GgufFile(const std::string& path) : path_(path) {
+    explicit GgufFile(const std::string& path, bool mapped = true) : path_(path), mapped_(mapped) {
         try { open(); }
         catch (...) { close(); throw; }
     }
@@ -389,7 +399,36 @@ public:
         auto it = meta_.find(key);
         return it == meta_.end() ? nullptr : &it->second;
     }
-    const uint8_t* tensor_data(const TensorInfo& t) const { return base_ + data_start_ + t.offset; }
+    const uint8_t* tensor_data(const TensorInfo& t) const {
+        if (!base_) throw std::runtime_error("GGUF: tensor_data needs an open mapping: " + path_);
+        return base_ + data_start_ + t.offset;
+    }
+    /// An opt-in reader with no mapping. Reads only the requested bytes; metadata stays valid after close_data().
+    void read_at(uint64_t offset, void* dst, size_t bytes) const {
+        if (offset > size_ || bytes > size_ - offset) throw std::runtime_error("GGUF: read outside " + path_);
+        auto* out = (uint8_t*) dst;
+        while (bytes) {
+#ifdef _WIN32
+            if (!file_) throw std::runtime_error("GGUF: data file is closed: " + path_);
+            LARGE_INTEGER at{};
+            at.QuadPart = (LONGLONG) offset;
+            DWORD got = 0, want = (DWORD) std::min<size_t>(bytes, 8u << 20);
+            if (!SetFilePointerEx((HANDLE) file_, at, nullptr, FILE_BEGIN) ||
+                !ReadFile((HANDLE) file_, out, want, &got, nullptr) || got == 0)
+                throw std::runtime_error("GGUF: reading " + path_ + " failed at " + std::to_string(offset));
+#else
+            if (fd_ < 0) throw std::runtime_error("GGUF: data file is closed: " + path_);
+            const ssize_t got = pread(fd_, out, std::min<size_t>(bytes, 8u << 20), (off_t) offset);
+            if (got < 0 && errno == EINTR) continue;
+            if (got <= 0) throw std::runtime_error("GGUF: reading " + path_ + " failed at " + std::to_string(offset));
+#endif
+            out += got;
+            offset += (uint64_t) got;
+            bytes -= (size_t) got;
+        }
+    }
+    void close_data() { close(); }
+    bool mapped() const { return base_ != nullptr; }
 
 private:
     void open() {
@@ -400,6 +439,11 @@ private:
         LARGE_INTEGER li{};
         GetFileSizeEx(h, &li);
         size_ = (uint64_t)li.QuadPart;
+        if (!mapped_) {
+            file_ = h;
+            try { parse(); } catch (...) { close(); throw; }
+            return;
+        }
         HANDLE m = CreateFileMappingA(h, nullptr, PAGE_READONLY, 0, 0, nullptr);
         if (!m) {
             CloseHandle(h);
@@ -420,6 +464,10 @@ private:
         struct stat st{};
         if (fstat(fd, &st) != 0) throw std::runtime_error("fstat failed");
         size_ = (uint64_t)st.st_size;
+        if (!mapped_) {
+            try { parse(); } catch (...) { close(); throw; }
+            return;
+        }
         void* p = mmap(nullptr, size_, PROT_READ, MAP_PRIVATE, fd, 0);
         if (p == MAP_FAILED) throw std::runtime_error("mmap failed");
         base_ = (const uint8_t*)p;
@@ -431,14 +479,18 @@ private:
         if (base_) UnmapViewOfFile(base_);
         if (map_) CloseHandle((HANDLE)map_);
         if (file_) CloseHandle((HANDLE)file_);
+        map_ = file_ = nullptr;
 #else
         if (base_) munmap((void*)base_, size_);
         if (fd_ >= 0) ::close(fd_);
+        fd_ = -1;
 #endif
+        base_ = nullptr;
     }
 
     void parse() {
-        Cursor c(base_, size_);
+        Cursor c = mapped_ ? Cursor(base_, size_)
+                           : Cursor((size_t) size_, [this](uint64_t at, void* dst, size_t n) { read_at(at, dst, n); });
         const uint32_t magic = c.read<uint32_t>();
         if (magic != 0x46554747u) throw std::runtime_error("not a GGUF file (bad magic)");
         version_ = c.read<uint32_t>();
@@ -485,6 +537,7 @@ private:
     }
 
     std::string path_;
+    bool mapped_ = true;
     const uint8_t* base_ = nullptr;
     uint64_t size_ = 0, data_start_ = 0, alignment_ = 32;
     uint32_t version_ = 0;

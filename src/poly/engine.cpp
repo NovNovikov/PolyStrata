@@ -9,6 +9,7 @@
 #include "mmq.hpp"
 #include "qwen35.hpp"
 #include "runtime.hpp"
+#include "resident_memory.hpp"
 #include "strata/poly/kernels.hpp"
 #include "strata/kernels/native_mmvq.hpp"
 
@@ -375,6 +376,7 @@ Engine::~Engine() {
     if (rs_) cudaStreamSynchronize(cs(rs_));
     if (st_) cudaStreamSynchronize(cs(st_));
     workers_.reset();
+    resident_.reset();
     mmq_.reset();
     for (void* p : dev_allocs_) cudaFree(p);
     for (Kv& k : kv_) vmm_free(k);
@@ -397,6 +399,15 @@ Engine::~Engine() {
 }
 
 void* Engine::dmalloc(size_t bytes, const char* what) {
+    if (opt_.no_disk) {
+        size_t free = 0, total = 0;
+        ck(cudaMemGetInfo(&free, &total), "no-disk: allocation budget");
+        const size_t reserve = (size_t) (opt_.vram_reserve_mib >= 0 ? std::max(opt_.vram_reserve_mib, 256) : 1024) << 20;
+        if (free <= reserve || bytes > free - reserve)
+            throw std::runtime_error("no-disk: " + std::string(what) + " needs " + std::to_string(bytes) +
+                " VRAM bytes; free " + std::to_string(free) + ", reserved " + std::to_string(reserve) +
+                ", available RAM " + std::to_string(ram_available()));
+    }
     void* p = nullptr;
     const cudaError_t e = cudaMalloc(&p, std::max<size_t>(bytes, 256));
     if (e != cudaSuccess) {
@@ -423,6 +434,7 @@ void* Engine::hmalloc(size_t bytes, const char* what) {
     }
     ck(e, why.c_str());
     host_allocs_.push_back(p);
+    if (opt_.no_disk) service_host_bytes_ += bytes;
     return p;
 }
 
@@ -774,6 +786,7 @@ void Engine::settle_swaps() {
 // slots lie there and that were used more than cached ones before the cut take those ones' slots, as follow()
 // ranks them, and the others leave the cache.
 void Engine::shrink_cache(size_t bytes) {
+    if (opt_.no_disk) return;
     // STRATA_FREEZE_EXPERTS: a frozen answer reads a cache that never changes.  shrink_cache() would move
     // experts between slots mid-answer (cover() calls it when the attention caches grow, and mind_vram() when
     // another program takes VRAM), which is exactly the change the freeze is there to keep out.  A frozen
@@ -954,14 +967,16 @@ void Engine::load_moe(int il, bool shared) {
     const TensorInfo& td = exps("ffn_down_exps.weight", n_ff_exp_, n_embd_);
     L.d_type = td.type;
     L.d_bytes = home(td).payload(td) / (size_t) n_expert_;
-    L.exp_down = home(td).data(td);
+    L.down_tensor = &td;
+    L.exp_down = opt_.no_disk ? nullptr : home(td).data(td);
     if (tensor(il, "ffn_gate_up_exps.weight")) {
         const TensorInfo& gu = exps("ffn_gate_up_exps.weight", n_embd_, 2 * n_ff_exp_);
         L.gu_type = gu.type;
         L.gu_stride = home(gu).payload(gu) / (size_t) n_expert_;
         L.gu_bytes = L.gu_stride / 2;
-        L.exp_gate = home(gu).data(gu);
-        L.exp_up = L.exp_gate + L.gu_bytes;
+        L.gate_tensor = L.up_tensor = &gu;
+        L.exp_gate = opt_.no_disk ? nullptr : home(gu).data(gu);
+        L.exp_up = opt_.no_disk ? nullptr : L.exp_gate + L.gu_bytes;
     } else {
         const TensorInfo& tg = exps("ffn_gate_exps.weight", n_embd_, n_ff_exp_);
         const TensorInfo& tu = exps("ffn_up_exps.weight", n_embd_, n_ff_exp_);
@@ -971,8 +986,9 @@ void Engine::load_moe(int il, bool shared) {
         L.gu_type = tg.type;
         L.gu_stride = L.gu_bytes = home(tg).payload(tg) / (size_t) n_expert_;
         home(tu).payload(tu);
-        L.exp_gate = home(tg).data(tg);
-        L.exp_up = home(tu).data(tu);
+        L.gate_tensor = &tg; L.up_tensor = &tu;
+        L.exp_gate = opt_.no_disk ? nullptr : home(tg).data(tg);
+        L.exp_up = opt_.no_disk ? nullptr : home(tu).data(tu);
     }
     std::string err;
     if (!cpu_expert_types_ok((int) L.gu_type, (int) L.d_type, n_embd_, n_ff_exp_, err))
@@ -983,7 +999,11 @@ void Engine::load_moe(int il, bool shared) {
 
 // The engine for a model file: its general.architecture says which.
 std::unique_ptr<Engine> Engine::open(const Options& o) {
-    const Shards file(o.model);
+    if (o.no_disk && !o.layer_split.empty())
+        throw std::runtime_error("--no-disk currently requires one card (no --layer-split)");
+    if (o.rows_vram && !o.layer_split.empty())
+        throw std::runtime_error("--rows-vram currently requires one card (no --layer-split)");
+    const Shards file(o.model, !o.no_disk);
     const MetaValue* arch = file.get("general.architecture");
     const std::string name = arch ? arch->s : std::string();
     if (o.kv_format == KvFmt::kQ8_0 && name != "qwen35moe")
@@ -1078,6 +1098,7 @@ Dev Engine::upload(const TensorInfo* t, const std::string& name, int64_t n_in, i
         dense_at_ += pad(out) + kTail;
         if (!dense_) return d;
         if (dense_at_ > dense_bytes_) throw std::logic_error("the dense arena is too small for " + t->name);
+        if (opt_.no_disk) return upload_resident(*t, d, bytes, count, want, fix);
         // a few thousand rows at a time, to floats and to Q4_0, on threads of their own: the engine's are not
         // started yet
         const size_t in_row = bytes / (size_t) n_out, rows = 4096;
@@ -1107,6 +1128,7 @@ Dev Engine::upload(const TensorInfo* t, const std::string& name, int64_t n_in, i
     dense_at_ += pad(out) + kTail;
     if (!dense_) return d;
     if (dense_at_ > dense_bytes_) throw std::logic_error("the dense arena is too small for " + t->name);
+    if (opt_.no_disk) return upload_resident(*t, d, bytes, count, want, fix);
     if (as_is) {
         h2d(d.p, home(*t).data(*t), bytes);
         return d;
@@ -1147,6 +1169,7 @@ int64_t Engine::vram_free_mib() const {
 // (default_reserve_mib()).  Under Windows a card that is asked for more than it has does not refuse: memory
 // moves to the system's, and an answer came at 13 tokens/s where it comes at 30.
 void Engine::fill_expert_cache() {
+    if (opt_.no_disk) return;
     if (!opt_.gpu_experts || n_moe_ == 0) return;
     size_t free_b = 0, total_b = 0;
     ck(cudaMemGetInfo(&free_b, &total_b), "cudaMemGetInfo");
@@ -1241,6 +1264,7 @@ void Engine::fill_expert_cache() {
 
 // The thread and the stream that bring experts into the cache while an answer is written (follow()).
 void Engine::start_swaps() {
+    if (opt_.no_disk) return;
     if (swap_ || cached_ == 0 || opt_.expert_swaps == 0) return;
     swap_ = std::make_unique<Swap[]>((size_t) opt_.expert_swaps);
     cudaStream_t up = nullptr;
@@ -1263,6 +1287,7 @@ void Engine::resize_cache(int mib) {
 }
 
 void Engine::resize_card_cache(int mib) {
+    if (opt_.no_disk) throw std::runtime_error("no-disk: permanent experts cannot be resized or evicted");
     if (!opt_.gpu_experts || n_moe_ == 0) return;
     // As shrink_cache(): a frozen answer's cache does not change under it (the vram API resizes between
     // requests; unfreeze_experts() ends the freeze before one begins).
@@ -1310,6 +1335,7 @@ bool Engine::mind_vram() {
 }
 
 bool Engine::mind_card_vram() {
+    if (opt_.no_disk) return false;
     if (!exp_ || reserve_mib_ <= 0) return false;
     // As shrink_cache(): a frozen answer's cache is the one its first token saw.
     if (freeze_experts_) return false;
@@ -1368,6 +1394,7 @@ size_t Engine::other_rows() const {
 // fill_expert_cache() chooses), side by side by layer.  VRAM the card does not give is not an error: the cache
 // keeps what was mapped.  Returns the experts it took.
 int Engine::grow_cache(size_t bytes) {
+    if (opt_.no_disk) return 0;
     if (!vmm_ || !exp_) return 0;
     // As shrink_cache(): a frozen answer's cache does not change under it.
     if (freeze_experts_) return 0;
@@ -1440,6 +1467,7 @@ void Engine::plan_ahead(Layer& L, int il) {
 // The follower: an asked-for expert goes from the mapped file to its pinned buffer, and from there to its slot.
 // The file may have to be read for it, which is why this is not the engine's thread.
 void Engine::follow_loop() {
+    if (opt_.no_disk) return;
     cudaSetDevice(device_);   // a thread starts on card 0
     std::unique_lock<std::mutex> lk(swap_m_);
     for (;;) {
@@ -1475,6 +1503,7 @@ void Engine::follow_loop() {
 // A prompt batch neither counts nor moves anything.  What a prompt routes to says no more about the answer than
 // the profile does, and moving the cache while the prompt was read cost 3% of the reading speed (measured).
 void Engine::follow(int written) {
+    if (opt_.no_disk) return;
     {
         std::lock_guard<std::mutex> l(swap_m_);
         if (!swap_error_.empty()) throw std::runtime_error("expert upload: " + swap_error_);
@@ -1581,6 +1610,15 @@ void Engine::follow(int written) {
 
 void Engine::load(const Options& o) {
     opt_ = o;
+    if (opt_.ram_limit_mib < 0 || (uint64_t) opt_.ram_limit_mib > SIZE_MAX >> 20)
+        throw std::runtime_error("--ram-limit-mib must be a nonnegative byte budget");
+    if (opt_.no_disk) {
+        opt_.kv_grow = false;
+        opt_.expert_swaps = 0;
+        resident_ = std::make_unique<ResidentMemory>();
+        resident_ram_start_ = ram_available();
+        if (!resident_ram_start_) throw std::runtime_error("no-disk: available RAM is unknown; refusing to guess");
+    }
     asked_reserve_mib_ = o.vram_reserve_mib;
     if (opt_.max_context < 16) throw std::runtime_error("the context must be at least 16 tokens");
     if (opt_.prompt_batch < 1 || opt_.prompt_batch > 4096)
@@ -1593,11 +1631,19 @@ void Engine::load(const Options& o) {
         throw std::runtime_error("a window is 1 to 8 tokens, or 0 for the model's own");
     if (opt_.tail_skip < 0) throw std::runtime_error("--tail-skip (STRATA_ROUTE_TAIL_SKIP) cannot be negative");
     if (opt_.dump || std::min(opt_.prompt_batch, opt_.max_context) == 1) opt_.window = 1;
-    gg_ = std::make_unique<Shards>(opt_.model);
-    if (!opt_.draft_model.empty() && opt_.draft && opt_.window != 1) dg_ = std::make_unique<Shards>(opt_.draft_model);
+    gg_ = std::make_unique<Shards>(opt_.model, !opt_.no_disk);
+    if (!opt_.draft_model.empty() && opt_.draft && opt_.window != 1)
+        dg_ = std::make_unique<Shards>(opt_.draft_model, !opt_.no_disk);
     load_geometry();
     if (block_ != dg_.get()) dg_.reset();
     hi_ = end_ < 0 ? n_layer_ : end_;
+    if (opt_.no_disk && opt_.vram_reserve_mib < 0) {
+        size_t free = 0, total = 0;
+        ck(cudaMemGetInfo(&free, &total), "no-disk: default VRAM reserve");
+        const size_t files = gg_->bytes() + (dg_ ? dg_->bytes() : 0);
+        const size_t ram = ram_available();
+        opt_.vram_reserve_mib = default_reserve_mib(total, ram > 0 && files + (4ULL << 30) > ram);
+    }
 
     // STRATA_FREEZE_EXPERTS=1: an answer's experts are the cache's as it was at the request's first token.  The
     // split between the card's experts and the CPU's (moe()) decides a layer's sums to the last bit - the two
@@ -1649,7 +1695,17 @@ void Engine::load(const Options& o) {
                                  (te ? shape_of(*te) : "missing"));
     tok_row_ = gg_->payload(*te) / (size_t) n_vocab_;
     tok_type_ = te->type;
-    tok_embd_ = gg_->data(*te);
+    if (opt_.no_disk) {
+        const size_t bytes = gg_->payload(*te);
+        if (opt_.ram_limit_mib && bytes > ((uint64_t) opt_.ram_limit_mib << 20))
+            throw std::runtime_error("no-disk: token embeddings need " + std::to_string(bytes) +
+                " RAM bytes; --ram-limit-mib allows " + std::to_string((uint64_t) opt_.ram_limit_mib << 20) + " bytes");
+        auto* table = (uint8_t*) resident_->allocate(bytes, "token embeddings");
+        gg_->read(*te, 0, table, bytes);
+        gg_->bind(*te, table);
+        tok_embd_ = table;
+        resident_host_bytes_ += bytes;
+    } else tok_embd_ = gg_->data(*te);
 
     // twice: the first pass adds up the arena, the second fills it
     for (int pass = 0; pass < 2; ++pass) {
@@ -1688,7 +1744,8 @@ void Engine::load(const Options& o) {
     opt_.window = std::min({opt_.window, opt_.prompt_batch, opt_.max_context});
     alloc();
     if (!opt_.profile.empty()) read_profile(opt_.profile, (int) layers_.size(), n_expert_, prior_);
-    fill_expert_cache();
+    if (opt_.no_disk) load_resident_experts();
+    else fill_expert_cache();
     // The weights and the expert cache are written on st_ now (h2d(), zero_vram()): the load is not over until
     // those are done, so that everything after it - a read of what the cache holds, the first request's cover()
     // mapping the attention caches - finds what it expects.
@@ -1726,16 +1783,17 @@ void Engine::load(const Options& o) {
         }
     }
     const int threads = opt_.threads > 0 ? opt_.threads : usable_cpus();
-    mind_memory();
+    if (!opt_.no_disk) mind_memory();
     std::vector<std::pair<const uint8_t*, size_t>> spans;   // the routed experts in the mapped files
     for (const Layer& L : layers_) {
+        if (opt_.no_disk) break;
         if (!L.moe) continue;
         spans.emplace_back(L.exp_gate, (size_t) n_expert_ * L.gu_stride);
         if (L.gu_stride == L.gu_bytes) spans.emplace_back(L.exp_up, (size_t) n_expert_ * L.gu_bytes);
         spans.emplace_back(L.exp_down, (size_t) n_expert_ * L.d_bytes);
     }
     if (!workers_) {   // a later card's engine has the first one's
-        if (opt_.stay_near) {   // before any thread that reads the experts is started
+        if (opt_.stay_near && !opt_.no_disk) {   // before any thread that reads the experts is started
             std::vector<std::string> files = gg_->paths();
             if (dg_) files.insert(files.end(), dg_->paths().begin(), dg_->paths().end());
             node_ = stay_near(spans, files, threads, node_share_);
@@ -1746,8 +1804,10 @@ void Engine::load(const Options& o) {
     start_swaps();
     reset();
     // nothing is read from the files when every expert is in VRAM
-    if (!all_cached())
+    if (!opt_.no_disk && !all_cached())
         mapper_ = std::thread([this, spans = std::move(spans)] { map_pages(spans, map_quit_); });
+    if (opt_.no_disk)
+        std::fprintf(stderr, "strata-poly: no-disk RAM free after load: %zu MiB\n", ram_available() >> 20);
 }
 
 void Engine::load_drafter() {
@@ -1793,7 +1853,8 @@ void Engine::shared_scratch() {
 void Engine::alloc() {
     // --dump-layers prints one token's stages
     rows_ = opt_.dump ? 1 : std::min(opt_.prompt_batch, opt_.max_context);
-    const size_t most = std::min<size_t>(kReadBytes / ((size_t) streams() * n_embd_ * sizeof(float)), opt_.max_context);
+    const size_t most = opt_.rows_vram ? (size_t) opt_.max_context
+        : std::min<size_t>(kReadBytes / ((size_t) streams() * n_embd_ * sizeof(float)), opt_.max_context);
     read_rows_ = rows_ < kStageRows ? rows_ : std::max(rows_, (int) most / rows_ * rows_);
     rec_n_ = recurrent_floats();
     state_n_ = rec_n_ + (draft_ ? (size_t) n_embd_ : 0);
@@ -1888,7 +1949,8 @@ void Engine::alloc() {
         stage_bytes_ = std::max(std::min((size_t) opt_.stage_mib << 20, (size_t) n_expert_ * one_expert), one_expert);
         chunk_bytes_ = std::max(kChunkBytes, one_expert);
         stage_ = (uint8_t*) dmalloc(stage_bytes_ + 256 + kTail, "the expert staging buffer");
-        for (int b = 0; b < 2; ++b) h_stage_[b] = (uint8_t*) hmalloc(chunk_bytes_, "pinned memory");
+        if (!opt_.no_disk)
+            for (int b = 0; b < 2; ++b) h_stage_[b] = (uint8_t*) hmalloc(chunk_bytes_, "pinned memory");
         for (void** e : {&ev_stage_[0], &ev_stage_[1], &ev_ahead_, &ev_free_}) {
             cudaEvent_t ev = nullptr;
             ck(cudaEventCreateWithFlags(&ev, cudaEventDisableTiming), "cudaEventCreate");
@@ -1910,6 +1972,10 @@ void Engine::alloc() {
         rs_ = rs;
     }
     use_.assign(layers_.size() * n_expert_, 0);
+    if (opt_.rows_vram) {
+        v_res_ = (float*) dmalloc((size_t) opt_.max_context * streams() * n_embd_ * sizeof(float),
+                                 "the full context's read rows (--rows-vram)");
+    }
 }
 
 void Engine::save_profile() const {
@@ -2151,8 +2217,8 @@ bool Engine::moe(Layer& L, int il, int n, const std::function<void()>* first) {
                 }
                 host_e[n_host] = (int32_t) e;
                 host_k[n_host] = k;
-                host[n_host++] = {L.exp_gate + e * L.gu_stride, L.exp_up + e * L.gu_stride,
-                                  L.exp_down + e * L.d_bytes, w[k], t};
+                const auto h = host_expert(L, e);
+                host[n_host++] = {h.gate, h.up, h.down, w[k], t};
             }
         }
         // Strata's STRATA_ROUTE_TAIL_SKIP: an expert outside VRAM that every token here ranks at tail_skip or later
@@ -2290,6 +2356,19 @@ bool Engine::moe_card(Layer& L, int il, int n) {
 void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, bool alone) {
     staged_il_ = -1;   // whatever the buffer held
     const size_t gu2 = 2 * L.gu_bytes, down_at = pad((size_t) m * gu2);
+    if (opt_.no_disk) {
+        for (int j = 0; j < m; ++j) {
+            const auto h = host_expert(L, (size_t) experts[j]);
+            ck(cudaMemcpyAsync(stage_ + (size_t) j * gu2, h.gate, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
+               "no-disk: expert gate");
+            ck(cudaMemcpyAsync(stage_ + (size_t) j * gu2 + L.gu_bytes, h.up, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
+               "no-disk: expert up");
+            ck(cudaMemcpyAsync(stage_ + down_at + (size_t) j * L.d_bytes, h.down, L.d_bytes, cudaMemcpyHostToDevice, cs(stream)),
+               "no-disk: expert down");
+        }
+        ck(cudaMemsetAsync(stage_ + down_at + (size_t) m * L.d_bytes, 0, kTail, cs(stream)), "no-disk: staging tail");
+        return;
+    }
     const int per = (int) (chunk_bytes_ / (gu2 + L.d_bytes));
     for (int j0 = 0; j0 < m; j0 += per) {
         const size_t c = (size_t) std::min(per, m - j0);
@@ -2460,8 +2539,8 @@ void Engine::moe_rows(Layer& L, int il, int n) {
     for (int i = 0; i < rr; ++i) {
         const size_t e = (size_t) ids_[(size_t) i];
         if (on_cpu_[e]) {   // by token, as cpu_experts() takes them, and nothing of it in the card's sum
-            host_.push_back({L.exp_gate + e * L.gu_stride, L.exp_up + e * L.gu_stride, L.exp_down + e * L.d_bytes,
-                             w[i], i / n_used_});
+            const auto h = host_expert(L, e);
+            host_.push_back({h.gate, h.up, h.down, w[i], i / n_used_});
             w[i] = 0.f;
             continue;
         }
@@ -3167,7 +3246,8 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
     float* const r0 = r_;
     const int64_t pos0 = pos_;
     const bool host = n_calls > 2;
-    if (host && h_res_rows_ < n) {   // for this read's tokens and some more, so that a longer one seldom asks again
+    const bool card_rows = host && opt_.rows_vram;
+    if (host && !card_rows && h_res_rows_ < n) {   // for this read's tokens and some more
         if (h_res_) {
             host_allocs_.erase(std::find(host_allocs_.begin(), host_allocs_.end(), (void*) h_res_));
             ck(cudaFreeHost(h_res_), "freeing pinned memory");
@@ -3176,18 +3256,19 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
         h_res_rows_ = std::min(read_rows_, (n + 4095) / 4096 * 4096);
         h_res_ = (float*) hmalloc((size_t) h_res_rows_ * r_bytes, "pinned memory");
     }
-    const auto home = [&](int c) { return h_res_ + (size_t) calls_[(size_t) c].at * r_row; };
+    const auto home = [&](int c) { return (card_rows ? v_res_ : h_res_) + (size_t) calls_[(size_t) c].at * r_row; };
     const auto half = [&](int c) { return r0 + (size_t) (host ? c % 2 : c) * part; };
     // call c's rows back into its half of r_, behind whatever the stream has there of the half's last call
     const auto fetch = [&](int c) {
-        ck(cudaMemcpyAsync(half(c), home(c), (size_t) calls_[(size_t) c].m * r_bytes, cudaMemcpyHostToDevice,
+        ck(cudaMemcpyAsync(half(c), home(c), (size_t) calls_[(size_t) c].m * r_bytes,
+                           card_rows ? cudaMemcpyDeviceToDevice : cudaMemcpyHostToDevice,
                            cs(rs_)),
            "read");
         ck(cudaEventRecord((cudaEvent_t) ev_in_[c % 2], cs(rs_)), "read");
     };
     for (int c = 0; c < n_calls; ++c) {
         const Call& call = calls_[(size_t) c];
-        float* rows = host ? home(c) : h_r_;
+        float* rows = host && !card_rows ? home(c) : h_r_;
         if (pass_)
             std::memcpy(rows, pass_ + (size_t) (pos0 + call.at - pass_at_) * r_row, (size_t) call.m * r_bytes);
         for (int t = 0; t < call.m && !pass_; ++t) {
@@ -3195,6 +3276,10 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
             if (!input(tokens[call.at + t], pos0 + call.at + t, r) && scale != 1.f)
                 for (size_t i = 0; i < e_row; ++i) r[i] *= scale;
             for (int h = 1; h < streams(); ++h) std::memcpy(r + (size_t) h * e_row, r, e_row * sizeof(float));
+        }
+        if (card_rows) {
+            ck(cudaMemcpyAsync(home(c), h_r_, (size_t) call.m * r_bytes, cudaMemcpyHostToDevice, cs(st_)), "embed");
+            ck(cudaStreamSynchronize(cs(st_)), "embed");
         }
         if (host) continue;
         ck(cudaMemcpyAsync(half(c), h_r_, (size_t) call.m * r_bytes, cudaMemcpyHostToDevice, cs(st_)), "embed");
@@ -3250,7 +3335,8 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
                 ck(cudaEventRecord((cudaEvent_t) ev_out_[c % 2], cs(st_)), "read");
                 ck(cudaStreamWaitEvent(cs(rs_), (cudaEvent_t) ev_out_[c % 2], 0), "read");
                 if (!last || out)
-                    ck(cudaMemcpyAsync(home(c), half(c), (size_t) call.m * r_bytes, cudaMemcpyDeviceToHost,
+                    ck(cudaMemcpyAsync(home(c), half(c), (size_t) call.m * r_bytes,
+                                       card_rows ? cudaMemcpyDeviceToDevice : cudaMemcpyDeviceToHost,
                                        cs(rs_)),
                        "read");
                 if (!last || c + 2 < n_calls) fetch(c + 2 < n_calls ? c + 2 : c % 2);

@@ -117,8 +117,8 @@ inline std::vector<float> clamp_limits(const MetaValue* v, int n_layer) {
 // metadata, and a tensor is in the file that lists it.
 class Shards {
 public:
-    explicit Shards(const std::string& path) {
-        files_.push_back(std::make_unique<GgufFile>(path));
+    explicit Shards(const std::string& path, bool mapped = true) : mapped_(mapped) {
+        files_.push_back(std::make_unique<GgufFile>(path, mapped));
         paths_.push_back(path);
         const MetaValue* no = files_[0]->get("split.no");
         const MetaValue* count = files_[0]->get("split.count");
@@ -136,7 +136,7 @@ public:
             const std::string base = path.substr(0, path.size() - len);
             for (int i = 2; i <= n; ++i) {
                 std::snprintf(tail, sizeof(tail), "-%05d-of-%05d.gguf", i, n);
-                files_.push_back(std::make_unique<GgufFile>(base + tail));
+                files_.push_back(std::make_unique<GgufFile>(base + tail, mapped));
                 paths_.push_back(base + tail);
             }
         }
@@ -152,7 +152,36 @@ public:
         const auto it = where_.find(name);
         return it == where_.end() ? nullptr : it->second.t;
     }
-    const uint8_t* data(const TensorInfo& t) const { return where_.at(t.name).file->tensor_data(t); }
+    const uint8_t* data(const TensorInfo& t) const {
+        if (mapped_) return where_.at(t.name).file->tensor_data(t);
+        const auto held = borrowed_.find(t.name);
+        if (held != borrowed_.end()) return held->second;
+        auto it = small_.find(t.name);
+        if (it == small_.end()) {
+            const size_t n = payload(t);
+            if (n > (64u << 20)) throw std::logic_error("no-disk: large tensor needs an explicit destination: " + t.name);
+            std::vector<uint8_t> b(n);
+            read(t, 0, b.data(), n);
+            it = small_.emplace(t.name, std::move(b)).first;
+        }
+        return it->second.data();
+    }
+    void read(const TensorInfo& t, size_t offset, void* dst, size_t n) const {
+        const size_t all = payload(t);
+        if (offset > all || n > all - offset) throw std::runtime_error("no-disk: tensor read outside " + t.name);
+        const auto held = borrowed_.find(t.name);
+        if (held != borrowed_.end()) { std::memcpy(dst, held->second + offset, n); return; }
+        const auto small = small_.find(t.name);
+        if (small != small_.end()) { std::memcpy(dst, small->second.data() + offset, n); return; }
+        const GgufFile& file = *where_.at(t.name).file;
+        file.read_at(file.data_start() + t.offset + offset, dst, n);
+        read_bytes_ += n;
+    }
+    void close_data() { for (auto& f : files_) f->close_data(); closed_ = true; }
+    uint64_t read_bytes() const { return read_bytes_; }
+    bool closed() const { return closed_; }
+    void bind(const TensorInfo& t, const uint8_t* p) { borrowed_[t.name] = p; }
+    void release_small() { small_.clear(); }
     /// The files' bytes together.
     uint64_t bytes() const {
         uint64_t n = 0;
@@ -174,6 +203,10 @@ public:
     }
 
 private:
+    bool mapped_ = true, closed_ = false;
+    mutable uint64_t read_bytes_ = 0;
+    mutable std::unordered_map<std::string, std::vector<uint8_t>> small_;
+    std::unordered_map<std::string, const uint8_t*> borrowed_;
     struct Where {
         const TensorInfo* t;
         const GgufFile* file;

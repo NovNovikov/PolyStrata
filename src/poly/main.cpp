@@ -617,11 +617,11 @@ int serve(Session& ss, const Options& o) {
     Engine& engine = ss.engine;
     std::vector<Slot> slots((size_t) engine.sequences() - 1);
     std::printf("INFO context=%d expert_slots=%d expert_cache_mib=%lld pool_workers=%d conversation_cache_mib=%lld "
-                "conversation_cache_slots=%d conversation_cache_min_free_mib=%lld vram_free_mib=%lld vram_elastic=1 "
+                "conversation_cache_slots=%d conversation_cache_min_free_mib=%lld vram_free_mib=%lld vram_elastic=%d "
                 "batch_slots=%d engine=" STRATA_VERSION "\n",
                 engine.max_context(), engine.cached_experts(), (long long) (engine.cached_gib() * 1024.0),
                 engine.threads(), (long long) ss.flags.o.park_mib, ss.flags.o.park_slots, ss.flags.min_free_mib,
-                (long long) engine.vram_free_mib(), (int) slots.size());
+                (long long) engine.vram_free_mib(), o.no_disk ? 0 : 1, (int) slots.size());
     if (!ss.flags.o.session_dir.empty())
         std::printf("INFO session_dir=%s session_max_mib=%lld\n", ss.flags.o.session_dir.string().c_str(),
                     (long long) ss.flags.o.session_max_mib);
@@ -1169,6 +1169,9 @@ int check_batch(Engine& engine, const std::vector<int32_t>& ids, int k, long lon
 void usage() {
     std::fprintf(stderr,
                  "usage: strata-poly --model FILE.gguf (--serve | --tokens ID,ID,... [--max-new N])\n"
+                 "  --no-disk              load weights into locked RAM / fixed VRAM and close model files\n"
+                 "  --ram-limit-mib N      cap no-disk RAM allocations (0: available RAM)\n"
+                 "  --rows-vram            reserve intermediate rows for the full context in VRAM\n"
                  "  --max-context N        tokens the attention caches hold (default 8192)\n"
                  "  --threads N            CPU threads for the experts that are not in VRAM (default: all usable)\n"
                  "  --vram-reserve-mib N   VRAM left free beside the expert cache, 256 at least (default: a\n"
@@ -1285,6 +1288,9 @@ int main(int argc, char** argv) {
         else if (a == "--vram-reserve-mib") o.vram_reserve_mib = std::atoi(val());
         else if (a == "--expert-profile") o.profile = val();
         else if (a == "--no-gpu-experts") o.gpu_experts = false;
+        else if (a == "--no-disk") o.no_disk = true;
+        else if (a == "--rows-vram") o.rows_vram = true;
+        else if (a == "--ram-limit-mib") o.ram_limit_mib = std::atoll(val());
         else if (a == "--any-node") o.stay_near = false;
         else if (a == "--no-graphs") o.graphs = false;
         else if (a == "--kv-whole") o.kv_grow = false;

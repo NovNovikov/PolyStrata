@@ -130,6 +130,11 @@ if(STRATA_BUILD_CONVERSATION_TESTS)
   add_test(NAME glm_conversations_test COMMAND glm_conversations_test)
   add_executable(glm_conversations_disk_test src/poly/conversations_disk_test.cpp)
   add_test(NAME glm_conversations_disk_test COMMAND glm_conversations_disk_test)
+  add_executable(poly_no_disk_test src/poly/no_disk_test.cpp)
+  target_include_directories(poly_no_disk_test PRIVATE include)
+  add_test(NAME poly_no_disk_test COMMAND poly_no_disk_test)
+  add_executable(poly_resident_probe src/poly/resident_probe.cpp src/platform/memory.cpp)
+  target_include_directories(poly_resident_probe PRIVATE include)
   add_executable(poly_guesses_test src/poly/guesses_test.cpp src/spec/draft_policy.cpp)
   target_include_directories(poly_guesses_test PRIVATE include)
   add_test(NAME poly_guesses_test COMMAND poly_guesses_test)
@@ -2055,9 +2060,9 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
     target_link_libraries(strata_poly_mmq PUBLIC ggml-base ${_strata_gpu_runtime_target})
   endif()
 
-  add_executable(strata-poly src/poly/main.cpp src/poly/engine.cpp src/poly/glm5next.cpp src/poly/qwen35.cpp
+  add_executable(strata-poly src/poly/main.cpp src/poly/engine.cpp src/poly/no_disk.cpp src/poly/glm5next.cpp src/poly/qwen35.cpp
                             src/poly/gemma4.cpp src/poly/deepseek4.cpp src/poly/lfm2moe.cpp src/poly/cpu_experts.cpp
-                            src/poly/kernels.cu src/poly/kernels_dsv4.cu src/core/conversation_memory.cpp)
+                            src/poly/kernels.cu src/poly/kernels_dsv4.cu src/core/conversation_memory.cpp src/platform/memory.cpp)
   target_include_directories(strata-poly PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${_strata_gpu_include_directories})
   # the driver's virtual memory calls: the attention caches grow with the conversation; on HIP they are HIP's
   # memory management calls, which the HIP runtime itself provides (hip_compat/cuda.h)
@@ -2079,10 +2084,10 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
                                                   Threads::Threads)
   # a read with the draft block repeats bit for bit; needs the model file, so it is run by hand:
   # poly_draft_race_test MODEL.gguf [RUNS] [LAYER_SPLIT]
-  add_executable(poly_draft_race_test src/poly/draft_race_test.cpp src/poly/engine.cpp src/poly/glm5next.cpp
+  add_executable(poly_draft_race_test src/poly/draft_race_test.cpp src/poly/engine.cpp src/poly/no_disk.cpp src/poly/glm5next.cpp
                                       src/poly/qwen35.cpp src/poly/gemma4.cpp src/poly/deepseek4.cpp
                                       src/poly/lfm2moe.cpp src/poly/cpu_experts.cpp src/poly/kernels.cu src/poly/kernels_dsv4.cu
-                                      src/core/conversation_memory.cpp)
+                                      src/core/conversation_memory.cpp src/platform/memory.cpp)
   target_include_directories(poly_draft_race_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
                                                          ${_strata_gpu_include_directories})
   target_link_libraries(poly_draft_race_test PRIVATE strata_poly_mmq strata_kernels strata_spec ggml-cpu ggml-base

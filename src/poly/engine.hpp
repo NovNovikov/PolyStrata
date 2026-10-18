@@ -34,6 +34,7 @@ struct MetaValue;
 namespace strata::poly {
 
 class Shards;
+class ResidentMemory;
 struct Likeliest;
 
 /// The attention caches' storing format: fp16 (default) or ggml Q8_0; opt-in via --kv.
@@ -46,6 +47,9 @@ struct Options {
     int vram_reserve_mib = -1;    ///< left free after the expert cache is filled; below 0: by the card's size
     std::string profile;          ///< expert use counts; orders the expert cache, and save_profile() adds to it
     bool gpu_experts = true;
+    bool no_disk = false;        ///< all weights resident in locked RAM or fixed VRAM; model files close at load
+    bool rows_vram = false;      ///< reserve the full context's intermediate read rows in VRAM
+    int64_t ram_limit_mib = 0;   ///< no-disk RAM allocations at most; 0: current available RAM
     bool dump = false;            ///< print a checksum of every stage, for comparing against llama.cpp
     // A prompt batch.  More tokens a call and a larger staging buffer read a prompt faster, and both take VRAM
     // that the expert cache, and so decoding, does without.
@@ -115,6 +119,9 @@ struct Layer {
     size_t gu_stride = 0;              ///< from an expert's gate to the next one's: twice gu_bytes in a file that
                                        ///< keeps an expert's gate and up in one tensor
     std::vector<uint8_t*> slot;        ///< per expert: gate | up | down in VRAM, or null
+    struct Host { const uint8_t *gate = nullptr, *up = nullptr, *down = nullptr; };
+    std::vector<Host> resident_host;    ///< no-disk: RAM experts only; a permanent VRAM expert has no host copy
+    const TensorInfo *gate_tensor = nullptr, *up_tensor = nullptr, *down_tensor = nullptr;
     size_t slot_bytes = 0;             ///< from a slot of the layer to the one behind it: whole blocks of both types
     std::vector<int32_t> ahead;        ///< experts a full prompt batch stages before it routes
     int trade = -1;                    ///< layers with the same number can take each other's slots: same size
@@ -439,6 +446,11 @@ protected:
     bool input(int32_t token, int64_t row, float* dst) const;
     void lin(const Dev& w, const float* x, float* y, int n, const void* xq = nullptr, int rows_per_x = 0);
     void fill_expert_cache();
+    void load_resident_experts();
+    Dev upload_resident(const TensorInfo& t, const Dev& d, size_t bytes, size_t count, Want want,
+                        float (*fix)(float));
+    Layer::Host host_expert(const Layer& l, size_t e) const;
+    void pin_host_weights(void* p, size_t bytes);
     void start_swaps();
     void plan_ahead(Layer& L, int il);
     void run(const int32_t* tokens, int n);
@@ -506,6 +518,9 @@ protected:
 
     Options opt_;
     std::unique_ptr<Shards> gg_;
+    std::unique_ptr<ResidentMemory> resident_;
+    size_t resident_host_bytes_ = 0, service_host_bytes_ = 0;
+    uint64_t resident_ram_start_ = 0;
     std::unique_ptr<Shards> dg_;      ///< Options::draft_model, while the draft block is read from it
     const Shards* block_ = nullptr;   ///< the file the draft block is in: gg_ or dg_
     std::shared_ptr<Workers> workers_;   ///< on several cards, one for all of them: they take turns
@@ -559,6 +574,7 @@ protected:
     };
     std::vector<Call> calls_;
     float* h_res_ = nullptr;  ///< h_res_rows_ tokens' rows, pinned: as many as the longest read so far that needed it
+    float* v_res_ = nullptr;  ///< --rows-vram: intermediate rows for the full context, allocated at load
     int h_res_rows_ = 0;
     void* rs_ = nullptr;      ///< the stream of those copies
     void* ev_in_[2] = {};     ///< marks a call's rows in each half of r_

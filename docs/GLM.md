@@ -253,6 +253,9 @@ is refused. This version change applies to poly sessions; the Qwen engine's sess
 
 ## Options
 
+For opt-in placement of all weights in locked RAM and fixed VRAM, with no model-file reads after load, see
+[`--no-disk`](NO_DISK.md). The mmap path stays the default.
+
 | Option | Default | What it does |
 | --- | ---: | --- |
 | `--model FILE.gguf` | | the model |
