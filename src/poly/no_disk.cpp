@@ -104,7 +104,9 @@ void Engine::load_resident_experts() {
             std::to_string(held) + " RAM bytes before experts; --ram-limit-mib provides " + std::to_string(limit));
         ram = std::min(ram, limit > held ? limit - held : 0);
     }
-    const ResidentPlan plan = plan_resident(experts, ram, vram);
+    ResidentPlan plan;
+    try { plan = plan_resident(experts, ram, vram); }
+    catch (const std::runtime_error&) { print_memory("placement-refused"); throw; }
     std::fprintf(stderr, "strata-poly: no-disk plan: %zu experts in RAM (%llu MiB), %zu permanent in VRAM "
                          "(%llu MiB); available budgets RAM=%llu MiB VRAM=%llu MiB; staging=%zu MiB\n",
                  experts.size() - plan.card_count, (unsigned long long) (plan.ram >> 20), plan.card_count,

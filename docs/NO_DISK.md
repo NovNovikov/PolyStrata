@@ -58,6 +58,19 @@ therefore fail the VRAM budget even when the model itself fits. Lower the contex
 
 The flag governs model weights. Session SAVE/RESTORE and expert-profile persistence remain separate features.
 
+The stderr `memory[load]` report shows the context limit, allocated KV in VRAM and the full context's KV size,
+read rows in VRAM, and `h_res_` in RAM with its maximum possible size. Without `--rows-vram`, `h_res_` starts at
+zero; `memory[h_res_ grown]` reports its allocation when a prompt needs it. `memory[request]` refreshes the totals
+after an answer. A refused device allocation or expert placement also prints the partial allocation breakdown.
+
+VRAM allocation totals add dense weights, experts, KV, staging, read rows and other engine allocations. RAM
+weight/buffer totals add resident host weights and pinned buffers; `h_res_` is already part of pinned buffers.
+These requested-byte totals exclude CUDA library/graph allocations and ordinary process metadata. Separate
+whole-device usage comes from `cudaMemGetInfo` and includes CUDA runtime overhead and other processes;
+whole-process RSS shows resident RAM pages, including metadata and libraries. The CUDA figures do not separately
+measure Windows WDDM spill into RAM. RAM and VRAM totals are reported separately. A reserve is free headroom, not
+an allocation, and is not added to occupied memory. Numbers are in MiB, rounded to two decimal places.
+
 ## Checking a machine
 
 CPU tests, built with `STRATA_BUILD_CONVERSATION_TESTS=ON`:

@@ -34,6 +34,10 @@
 #include <thread>
 #include <unordered_map>
 
+#ifdef _WIN32
+#include <psapi.h>
+#endif
+
 #ifdef __linux__
 #include <sched.h>
 #include <unistd.h>
@@ -404,9 +408,12 @@ void* Engine::dmalloc(size_t bytes, const char* what) {
         ck(cudaMemGetInfo(&free, &total), "no-disk: allocation budget");
         const size_t reserve = (size_t) (opt_.vram_reserve_mib >= 0 ? std::max(opt_.vram_reserve_mib, 256) : 1024) << 20;
         if (free <= reserve || bytes > free - reserve)
+        {
+            print_memory("allocation-refused");
             throw std::runtime_error("no-disk: " + std::string(what) + " needs " + std::to_string(bytes) +
                 " VRAM bytes; free " + std::to_string(free) + ", reserved " + std::to_string(reserve) +
                 ", available RAM " + std::to_string(ram_available()));
+        }
     }
     void* p = nullptr;
     const cudaError_t e = cudaMalloc(&p, std::max<size_t>(bytes, 256));
@@ -416,6 +423,7 @@ void* Engine::dmalloc(size_t bytes, const char* what) {
                                  " MiB): " + cudaGetErrorString(e));
     }
     dev_allocs_.push_back(p);
+    dev_sizes_[p] = std::max<size_t>(bytes, 256);
     return p;
 }
 
@@ -434,8 +442,16 @@ void* Engine::hmalloc(size_t bytes, const char* what) {
     }
     ck(e, why.c_str());
     host_allocs_.push_back(p);
-    if (opt_.no_disk) service_host_bytes_ += bytes;
+    host_sizes_[p] = std::max<size_t>(bytes, 256);
+    if (opt_.no_disk) service_host_bytes_ += host_sizes_[p];
     return p;
+}
+
+void Engine::hfree(void* p, const char* what) {
+    ck(cudaFreeHost(p), what);
+    host_allocs_.erase(std::find(host_allocs_.begin(), host_allocs_.end(), p));
+    if (opt_.no_disk) service_host_bytes_ -= host_sizes_.at(p);
+    host_sizes_.erase(p);
 }
 
 // A write into VRAM and a run of zeros in it, both on st_.
@@ -1159,6 +1175,65 @@ int64_t Engine::vram_free_mib() const {
     return next_ ? std::min(mib, next_->vram_free_mib()) : mib;
 }
 
+void Engine::print_memory(const char* when) const {
+    OnCard here(device_, split_);
+    const auto size_of = [](const auto& sizes, const void* p) -> uint64_t {
+        const auto it = sizes.find(const_cast<void*>(p));
+        return it == sizes.end() ? 0 : it->second;
+    };
+    uint64_t device = arena_.mapped, pinned = 0, kv = 0, kv_full = 0;
+    for (const auto& a : dev_sizes_) device += a.second;
+    for (const auto& a : host_sizes_) pinned += a.second;
+    const auto caches = [&](const auto& bufs, const auto& mapped) {
+        for (const Buf& b : bufs) if (b.per > 0) {
+            kv_full += ((uint64_t(opt_.max_context) + b.per - 1) / b.per) * b.bytes;
+            kv += size_of(dev_sizes_, b.p);   // fixed KV; VMM pointers are not in dev_sizes_
+        }
+        for (const Kv& k : mapped) { kv += k.mapped; device += k.mapped; }
+    };
+    caches(bufs_, kv_);
+    for (const Seq& q : seqs_) caches(q.bufs, q.kv);   // the bound sequence was exchanged out of its slot
+    const uint64_t dense = size_of(dev_sizes_, dense_),
+                   experts = arena_.mapped ? arena_.mapped : size_of(dev_sizes_, exp_),
+                   staging = size_of(dev_sizes_, stage_), rows = size_of(dev_sizes_, v_res_),
+                   h_res = size_of(host_sizes_, h_res_), resident = resident_ ? resident_->bytes() : 0;
+    const uint64_t row_limit = opt_.rows_vram ? 0 : uint64_t(read_rows_) * streams() * n_embd_ * sizeof(float);
+    const uint64_t known = dense + experts + kv + staging + rows;
+    const uint64_t other = device >= known ? device - known : 0;
+    uint64_t rss = 0;
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS counters{};
+    if (K32GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof counters)) rss = counters.WorkingSetSize;
+#elif defined(__linux__)
+    if (FILE* f = std::fopen("/proc/self/statm", "r")) {
+        unsigned long long pages = 0, total = 0;
+        const long page_size = sysconf(_SC_PAGESIZE);
+        if (std::fscanf(f, "%llu %llu", &total, &pages) == 2 && page_size > 0) rss = pages * page_size;
+        std::fclose(f);
+    }
+#endif
+    const auto mib = [](uint64_t n) { return double(n) / double(1u << 20); };
+    std::fprintf(stderr, "strata-poly: memory[%s] card=%d context=%d sequences=%d: KV=%.2f MiB VRAM "
+                         "(full-context=%.2f MiB), rows=%.2f MiB VRAM, h_res_=%.2f MiB RAM (max=%.2f MiB)\n",
+                 when, device_, opt_.max_context, std::max(1, sequences()), mib(kv), mib(kv_full), mib(rows),
+                 mib(h_res), mib(row_limit));
+    std::fprintf(stderr, "strata-poly: memory[%s] card=%d VRAM allocations total=%.2f MiB: dense=%.2f, "
+                         "experts=%.2f, KV=%.2f, staging=%.2f, rows=%.2f, other=%.2f; reserve=%d MiB\n",
+                 when, device_, mib(device), mib(dense), mib(experts), mib(kv), mib(staging), mib(rows), mib(other),
+                 opt_.vram_reserve_mib >= 0 ? std::max(opt_.vram_reserve_mib, 256) : reserve_mib_);
+    std::fprintf(stderr, "strata-poly: memory[%s] card=%d RAM weights+buffers total=%.2f MiB: "
+                         "resident_weights=%.2f, pinned_buffers=%.2f (includes h_res_); "
+                         "whole process RSS=%.2f MiB, system RAM free=%.2f MiB\n",
+                 when, device_, mib(resident + pinned), mib(resident), mib(pinned), mib(rss), mib(ram_available()));
+    size_t free = 0, total = 0;
+    if (cudaMemGetInfo(&free, &total) == cudaSuccess)
+        std::fprintf(stderr, "strata-poly: memory[%s] card=%d whole device used=%.2f / %.2f MiB, free=%.2f MiB "
+                             "(includes CUDA libraries and other processes)\n",
+                     when, device_, mib(total - free), mib(total), mib(free));
+    else (void) cudaGetLastError();   // diagnostics must not replace the original allocation refusal
+    if (next_) next_->print_memory(when);
+}
+
 // Experts go to VRAM by use per byte when there are counts, the profile's and this run's, and otherwise the same
 // number from every layer.
 //
@@ -1314,6 +1389,7 @@ void Engine::resize_card_cache(int mib) {
     } else if (exp_) {
         dev_allocs_.erase(std::find(dev_allocs_.begin(), dev_allocs_.end(), (void*) exp_));
         ck(cudaFree(exp_), "resize");
+        dev_sizes_.erase(exp_);
         exp_ = nullptr;
     }
     opt_.vram_reserve_mib = mib < 0 ? asked_reserve_mib_ : mib;
@@ -1808,6 +1884,7 @@ void Engine::load(const Options& o) {
         mapper_ = std::thread([this, spans = std::move(spans)] { map_pages(spans, map_quit_); });
     if (opt_.no_disk)
         std::fprintf(stderr, "strata-poly: no-disk RAM free after load: %zu MiB\n", ram_available() >> 20);
+    print_memory("load");
 }
 
 void Engine::load_drafter() {
@@ -3085,8 +3162,7 @@ void Engine::shift_rows(ptrdiff_t by) {
 float* Engine::pass_rows(int n) {
     if (h_pass_rows_ < n) {
         if (h_pass_) {
-            host_allocs_.erase(std::find(host_allocs_.begin(), host_allocs_.end(), (void*) h_pass_));
-            ck(cudaFreeHost(h_pass_), "freeing pinned memory");
+            hfree(h_pass_, "freeing pinned memory");
             h_pass_ = nullptr;
         }
         h_pass_rows_ = std::max(n, rows_);
@@ -3249,12 +3325,12 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
     const bool card_rows = host && opt_.rows_vram;
     if (host && !card_rows && h_res_rows_ < n) {   // for this read's tokens and some more
         if (h_res_) {
-            host_allocs_.erase(std::find(host_allocs_.begin(), host_allocs_.end(), (void*) h_res_));
-            ck(cudaFreeHost(h_res_), "freeing pinned memory");
+            hfree(h_res_, "freeing pinned memory");
             h_res_ = nullptr;
         }
         h_res_rows_ = std::min(read_rows_, (n + 4095) / 4096 * 4096);
         h_res_ = (float*) hmalloc((size_t) h_res_rows_ * r_bytes, "pinned memory");
+        print_memory("h_res_ grown");
     }
     const auto home = [&](int c) { return (card_rows ? v_res_ : h_res_) + (size_t) calls_[(size_t) c].at * r_row; };
     const auto half = [&](int c) { return r0 + (size_t) (host ? c % 2 : c) * part; };

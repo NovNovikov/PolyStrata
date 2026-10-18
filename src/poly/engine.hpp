@@ -283,6 +283,8 @@ public:
     /// first card's reserve and the least that one of them has free.
     int reserve_mib() const { return reserve_mib_; }
     int64_t vram_free_mib() const;
+    /// Allocation breakdown on stderr; device usage and process RSS include runtime/library overhead.
+    void print_memory(const char* when) const;
     /// The expert cache sized again, to leave `mib` of VRAM free (below 0: what load() left), and filled with the
     /// experts used most so far.  Without VMM it gets no larger than load() made it.  Between calls that feed
     /// tokens: the experts it gives up are computed on the CPU from then on, as any expert outside it.
@@ -480,6 +482,7 @@ protected:
     int room_key(int n) const;
     void* dmalloc(size_t bytes, const char* what);
     void* hmalloc(size_t bytes, const char* what);
+    void hfree(void* p, const char* what);
     /// A write into VRAM, on st_.  Every one of them goes through these two or is an async call on a stream of
     /// its own: see the note on h2d() in engine.cpp.
     void h2d(void* dst, const void* src, size_t bytes);
@@ -550,6 +553,7 @@ protected:
     void* ev_ = nullptr;   ///< marks the router's copy to the host: ev_row_'s first, or a window's row's own
     void* ev_row_[8] = {}; ///< one for each token a window can have
     std::vector<void*> dev_allocs_, host_allocs_;
+    std::map<void*, size_t> dev_sizes_, host_sizes_;  ///< live cudaMalloc / cudaMallocHost requests, not cumulative
     std::vector<void*> graphs_;   ///< every recorded graph, to destroy
     std::map<std::vector<int>, void*> passes_;   ///< a call's layers recorded as one (run()): by its tokens and
                                                  ///< every layer's head_key()

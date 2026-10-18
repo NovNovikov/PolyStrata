@@ -1028,6 +1028,7 @@ int serve(Session& ss, const Options& o) {
                     r.prompt_ms, r.decode_ms, r.finish, (long long) r.guessed_right, (long long) r.guessed,
                     (long long) r.resume, hits, hits + misses, (long long) r.read);
         std::fflush(stdout);
+        engine.print_memory("request");
         if (admit >= 0) {
             Slot& sl = slots[(size_t) admit];
             const bool goes_on = std::strcmp(r.finish, "length") == 0 && first >= 0 && admit_max > 1 &&
@@ -1109,6 +1110,7 @@ int once(Session& ss, const std::vector<int32_t>& ids, const Pictures& pictures,
                  r.finish, 100.0 * (double) st.gpu_experts / experts, st.cpu_ms / (double) std::max<int64_t>(st.tokens, 1),
                  st.route_wait_ms / (double) std::max<int64_t>(st.tokens, 1), (long long) st.swapped_experts,
                  (long long) st.tail_experts, (long long) r.guessed_right, (long long) r.guessed);
+    ss.engine.print_memory("request");
     return 0;
 }
 
