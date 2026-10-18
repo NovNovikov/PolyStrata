@@ -1141,7 +1141,8 @@ Dev Engine::upload(const TensorInfo* t, const std::string& name, int64_t n_in, i
                                 (want == kAnyMat && kernels::native_mmvq_supported((int) t->type)));
     const uint32_t type = as_is ? t->type : want == kF32 ? kTypeF32 : kTypeBF16;
     const size_t out = as_is ? bytes : count * (type == kTypeF32 ? sizeof(float) : sizeof(uint16_t));
-    if (type == kTypeBF16) bf16_max_ = std::max(bf16_max_, count);
+    // The output head uses short batches; lin() reads its BF16 weights directly.
+    if (type == kTypeBF16 && name != "output.weight") bf16_max_ = std::max(bf16_max_, count);
     const Dev d{dense_ ? dense_ + dense_at_ : nullptr, type, (int) n_in, (int) n_out};
     dense_at_ += pad(out) + kTail;
     if (!dense_) return d;
