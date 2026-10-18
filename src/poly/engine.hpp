@@ -49,7 +49,8 @@ struct Options {
     std::string profile;          ///< expert use counts; orders the expert cache, and save_profile() adds to it
     bool gpu_experts = true;
     bool no_disk = false;        ///< all weights resident in locked RAM or fixed VRAM; model files close at load
-    bool rows_vram = false;      ///< reserve the full context's intermediate read rows in VRAM
+    bool rows_vram = false;      ///< reserve intermediate read rows in VRAM
+    int read_chunk_tokens = 0;   ///< prompt tokens in one read() pass at most; 0: context / RAM limit
     int64_t ram_limit_mib = 0;   ///< no-disk RAM allocations at most; 0: current available RAM
     bool dump = false;            ///< print a checksum of every stage, for comparing against llama.cpp
     // A prompt batch.  More tokens a call and a larger staging buffer read a prompt faster, and both take VRAM
@@ -580,7 +581,7 @@ protected:
     };
     std::vector<Call> calls_;
     float* h_res_ = nullptr;  ///< h_res_rows_ tokens' rows, pinned: as many as the longest read so far that needed it
-    float* v_res_ = nullptr;  ///< --rows-vram: intermediate rows for the full context, allocated at load
+    float* v_res_ = nullptr;  ///< --rows-vram: intermediate rows for one read() pass, allocated at load
     int h_res_rows_ = 0;
     void* rs_ = nullptr;      ///< the stream of those copies
     void* ev_in_[2] = {};     ///< marks a call's rows in each half of r_

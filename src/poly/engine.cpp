@@ -1216,9 +1216,9 @@ void Engine::print_memory(const char* when) const {
     }
 #endif
     const auto mib = [](uint64_t n) { return double(n) / double(1u << 20); };
-    std::fprintf(stderr, "strata-poly: memory[%s] card=%d context=%d sequences=%d: KV=%.2f MiB VRAM "
-                         "(full-context=%.2f MiB), rows=%.2f MiB VRAM, h_res_=%.2f MiB RAM (max=%.2f MiB)\n",
-                 when, device_, opt_.max_context, std::max(1, sequences()), mib(kv), mib(kv_full), mib(rows),
+    std::fprintf(stderr, "strata-poly: memory[%s] card=%d context=%d prompt_batch=%d read_chunk=%d sequences=%d: "
+                         "KV=%.2f MiB VRAM (full-context=%.2f MiB), rows=%.2f MiB VRAM, h_res_=%.2f MiB RAM (max=%.2f MiB)\n",
+                 when, device_, opt_.max_context, rows_, read_rows_, std::max(1, sequences()), mib(kv), mib(kv_full), mib(rows),
                  mib(h_res), mib(row_limit));
     std::fprintf(stderr, "strata-poly: memory[%s] card=%d VRAM allocations total=%.2f MiB: dense=%.2f, "
                          "experts=%.2f, KV=%.2f, staging=%.2f, rows=%.2f, other=%.2f; reserve=%d MiB\n",
@@ -1705,6 +1705,8 @@ void Engine::load(const Options& o) {
     if (opt_.max_context < 16) throw std::runtime_error("the context must be at least 16 tokens");
     if (opt_.prompt_batch < 1 || opt_.prompt_batch > 4096)
         throw std::runtime_error("a prompt batch is 1 to 4096 tokens");
+    if (opt_.read_chunk_tokens < 0)
+        throw std::runtime_error("--read-chunk-tokens cannot be negative");
     if (opt_.stage_mib < 1) throw std::runtime_error("the staging buffer must be at least 1 MiB");
     if (opt_.stage_ahead < 0) throw std::runtime_error("the batch size to stage ahead from cannot be negative");
     if (opt_.expert_swaps < 0 || opt_.expert_swaps > 64)
@@ -1936,8 +1938,11 @@ void Engine::shared_scratch() {
 void Engine::alloc() {
     // --dump-layers prints one token's stages
     rows_ = opt_.dump ? 1 : std::min(opt_.prompt_batch, opt_.max_context);
-    const size_t most = opt_.rows_vram ? (size_t) opt_.max_context
-        : std::min<size_t>(kReadBytes / ((size_t) streams() * n_embd_ * sizeof(float)), opt_.max_context);
+    const size_t chunk_limit = opt_.read_chunk_tokens > 0
+        ? std::min((size_t) opt_.read_chunk_tokens, (size_t) opt_.max_context)
+        : (size_t) opt_.max_context;
+    const size_t most = opt_.rows_vram ? chunk_limit
+        : std::min<size_t>(kReadBytes / ((size_t) streams() * n_embd_ * sizeof(float)), chunk_limit);
     read_rows_ = rows_ < kStageRows ? rows_ : std::max(rows_, (int) most / rows_ * rows_);
     rec_n_ = recurrent_floats();
     state_n_ = rec_n_ + (draft_ ? (size_t) n_embd_ : 0);
@@ -2056,8 +2061,8 @@ void Engine::alloc() {
     }
     use_.assign(layers_.size() * n_expert_, 0);
     if (opt_.rows_vram) {
-        v_res_ = (float*) dmalloc((size_t) opt_.max_context * streams() * n_embd_ * sizeof(float),
-                                 "the full context's read rows (--rows-vram)");
+        v_res_ = (float*) dmalloc((size_t) read_rows_ * streams() * n_embd_ * sizeof(float),
+                                 "the read rows (--rows-vram)");
     }
 }
 

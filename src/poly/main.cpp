@@ -1209,6 +1209,8 @@ void usage() {
                  "                         into VRAM, in place of cached ones it uses less (default 64, 0 = the cache\n"
                  "                         stays as it was loaded)\n"
                  "  --prompt-batch N       prompt tokens read at a time (default 1024); about 1.4 MiB of VRAM each\n"
+                 "  --read-chunk-tokens N  prompt tokens in one layer-by-layer read() pass at most (default 0 =\n"
+                 "                         full context / 512 MiB RAM limit)\n"
                  "  --stage-mib N          VRAM the experts outside the cache pass through in a prompt batch (default\n"
                  "                         2048, or what a layer's experts take when that is less); with less, more\n"
                  "                         of them are copied after the layer has routed\n"
@@ -1316,6 +1318,7 @@ int main(int argc, char** argv) {
         else if (a == "--check-batch") check = std::atoi(val());
         else if (a == "--draft-vocab") o.draft_vocab = std::atoi(val());
         else if (a == "--prompt-batch") o.prompt_batch = std::atoi(val());
+        else if (a == "--read-chunk-tokens") o.read_chunk_tokens = std::atoi(val());
         else if (a == "--stage-mib") o.stage_mib = std::atoi(val());
         else if (a == "--stage-ahead") o.stage_ahead = std::atoi(val());
         else if (a == "--cpu-share") o.cpu_share = (float) std::atof(val());
