@@ -1,0 +1,32 @@
+strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=2848 MiB, limit=2850 MiB; original resident RAM, no host staging copy
+strata-poly: memory[load] card=0 context=16384 sequences=1: KV=107.50 MiB VRAM (full-context=107.50 MiB), rows=1024.00 MiB VRAM, h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[load] card=0 VRAM allocations total=20040.64 MiB: dense=7758.37, experts=4995.10, KV=107.50, staging=2848.00, rows=1024.00, other=3307.67; reserve=1024 MiB
+strata-poly: memory[load] card=0 RAM weights+buffers total=116718.48 MiB: resident_weights=116616.94, pinned_buffers=101.54 (includes h_res_); CUDA/HIP-registered window=2848.00 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=117131.64 MiB, system RAM free=3260.80 MiB
+strata-poly: memory[load] card=0 whole device used=22111.51 / 24563.50 MiB, free=2451.99 MiB (includes CUDA libraries and other processes)
+strata-poly: memory[request] card=0 context=16384 sequences=1: KV=107.50 MiB VRAM (full-context=107.50 MiB), rows=1024.00 MiB VRAM, h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[request] card=0 VRAM allocations total=20040.64 MiB: dense=7758.37, experts=4995.10, KV=107.50, staging=2848.00, rows=1024.00, other=3307.67; reserve=1024 MiB
+strata-poly: memory[request] card=0 RAM weights+buffers total=116718.48 MiB: resident_weights=116616.94, pinned_buffers=101.54 (includes h_res_); CUDA/HIP-registered window=2681.12 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=117350.78 MiB, system RAM free=3129.39 MiB
+strata-poly: memory[request] card=0 whole device used=22156.86 / 24563.50 MiB, free=2406.64 MiB (includes CUDA libraries and other processes)
+
+Host read rows, separate fresh process:
+strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=2848 MiB, limit=2850 MiB; original resident RAM, no host staging copy
+strata-poly: memory[load] card=0 context=16384 sequences=1: KV=107.50 MiB VRAM (full-context=107.50 MiB), rows=0.00 MiB VRAM, h_res_=0.00 MiB RAM (max=512.00 MiB)
+strata-poly: memory[load] card=0 VRAM allocations total=18931.69 MiB: dense=7758.37, experts=4910.15, KV=107.50, staging=2848.00, rows=0.00, other=3307.67; reserve=1024 MiB
+strata-poly: memory[load] card=0 RAM weights+buffers total=116803.42 MiB: resident_weights=116701.88, pinned_buffers=101.54 (includes h_res_); CUDA/HIP-registered window=2848.00 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=117217.59 MiB, system RAM free=3632.84 MiB
+strata-poly: memory[load] card=0 whole device used=21123.28 / 24563.50 MiB, free=3440.22 MiB (includes CUDA libraries and other processes)
+strata-poly: memory[h_res_ grown] card=0 context=16384 sequences=1: KV=107.50 MiB VRAM (full-context=107.50 MiB), rows=0.00 MiB VRAM, h_res_=256.00 MiB RAM (max=512.00 MiB)
+strata-poly: memory[h_res_ grown] card=0 VRAM allocations total=18931.69 MiB: dense=7758.37, experts=4910.15, KV=107.50, staging=2848.00, rows=0.00, other=3307.67; reserve=1024 MiB
+strata-poly: memory[h_res_ grown] card=0 RAM weights+buffers total=117059.42 MiB: resident_weights=116701.88, pinned_buffers=357.54 (includes h_res_); CUDA/HIP-registered window=2848.00 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=117476.13 MiB, system RAM free=3388.70 MiB
+strata-poly: memory[h_res_ grown] card=0 whole device used=21074.48 / 24563.50 MiB, free=3489.02 MiB (includes CUDA libraries and other processes)
+strata-poly: memory[request] card=0 context=16384 sequences=1: KV=107.50 MiB VRAM (full-context=107.50 MiB), rows=0.00 MiB VRAM, h_res_=256.00 MiB RAM (max=512.00 MiB)
+strata-poly: memory[request] card=0 VRAM allocations total=18931.69 MiB: dense=7758.37, experts=4910.15, KV=107.50, staging=2848.00, rows=0.00, other=3307.67; reserve=1024 MiB
+strata-poly: memory[request] card=0 RAM weights+buffers total=117059.42 MiB: resident_weights=116701.88, pinned_buffers=357.54 (includes h_res_); CUDA/HIP-registered window=2681.12 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=117659.24 MiB, system RAM free=3252.67 MiB
+strata-poly: memory[request] card=0 whole device used=21147.60 / 24563.50 MiB, free=3415.90 MiB (includes CUDA libraries and other processes)
+strata-poly: memory[h_res_ grown] card=0 context=16384 sequences=1: KV=107.50 MiB VRAM (full-context=107.50 MiB), rows=0.00 MiB VRAM, h_res_=512.00 MiB RAM (max=512.00 MiB)
+strata-poly: memory[h_res_ grown] card=0 VRAM allocations total=18931.69 MiB: dense=7758.37, experts=4910.15, KV=107.50, staging=2848.00, rows=0.00, other=3307.67; reserve=1024 MiB
+strata-poly: memory[h_res_ grown] card=0 RAM weights+buffers total=117315.42 MiB: resident_weights=116701.88, pinned_buffers=613.54 (includes h_res_); CUDA/HIP-registered window=2681.12 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=117915.37 MiB, system RAM free=2996.14 MiB
+strata-poly: memory[h_res_ grown] card=0 whole device used=21147.60 / 24563.50 MiB, free=3415.90 MiB (includes CUDA libraries and other processes)
+strata-poly: memory[request] card=0 context=16384 sequences=1: KV=107.50 MiB VRAM (full-context=107.50 MiB), rows=0.00 MiB VRAM, h_res_=512.00 MiB RAM (max=512.00 MiB)
+strata-poly: memory[request] card=0 VRAM allocations total=18931.69 MiB: dense=7758.37, experts=4910.15, KV=107.50, staging=2848.00, rows=0.00, other=3307.67; reserve=1024 MiB
+strata-poly: memory[request] card=0 RAM weights+buffers total=117315.42 MiB: resident_weights=116701.88, pinned_buffers=613.54 (includes h_res_); CUDA/HIP-registered window=2681.12 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=117940.44 MiB, system RAM free=2988.66 MiB
+strata-poly: memory[request] card=0 whole device used=21117.73 / 24563.50 MiB, free=3445.77 MiB (includes CUDA libraries and other processes)

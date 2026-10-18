@@ -11,7 +11,7 @@ not change the placement of this run.
 
 An expert permanently in VRAM has no RAM copy. Its slot is used directly by the existing GPU kernels. An expert
 in RAM has its gate, up and down bytes together in an anonymous allocation. CUDA copies them directly from
-that locked region into the GPU's staging buffer. The two 512 MiB host staging buffers and the swap buffers
+a registered window of that locked region into the GPU's staging buffer. The two 512 MiB host staging buffers and the swap buffers
 are not allocated in this mode. A staging buffer large enough for a layer lets a long read reuse that layer's
 uploaded experts across its calls.
 
@@ -43,8 +43,18 @@ The loader refuses a model that does not fit, or a host region that cannot be lo
 
 Windows uses `VirtualAlloc` and the platform's working-set minimum plus `VirtualLock`, as llama.cpp does for
 residency. Linux uses anonymous memory and `mlock`; the account must have a sufficient locked-memory allowance
-(`ulimit -l`). CUDA transfers take their source directly from the locked host region; this is not a giant
-`cudaMallocHost` arena. A failed load frees its allocations and unlocks its regions.
+(`ulimit -l`). OS residency alone does not register a DMA source with CUDA. Before an expert upload, its original
+source pages are registered with `cudaHostRegister` (HIP: `hipHostRegister`), and the registration is verified.
+No second RAM buffer receives the expert. The window is at most the staging capacity plus page rounding;
+adjacent or overlapping page ranges are merged. The next window waits for source-copy events on every stream
+that used the previous one before unregistering it. An interrupted copy without its final event is synchronized
+before releasing its source as well.
+
+Loading first verifies a staging-sized registration window. Any registration or verification refusal is an
+error, including during generation; there is no pageable-copy fallback. Windows refused one 110 GiB CUDA
+registration on the RTX 4090 test PC even though all 110 GiB could be OS-locked; a 4 GiB window in that same
+locked arena registered successfully. Bounded registration avoids requiring CUDA to register the whole model.
+This is not a giant `cudaMallocHost` arena. A failed load releases registrations, allocations and OS locks.
 
 Expert swaps, cache growth, shrinking and VRAM resizing are disabled. The line protocol's `VRAM` request is
 refused, and the server is told `vram_elastic=0`. The fixed expert placement stays valid throughout the run.
@@ -70,6 +80,7 @@ whole-device usage comes from `cudaMemGetInfo` and includes CUDA runtime overhea
 whole-process RSS shows resident RAM pages, including metadata and libraries. The CUDA figures do not separately
 measure Windows WDDM spill into RAM. RAM and VRAM totals are reported separately. A reserve is free headroom, not
 an allocation, and is not added to occupied memory. Numbers are in MiB, rounded to two decimal places.
+The CUDA/HIP-registered window and its peak are part of the resident weights, not additional RAM allocations.
 
 ## Checking a machine
 
@@ -84,6 +95,10 @@ glm_conversations_disk_test
 `poly_resident_probe MIB [RUNS]` deliberately allocates and locks that amount of RAM, then frees it. Do not run
 a large probe beside a loaded model. On Windows with 128 GiB RAM, 112640 MiB locked in 21.53 s during the
 2026-10-18 test (RTX 4090 PC, i5-13600KF). A partial lock is a failure, not a successful smaller allocation.
+
+The GPU build also provides `poly_resident_dma_probe RAM_MIB [WINDOW_MIB] [RUNS]`. It OS-locks the requested
+arena, switches a bounded CUDA/HIP registration between its beginning and end, verifies real copies on two
+independent streams, and checks cleanup. It needs no model file. The default window is 3072 MiB.
 
 `tools/bench_poly_no_disk.py` creates synthetic text and starts a fresh engine for each run. It copies a supplied
 expert profile into the output directory; it does not use user chats or prompts. Run it with the server's Python:

@@ -1,5 +1,6 @@
 #include "runtime.hpp"
 #include "resident_memory.hpp"
+#include "resident_dma.hpp"
 #include "no_disk.hpp"
 #include "strata/kernels/native_mmvq.hpp"
 #include "ggml.h"
@@ -113,6 +114,17 @@ void Engine::load_resident_experts() {
                  (unsigned long long) (plan.vram >> 20), (unsigned long long) (ram >> 20),
                  (unsigned long long) (vram >> 20), stage_bytes_ >> 20);
     auto* host = (uint8_t*) resident_->allocate((size_t) plan.ram, "routed experts");
+    if (plan.ram && stage_) {
+        // WDDM refuses registration of the whole 110+ GiB arena. A working window registers original
+        // source pages only, bounded by staging plus page rounding; no second RAM arena is allocated.
+        const uint64_t limit = resident_add(stage_bytes_, uint64_t(2) * n_expert_ * ResidentDma::page_size());
+        if (limit > SIZE_MAX) throw std::runtime_error("no-disk: DMA window size overflow");
+        expert_dma_ = std::make_unique<ResidentDma>(host, (size_t) plan.ram, (size_t) limit);
+        expert_dma_->prepare({{0, std::min((size_t) plan.ram, stage_bytes_)}});
+        std::fprintf(stderr, "strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=%zu MiB, "
+                             "limit=%zu MiB; original resident RAM, no host staging copy\n",
+                     expert_dma_->bytes() >> 20, (size_t) limit >> 20);
+    }
     if (plan.vram) {
         exp_ = (uint8_t*) dmalloc((size_t) plan.vram, "no-disk permanent experts");
         zero_vram(exp_, (size_t) plan.vram);

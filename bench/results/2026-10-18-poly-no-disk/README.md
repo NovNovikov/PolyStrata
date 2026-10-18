@@ -1,5 +1,8 @@
 # Poly no-disk, 2026-10-18
 
+The measurements below predate the correction that registers RAM source pages for CUDA DMA. OS locks alone
+did not provide that registration. See [DMA.md](DMA.md) for the corrected path's measurements and checks.
+
 Windows, i5-13600KF, 12 CPU worker threads, RTX 4090 (24564 MiB), 128 GiB RAM (130906 MiB visible).
 CUDA 12.4, MSVC 19.41. Model: `DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf`, 135658482976 bytes.
 The synthetic input was exactly 10000 tokens from `tools/bench_poly_no_disk.py`. Every run started a fresh

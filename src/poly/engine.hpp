@@ -35,6 +35,7 @@ namespace strata::poly {
 
 class Shards;
 class ResidentMemory;
+class ResidentDma;
 struct Likeliest;
 
 /// The attention caches' storing format: fp16 (default) or ggml Q8_0; opt-in via --kv.
@@ -522,6 +523,7 @@ protected:
     Options opt_;
     std::unique_ptr<Shards> gg_;
     std::unique_ptr<ResidentMemory> resident_;
+    std::unique_ptr<ResidentDma> expert_dma_;
     size_t resident_host_bytes_ = 0, service_host_bytes_ = 0;
     uint64_t resident_ram_start_ = 0;
     std::unique_ptr<Shards> dg_;      ///< Options::draft_model, while the draft block is read from it

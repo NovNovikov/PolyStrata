@@ -1,4 +1,5 @@
 #include "no_disk.hpp"
+#include "dma_ranges.hpp"
 #include "strata/artifact/gguf_reader.hpp"
 #include <chrono>
 #include <filesystem>
@@ -14,6 +15,20 @@ template<class F> bool fails(F f) { try { f(); } catch (const std::exception&) {
 template<class T> void put(std::ofstream& f, T n) { f.write((const char*) &n, sizeof n); }
 }
 int main() {
+    // Only original source pages are registered. Adjacent/overlapping pages merge, including a partial last page.
+    check(dma_ranges({}, 8193, 16384, 4096).empty());
+    check(dma_ranges({{1, 1}, {4095, 2}, {8192, 1}}, 8193, 12288, 4096) ==
+          std::vector<DmaRange>{{0, 12288}});
+    check(dma_ranges({{8192, 10}, {1, 10}, {1, 10}}, 16384, 8192, 4096) ==
+          std::vector<DmaRange>{{0, 4096}, {8192, 4096}});
+    check(fails([] { dma_ranges({{8192, 2}}, 8193, 16384, 4096); }));
+    check(fails([] { dma_ranges({{0, 8192}}, 8192, 4096, 4096); }));
+    check(fails([] { dma_ranges({}, SIZE_MAX, SIZE_MAX, 4096); }));
+    check(fails([] { dma_ranges({}, 8192, 8192, 3); }));
+    for (size_t offset = 0; offset < 8192; offset += 31) {
+        const auto ranges = dma_ranges({{offset, 1}}, 8192, 4096, 4096);
+        check(ranges.size() == 1 && ranges[0].first == offset / 4096 * 4096 && ranges[0].second == 4096);
+    }
     std::vector<ResidentExpert> e{{0,0,10,12,1}, {0,1,10,12,30}, {1,0,10,12,10}};
     auto p = plan_resident(e, 30, 1000);
     check(p.card_count == 0 && p.ram == 30 && p.vram == 0);

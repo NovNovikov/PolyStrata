@@ -10,6 +10,7 @@
 #include "qwen35.hpp"
 #include "runtime.hpp"
 #include "resident_memory.hpp"
+#include "resident_dma.hpp"
 #include "strata/poly/kernels.hpp"
 #include "strata/kernels/native_mmvq.hpp"
 
@@ -380,6 +381,7 @@ Engine::~Engine() {
     if (rs_) cudaStreamSynchronize(cs(rs_));
     if (st_) cudaStreamSynchronize(cs(st_));
     workers_.reset();
+    expert_dma_.reset();   // unregister sources before their resident RAM is unlocked and freed
     resident_.reset();
     mmq_.reset();
     for (void* p : dev_allocs_) cudaFree(p);
@@ -1223,8 +1225,11 @@ void Engine::print_memory(const char* when) const {
                  opt_.vram_reserve_mib >= 0 ? std::max(opt_.vram_reserve_mib, 256) : reserve_mib_);
     std::fprintf(stderr, "strata-poly: memory[%s] card=%d RAM weights+buffers total=%.2f MiB: "
                          "resident_weights=%.2f, pinned_buffers=%.2f (includes h_res_); "
+                         "CUDA/HIP-registered window=%.2f MiB (part of resident_weights, peak=%.2f MiB); "
                          "whole process RSS=%.2f MiB, system RAM free=%.2f MiB\n",
-                 when, device_, mib(resident + pinned), mib(resident), mib(pinned), mib(rss), mib(ram_available()));
+                 when, device_, mib(resident + pinned), mib(resident), mib(pinned),
+                 mib(expert_dma_ ? expert_dma_->bytes() : 0), mib(expert_dma_ ? expert_dma_->peak() : 0),
+                 mib(rss), mib(ram_available()));
     size_t free = 0, total = 0;
     if (cudaMemGetInfo(&free, &total) == cudaSuccess)
         std::fprintf(stderr, "strata-poly: memory[%s] card=%d whole device used=%.2f / %.2f MiB, free=%.2f MiB "
@@ -2434,6 +2439,15 @@ void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, 
     staged_il_ = -1;   // whatever the buffer held
     const size_t gu2 = 2 * L.gu_bytes, down_at = pad((size_t) m * gu2);
     if (opt_.no_disk) {
+        if (!expert_dma_) throw std::logic_error("no-disk: no registered DMA window for expert staging");
+        std::vector<DmaRange> sources;
+        sources.reserve((size_t) m);
+        for (int j = 0; j < m; ++j) {
+            const auto h = host_expert(L, (size_t) experts[j]);
+            sources.emplace_back((size_t) (h.gate - expert_dma_->base()), gu2 + L.d_bytes);
+        }
+        expert_dma_->prepare(std::move(sources));
+        expert_dma_->begin(cs(stream));
         for (int j = 0; j < m; ++j) {
             const auto h = host_expert(L, (size_t) experts[j]);
             ck(cudaMemcpyAsync(stage_ + (size_t) j * gu2, h.gate, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
@@ -2444,6 +2458,7 @@ void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, 
                "no-disk: expert down");
         }
         ck(cudaMemsetAsync(stage_ + down_at + (size_t) m * L.d_bytes, 0, kTail, cs(stream)), "no-disk: staging tail");
+        expert_dma_->end(cs(stream));
         return;
     }
     const int per = (int) (chunk_bytes_ / (gu2 + L.d_bytes));
