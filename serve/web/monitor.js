@@ -70,6 +70,17 @@ async function showDetail() {
   text("detail-speed", speed(value.timings?.predicted_per_second)); text("detail-format", value.response_format || "text");
   $("detail-error").hidden = !value.error; text("detail-error", value.error?.message || ""); content();
 }
+function memory(view) {
+  const vram = view?.vram || {}, ram = view?.ram || {};
+  const gib = v => v == null ? null : `${(v / 1024).toFixed(1)} GB`;   // the API answers in MiB
+  const bits = [];
+  if (vram.total_mib != null) bits.push(`of ${gib(vram.total_mib)} in the card${vram.engine_used_mib == null ? " (every process)" : ""}`);
+  if (vram.engine_used_mib != null && vram.asked_mib > vram.engine_used_mib) bits.push(`${gib(vram.asked_mib)} asked for`);
+  if (vram.spilled_mib) bits.push(`${gib(vram.spilled_mib)} moved to the system's RAM`);
+  if (ram.engine_used_mib != null) bits.push(`engine RAM ${gib(ram.engine_used_mib)}${ram.total_mib ? ` of ${gib(ram.total_mib)}` : ""}`);
+  text("mem", gib(vram.engine_used_mib) || gib(vram.used_mib) || "—");
+  text("mem-note", bits.length ? bits.join(" · ") : "Not measured by this server");
+}
 async function refresh() {
   try {
     const [status, history] = await Promise.all([api("/v1/status"), api("/api/requests")]);
@@ -86,6 +97,8 @@ async function refresh() {
     text("active", inflight ? `${inflight} active / queued` : status.auto_load ? "Loads automatically on the next request" : "No active requests");
     const last = records.find(r => !active(r));
     text("wall", last ? seconds(last.wallclock_s) : "—"); text("speed", speed(last?.timings?.predicted_per_second));
+    text("speed-note", `Engine timing · tokens / second${last?.timings?.prompt_per_second ? ` · prompt read ${speed(last.timings.prompt_per_second)} tok/s` : ""}`);
+    memory(status.memory);
     $("load").disabled = operating || Boolean(inflight) || status.loaded; $("unload").disabled = operating || Boolean(inflight) || !status.loaded;
     list(); if (selected) await showDetail();
     text("updated", `Live · updated ${new Date().toLocaleTimeString()}`);

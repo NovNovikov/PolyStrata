@@ -214,10 +214,12 @@ class Monitor(unittest.TestCase):
         code, html = self.request("/api-monitor")
         self.assertEqual(code, 200)
         self.assertIn('src="/web/monitor.js"', html)
+        self.assertIn('id="mem"', html)             # the engine's own memory (/v1/status' memory block)
         code, script = self.request("/web/monitor.js")
         self.assertEqual(code, 200)
         self.assertIn("textContent", script)
         self.assertNotIn("innerHTML", script)
+        self.assertIn("function memory(view)", script)
         self.assertEqual(self.request("/web/../server.py")[0], 404)
 
 

@@ -3515,6 +3515,9 @@ class WebApp(unittest.TestCase):
                 self.assertEqual(props["modalities"]["vision"], vision is not None)
                 self.assertEqual(props["total_slots"], 1)
                 self.assertFalse(props["models_autoload"])
+                # not one of llama.cpp's keys: the engine's own memory, as /v1/status answers it (memory_view)
+                from serve.server import memory_view
+                self.assertEqual(props["memory"], memory_view({}, {}))
             svc.shared = {}
             props = json.loads(self.get("/props")[2])
             self.assertEqual(props["default_generation_settings"]["params"]["n_predict"], -1)

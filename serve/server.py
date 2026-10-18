@@ -6626,6 +6626,9 @@ def make_handler(svc: Service):
             version = getattr(svc.engine, "info", {}).get("version")
             if version:
                 props["build_info"] = "PolyStrata " + str(version)
+            # not one of llama.cpp's keys: the engine process' own memory, as /v1/status answers it (memory_view)
+            tel = svc.telemetry.snapshot() if getattr(svc, "telemetry", None) else {}
+            props["memory"] = memory_view(getattr(svc.engine, "info", {}) or {}, (tel or {}).get("now") or {})
             self._json(200, props)
 
         def _control_body(self) -> bool:

@@ -796,8 +796,9 @@ so a Monitor-tab panel and a Grafana panel read the same value: `strata:live_sta
 `gpu`), `strata:cpu`, `strata:ram_used_bytes`, `strata:ram_total_bytes`. A value the server does not have (no GPU
 telemetry, an older engine) has no sample rather than a zero.
 
-The engine process' own memory, the same numbers the Monitor's VRAM card and About tab show (Windows; the driver's
-per-process GPU counters and the process' RAM), comes with it: `strata:engine_vram_used_bytes` (what it holds in the
+The engine process' own memory, the same numbers the Monitor's VRAM card, its Engine memory card and the About tab
+show (Windows; the driver's per-process GPU counters and the process' RAM), comes with it:
+`strata:engine_vram_used_bytes` (what it holds in the
 card's memory), `strata:engine_vram_asked_bytes` (what it committed on the card), `strata:engine_vram_spilled_bytes`
 (the part of that the driver keeps in the system's RAM - a card asked for more than it has does that, and then a
 read crawls), `strata:engine_ram_used_bytes` / `strata:engine_ram_asked_bytes` (the engine process' RAM, in use and
@@ -806,7 +807,9 @@ committed), `strata:engine_vram_free_mib` (the engine's own free-VRAM figure) an
 card (`total_mib`, `used_mib`, `free_mib`) and the engine's part of it (`engine_used_mib` held, `asked_mib`
 committed, `spilled_mib` moved to the system's RAM, `shared_mib`, and the engine's `engine_free_mib`,
 `expert_slots`, `expert_cache_mib`, `reserve_mib`), `memory.ram` is the host's (`total_mib`, `used_mib`,
-`engine_used_mib`, `engine_asked_mib`). `GET /v1/status` answers the same `memory`.
+`engine_used_mib`, `engine_asked_mib`). `GET /v1/status` answers the same `memory`, and `GET /props` carries it
+under `memory` too (not one of llama.cpp's keys, and the reason a client that reads `props` sees the engine's
+memory as well).
 
 Ready to use, in `docs/monitoring/`: `prometheus.yml` (a scrape config, the API key as a bearer token),
 `servicemonitor.yaml` (the same for the Prometheus Operator) and `grafana-strata.json`, a Grafana dashboard to
