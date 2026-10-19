@@ -1,0 +1,17 @@
+INFO context=131072 expert_slots=461 expert_cache_mib=5037 pool_workers=12 conversation_cache_mib=0 conversation_cache_slots=4 conversation_cache_min_free_mib=2560 vram_free_mib=958 vram_elastic=0 batch_slots=0 engine=0.1.45
+READY 131072 stop
+RESUME 0
+PP 4096 10000 14217 288.1
+PP 8192 10000 28569 286.7
+PP 9999 10000 41685 239.9
+PP 10000 10000 41991 238.1
+T 126889
+T 77070
+T 32901
+T 1229
+T 79
+T 38571
+T 603
+T 19093
+DONE 8 10000 41990.7 331.5 length 5 5 0 671 2064 0 0 0.0 10000 0
+ERR VRAM: no-disk: permanent experts cannot be resized or evicted

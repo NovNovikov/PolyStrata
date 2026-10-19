@@ -1,0 +1,16 @@
+{
+  "exe": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+  "sha256": "cca95e2601e36d73870b2cd22a5ae12cb609652a7e5d2b07cd05cf09d9152f72",
+  "invalid_margin_inputs_rejected": [
+    "-1",
+    "garbage",
+    "512x",
+    "2147483648"
+  ],
+  "no_disk_obj_mtime": 1792371163.8333852,
+  "no_disk_header_sha256": "29a87ec64cb1b8694c583ce7caf3f0fcb47bc6ff286444cd91be580e9196acb6",
+  "source_commits": [
+    "359fd2f1",
+    "1a608e21"
+  ]
+}
