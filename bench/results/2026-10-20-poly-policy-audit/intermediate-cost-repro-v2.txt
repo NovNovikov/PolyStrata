@@ -1,0 +1,11 @@
+intermediate_cost_repro.cpp
+draft_policy.cpp
+Создание кода...
+window=1 chosen=0 estimate_ms=60.000 age=1229 actual_tps=16.667
+window=2 chosen=0 estimate_ms=73.000 age=1225 actual_tps=27.397
+window=3 chosen=1197 estimate_ms=84.000 age=1 actual_tps=35.714
+window=4 chosen=0 estimate_ms=200.000 age=1217 actual_tps=20.000
+window=5 chosen=0 estimate_ms=220.000 age=1213 actual_tps=22.727
+window=6 chosen=0 estimate_ms=240.000 age=1209 actual_tps=25.000
+window=7 chosen=0 estimate_ms=500.000 age=1205 actual_tps=41.176
+window=8 chosen=3 estimate_ms=260.000 age=298 actual_tps=30.769

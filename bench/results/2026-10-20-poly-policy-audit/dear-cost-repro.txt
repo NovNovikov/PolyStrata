@@ -1,0 +1,11 @@
+dear_cost_repro.cpp
+draft_policy.cpp
+Создание кода...
+t=1 count=0 estimate=166.667 samples=0 age=1500
+t=2 count=0 estimate=225.000 samples=0 age=1500
+t=3 count=0 estimate=283.333 samples=0 age=1500
+t=4 count=0 estimate=341.667 samples=0 age=1500
+t=5 count=0 estimate=408.333 samples=0 age=1500
+t=6 count=0 estimate=475.000 samples=0 age=1500
+t=7 count=0 estimate=541.667 samples=0 age=1500
+t=8 count=1000 estimate=600.000 samples=1500 age=1

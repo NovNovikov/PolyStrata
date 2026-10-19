@@ -1,0 +1,31 @@
+draft_policy_test.cpp
+draft_policy.cpp
+Создание кода...
+draft_policy_test
+  no proposal: the MTP window                                        ok
+  rejected short-match drafts: their rate falls below 0.15           ok
+  rejected short-match drafts: no longer taken                       ok
+  accepted long-match drafts: their rate rises above 0.9             ok
+  accepted long matches: the full lookup window is taken             ok
+  buckets are separate: short matches still not taken                ok
+  never beyond the window cap                                        ok
+  a mediocre lookup does not replace a strong MTP window             ok
+  an unmeasured size is probed for a confident lookup                ok
+  after the probes, the measured cost decides                        ok
+  a stale wide size is tried again within a few hundred rounds       ok
+  chain: cheap rows, always accepted -> all 3 chained                ok
+  chain: dear rows, never accepted -> none                           ok
+  chain: nothing proposed / no room -> none                          ok
+  chain: the profitable shorter chain initially wins                 ok
+  chain: stale full size is re-probed despite a profitable shorter chain ok
+  chain: stale re-probes retain the MTP confidence gate              ok
+  refresh: stale intermediate cost is replaced by current measurement ok
+  legacy: full-size probes never rediscover intermediate optimum     ok
+  refresh: intermediate optimum is rediscovered and retained         ok
+  refresh: genuinely expensive wide windows remain occasional probes ok
+  refresh: low-confidence unprofitable lookup is not forced          ok
+  refresh: no proposal stays scalar                                  ok
+  refresh: no probe exceeds the available proposal                   ok
+  refresh: excluded setup does not freshen a stale cost              ok
+  refresh: subsequent fresh samples keep normal EMA smoothing        ok
+PASS
