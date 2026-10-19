@@ -1,0 +1,18 @@
+{
+  "status": "placement-refused-before-READY",
+  "exe_sha256": "cca95e2601e36d73870b2cd22a5ae12cb609652a7e5d2b07cd05cf09d9152f72",
+  "context": 131072,
+  "batch": 4096,
+  "read_chunk": 32768,
+  "stage_mib": 2848,
+  "reserve_mib": 512,
+  "load_margin_mib": 512,
+  "threads": 12,
+  "prompt_tokens_requested": 10000,
+  "prompt_executed": false,
+  "expert_ram_need_bytes": 123314896896,
+  "expert_ram_budget_bytes": 122691145728,
+  "expert_vram_plan_bytes": 3135696960,
+  "expert_vram_budget_bytes": 3141533696,
+  "temporary_run": "L:/Temp/poly-bench-20261019/run-6-chunk32768"
+}

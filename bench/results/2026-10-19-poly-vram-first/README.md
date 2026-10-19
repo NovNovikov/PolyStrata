@@ -115,3 +115,19 @@ and extra process reads beyond stdin were zero. Global swap-used increased by 22
 attributed to this process from that global counter alone. RSS samples did not fall below the starting value.
 The benchmark exited after QUIT. Details: chunk16384-results.json, chunk16384-memory.txt and
 chunk16384-protocol.txt; temporary run L:/Temp/poly-bench-20261019/run-5-chunk16384.
+
+## Read chunk 32768: placement refusal
+
+The next run used the same binary and benchmark settings, changing only --read-chunk to 32768. It failed
+before READY on expert placement, so no prompt timing exists. Read rows grew from 1024 to 2048 MiB; requested
+VRAM before experts was 18678.61 MiB. Whole-device free VRAM before planning was 4020 MiB. After runtime reserve
+512 MiB and loading allowance 512 MiB, the expert budget was 2996 MiB; the plan placed 3135696960 bytes of experts
+in VRAM. Remaining experts needed 123314896896 RAM bytes against a calculated budget of 122691145728 bytes:
+a shortfall of 623751168 bytes (594.86 MiB). This is a RAM-budget refusal, not CUDA OOM or the final VRAM-reserve
+check. The RAM budget already subtracts 1 GiB headroom; the shortfall is relative to that budget, not a claim
+that physical free RAM alone was below the remaining weights.
+
+For this 10000-token prompt, both 16384 and 32768 would allow a single long read; 32768 adds reserved capacity
+without removing another read boundary in this particular test. It could matter on longer prompts. The local
+DeepSeek configuration remains at --read-chunk 32768 as requested; it was not silently reverted after refusal.
+Raw counts: chunk32768-refusal.json and chunk32768-refusal.txt. The process exited; no model was left loaded.

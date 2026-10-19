@@ -1,0 +1,7 @@
+strata-poly: the experts' split is frozen for the engine's whole run (STRATA_FREEZE_EXPERTS): greedy answers are a function of the request alone, and the only cache change after load is the serve VRAM resize
+strata-poly: no-disk VRAM[before-plan]: free=4020.00 MiB (4215275520 bytes), reserve=512 MiB, load_margin=512 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=18678.61 MiB
+strata-poly: memory[placement-refused] card=0 context=131072 sequences=1: KV=860.00 MiB VRAM (full-context=860.00 MiB), rows=2048.00 MiB VRAM (chunk=32768, batch=4096), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[placement-refused] card=0 VRAM allocations total=18678.61 MiB: dense=7758.37, experts=0.00, KV=860.00, staging=2848.00, rows=2048.00, other=5164.24; reserve=512 MiB
+strata-poly: memory[placement-refused] card=0 RAM weights+buffers total=1411.70 MiB: resident_weights=1018.88, pinned_buffers=392.82 (includes h_res_); CUDA/HIP-registered window=0.00 MiB (part of resident_weights, peak=0.00 MiB); whole process RSS=1834.31 MiB, system RAM free=118031.34 MiB
+strata-poly: memory[placement-refused] card=0 whole device used=20543.50 / 24563.50 MiB, free=4020.00 MiB (includes CUDA libraries and other processes)
+strata-poly: no-disk: model does not fit: experts need 123314896896 RAM bytes after placing 3135696960 in VRAM; available RAM 122691145728, available expert VRAM 3141533696
