@@ -160,11 +160,44 @@ registered inside the resident weights (`no-disk DMA verified` in the control ru
 | 1.000 | iw_ (indexer weights) | |
 | 127.984 | score_ (indexer scores) | |
 
+## Second scale point - chunk 32768 at context 131072 (`dump3-ctx131072-chunk32768/`)
+
+The same dump on `series1-control`'s parameters, run again with `--dump-buffers`; the placement still
+refuses, and the refusal prints the whole inventory:
+
+```text
+buffers[placement-refused] card=0: device=18678.61 MiB (plain=16469.60, sequence=1349.02, attention caches=860.00), pinned=392.82 MiB, scratch slices=3550.58 MiB in 3550.58 MiB
+buffers[placement-refused] check: scratch slices 3550.58 of 3550.58 MiB (0.00 alignment and tail), unnamed slices 0; allocator records device=18678.61, pinned=392.82 MiB; mapped KV (VMM, not in device_sizes_)=0.00 of the 860.00 requested; arena mapped=0.00 MiB
+no-disk: model does not fit: experts need 122779140096 RAM bytes after placing 3671606840 in VRAM; available RAM 120875294720, available expert VRAM 3678404608
+```
+
+The RAM demand is 122779140096 bytes in both refusals, to the byte - the placement is reproducible,
+only the free RAM moved (117931556864 then, 120875294720 now).
+
+Comparing the two points (batch 4096 in both, so anything equal is batch- or model-determined):
+
+| MiB | chunk 4096, context 32768 | chunk 32768, context 131072 | follows |
+| --- | --- | --- | --- |
+| KV (attention caches, `per > 0`) | 215.000 | 860.000 | context: 6.72 KiB per token at both points |
+| the read rows (`--rows-vram`) | 256.000 | 2048.000 | `--rows-vram` (chunk) |
+| the dense weights | 7758.371 | 7758.371 | model |
+| the expert staging buffer | 2848.000 | 2848.000 | `--stage-mib` |
+| the compressor's rows (124 slices) | 1171.641 | 1171.641 | model, not context |
+| the raw attention rings (43 slices) | 177.375 | 177.375 | window + 4096 rows, not context |
+| scratch arena | 3294.681 | 3550.575 | batch, except one slice: r_ 256 -> 512 |
+| r_ (layer input rows) | 256.000 | 512.000 | the read chunk's rows in flight |
+| gu_, dx_ (384), hx_ (192), q_, att_ (512), q8_ (36), mq_ (108) | same | same | batch and model |
+| every other slice | same | same | batch and model |
+
+So of 22177.49 MiB of device memory at chunk 4096, the part that grows with the context is the
+attention caches (215 -> 860) and the read rows (256 -> 2048); the architecture scratch arena grows
+by 256 MiB (one slice) because of the chunk, and the compressor rows and rings do not grow at all.
+
 ## What is not established yet
 
 - Whether each buffer is needed, overstated, or mergeable by lifetime: not measured here. The spec's
   Phase 2 does that one buffer at a time, and each result is checked against the same eight ids above.
-- Whether the same numbers hold at context 131072 and chunk 32768: the spec's configuration refuses
-  on this machine while other processes hold RAM, so its inventory is only available from the refusal
-  (dense 7758.37, KV 860, staging 2848, rows 2048, other 5164.24).
+- Whether the same numbers hold at context 131072 and chunk 32768 *while loading*: the spec's
+  configuration refuses on this machine while other processes hold RAM (its refusal inventory is
+  above, and it is the same 18678.61 MiB allocated before placement as the spec's table).
 - Anything about ROCm/HIP or SYCL: only CUDA was measured.
