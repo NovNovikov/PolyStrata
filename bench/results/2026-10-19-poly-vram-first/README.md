@@ -82,3 +82,36 @@ it does not demonstrate restoration of the earlier prefill speed.
 Raw request metrics: results.json. Loading and request memory samples: memory.txt. Protocol: protocol.txt.
 The original temporary run is L:/Temp/poly-bench-20261019/run-4-margin512. Local launcher configuration was not
 edited; its existing 512 MiB runtime reserve remains and the new loading allowance defaults to 512 MiB.
+
+## Read-chunk comparison on the same binary
+
+A second fresh-process run changed the read chunk from 4096 to 16384. Context 131072, batch 4096, staging
+2848 MiB, runtime reserve 512 MiB, loading allowance 512 MiB, 12 threads and all other benchmark settings stayed
+the same. The executable SHA256 was checked against build.json and matched. Both runs copied the same source
+expert profile, used the exact same synthetic 10000 tokens and returned identical eight generated IDs with
+zero cached tokens. The local launcher configuration was not changed.
+
+| Read chunk | Prompt ms | Prompt tokens/s | VRAM read rows MiB | Permanent VRAM experts |
+| ---: | ---: | ---: | ---: | ---: |
+| 4096 | 41990.7 | 238.148 | 256 | 461 |
+| 16384 | 19772.4 | 505.755 | 1024 | 367 |
+
+The larger chunk was 2.12 times faster despite retaining fewer experts permanently in VRAM. Allocation grew
+by 768 MiB for intermediate rows and 256 MiB for the second working residual batch. VRAM-first consequently
+placed about 1023 MiB fewer experts in VRAM; total requested device allocation remained about the same.
+
+The code explains the effect: main.cpp limits each read() to max_read(). At chunk=4096 and batch=4096 each
+read has one call, so Engine::read() selects the eval() path. The 9999 non-final prompt tokens require three
+separate layer traversals; each traversal stages RAM experts again. At chunk=16384, those tokens fit in one
+read() with three calls. The layer-major path runs those calls consecutively on a layer and reuses its staged
+experts before advancing. The last prompt token is evaluated separately in both runs.
+
+This identifies the read-chunk limit and its scheduling consequences as the main cause of the measured
+slowdown. It does not isolate every secondary allocation/placement effect or directly measure PCIe traffic.
+The BF16 workspace reduction remained active in both runs. There is no evidence here that it caused the loss.
+
+The second load took 202.559 s and reached READY; prefill and generation completed, the model file was closed,
+and extra process reads beyond stdin were zero. Global swap-used increased by 22892544 bytes, which cannot be
+attributed to this process from that global counter alone. RSS samples did not fall below the starting value.
+The benchmark exited after QUIT. Details: chunk16384-results.json, chunk16384-memory.txt and
+chunk16384-protocol.txt; temporary run L:/Temp/poly-bench-20261019/run-5-chunk16384.
