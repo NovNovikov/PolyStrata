@@ -1,0 +1,56 @@
+{
+  "exe_sha256": "efac8074da68c2d8e69502e0288363f525c94fb9ab79027fc912f0d2c7948c48",
+  "config_sha256": "ac8d380e9f6cf5df9d8ec4a19d83b1cee02f3c754c06021e7a2d9ed268a3e27e",
+  "work": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\decode-vram-audit-20261019-graphs",
+  "anchors": [
+    2048,
+    4096,
+    6144,
+    8192
+  ],
+  "stages": [
+    "initial",
+    "restart"
+  ],
+  "session_sha256": "c96ad3879c47375b792dbe971b9e2b9e0790b235c1ae22052454f37734604e77",
+  "roundtrip_sha256": "c96ad3879c47375b792dbe971b9e2b9e0790b235c1ae22052454f37734604e77",
+  "session_bytes": 603114484,
+  "cache": {
+    "initial": {
+      "max_used_slots": 255,
+      "capacity": 255,
+      "max_used_mib": 2837.7,
+      "verified_counts": [
+        255,
+        255,
+        255,
+        255,
+        255
+      ]
+    },
+    "restart": {
+      "max_used_slots": 255,
+      "capacity": 255,
+      "max_used_mib": 2837.7,
+      "verified_counts": [
+        255,
+        251
+      ]
+    }
+  },
+  "automatic_sessions": [
+    {
+      "name": "1467a28ecb2c32b2-9999.bin",
+      "bytes": 561322500
+    },
+    {
+      "name": "406d49a55a715589-10511.bin",
+      "bytes": 603114484
+    },
+    {
+      "name": "87781200800a520c-10575.bin",
+      "bytes": 606145812
+    }
+  ],
+  "success": true
+}

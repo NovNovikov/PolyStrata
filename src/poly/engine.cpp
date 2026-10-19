@@ -1369,6 +1369,27 @@ void Engine::dump_buffers(const char* when) const {
         std::fprintf(stderr, "strata-poly: buffers[%s] scratch phase reuse=%.3f MiB: logical slices=%.3f, "
                      "physical coverage=%.3f MiB (overlapping offsets are used in different phases)\n",
                      when, mib(scratch - covered), mib(scratch), mib(covered));
+    // CUDA graphs: every recording is kept for the engine's whole run and destroyed only in the destructor
+    // (record() -> graphs_.push_back, ~Engine -> cudaGraphExecDestroy), and one recording costs device and host
+    // memory for its nodes.  A cache that widens with the sequence is therefore a growth owner: this line counts
+    // the slots each layer's replay caches can hold (head_key * recs + rec), how many are filled, the whole-call
+    // cache (passes_) and the one-token tail.  Recorded, printed only with --dump-buffers; nothing else changes.
+    const auto filled = [](const std::vector<void*>& v) {
+        size_t n = 0;
+        for (void* p : v) if (p) ++n;
+        return n;
+    };
+    size_t slots = 0, live = 0;
+    for (const Layer& L : layers_) {      // every layer's three replay caches: up to the router, shared, tail
+        slots += L.heads.size() + L.shared.size() + L.tail.size();
+        live += filled(L.heads) + filled(L.shared) + filled(L.tail);
+    }
+    size_t pass_live = 0;
+    for (const auto& kv : passes_) if (kv.second) ++pass_live;
+    std::fprintf(stderr, "strata-poly: buffers[%s] graphs[pos=%lld room_key=%d window=%d batch=%d]: execs=%zu "
+                 "(all created, freed only at exit); layer slots=%zu live=%zu; passes=%zu live=%zu; tail=%d\n",
+                 when, (long long) pos_, room_key(1), opt_.window, opt_.batch, graphs_.size(), slots, live,
+                 passes_.size(), pass_live, tail_ ? 1 : 0);
 }
 
 // Experts go to VRAM by use per byte when there are counts, the profile's and this run's, and otherwise the same
