@@ -1,0 +1,8 @@
+restart READY 200.4
+GPU_PROCESS_MEMORY {"phase": "READY", "used": 23975346176, "spilled": 3477078016, "shared": 3477078016, "asked": 27452424192}
+GPU_PROCESS_MEMORY {"phase": "A-after-process-restart", "used": 24112168960, "spilled": 524877824, "shared": 524877824, "asked": 24637046784}
+A-after-process-restart {"label": "A-after-process-restart", "prompt_tokens": 10000, "resume": 9999, "prompt_ms": 1876.3, "decode_ms": 2570.2, "guessed_right": 36, "guessed": 38, "hits": 7781, "lookups": 17028, "read": 1, "decode_tps": 24.5117111508832, "hit_rate": 0.45695325346488136}
+RESTORE RESTORED 10511 603114484 712.7
+GPU_PROCESS_MEMORY {"phase": "A-isolated-explicit-restore", "used": 24284221440, "spilled": 562823168, "shared": 562823168, "asked": 24847044608}
+A-isolated-explicit-restore {"label": "A-isolated-explicit-restore", "prompt_tokens": 10576, "resume": 10511, "prompt_ms": 2219.8, "decode_ms": 2941.6, "guessed_right": 52, "guessed": 52, "hits": 5379, "lookups": 16512, "read": 65, "decode_tps": 21.41691596410117, "hit_rate": 0.3257630813953488}
+CHECKPOINT_CACHE_INTEGRATION_PASSED

@@ -1,0 +1,8 @@
+test_assistant_history_checkpoints (serve.test_server.LastTurn.test_assistant_history_checkpoints) ... ok
+test_no_turn (serve.test_server.LastTurn.test_no_turn) ... ok
+test_the_last_turn (serve.test_server.LastTurn.test_the_last_turn) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.126s
+
+OK

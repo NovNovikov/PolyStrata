@@ -1,0 +1,57 @@
+{
+  "exe_sha256": "a91c6783e180947fe3c15ed1e5766d4a1cb2601b1a6de66fcca112cb8bb480bf",
+  "config_sha256": "eb0cde6a44416d6d87ac9ba1843558fcfe565478b37ed69b38122ef75a3a50f0",
+  "work": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\checkpoints-cache-20261019",
+  "anchors": [
+    2048,
+    4096,
+    6144,
+    8192
+  ],
+  "stages": [
+    "initial",
+    "restart"
+  ],
+  "session_sha256": "5d1f68a63b27dd5047442c2502414dce448f5f055814d035b062fea8fd332dca",
+  "roundtrip_sha256": "5d1f68a63b27dd5047442c2502414dce448f5f055814d035b062fea8fd332dca",
+  "session_bytes": 603114484,
+  "continued_from_initial_run": true,
+  "cache": {
+    "initial": {
+      "max_used_slots": 255,
+      "capacity": 255,
+      "max_used_mib": 2837.7,
+      "verified_counts": [
+        255,
+        251,
+        255,
+        255,
+        255
+      ]
+    },
+    "restart": {
+      "max_used_slots": 252,
+      "capacity": 255,
+      "max_used_mib": 2804.32,
+      "verified_counts": [
+        252,
+        249
+      ]
+    }
+  },
+  "automatic_sessions": [
+    {
+      "name": "1467a28ecb2c32b2-9999.bin",
+      "bytes": 561322500
+    },
+    {
+      "name": "406d49a55a715589-10511.bin",
+      "bytes": 603114484
+    },
+    {
+      "name": "87781200800a520c-10575.bin",
+      "bytes": 606145812
+    }
+  ],
+  "success": true
+}

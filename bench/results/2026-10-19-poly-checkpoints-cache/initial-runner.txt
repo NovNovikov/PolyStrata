@@ -1,0 +1,24 @@
+initial READY 206.83
+A-full-cache PP 5348 10000 10512 508.8
+A-full-cache generated 19
+A-full-cache generated 319
+A-full-cache {"label": "A-full-cache", "prompt_tokens": 10000, "resume": 0, "prompt_ms": 19456.8, "decode_ms": 17380.5, "guessed_right": 280, "guessed": 305, "hits": 70339, "lookups": 138546, "read": 10000, "decode_tps": 29.400765225396277, "hit_rate": 0.5076941954296768}
+SAVE SAVED 10511 603114484 264.6
+A-continuation {"label": "A-continuation", "prompt_tokens": 10576, "resume": 10511, "prompt_ms": 1913.9, "decode_ms": 2693.1, "guessed_right": 49, "guessed": 51, "hits": 4587, "lookups": 17028, "read": 65, "decode_tps": 23.39311574022502, "hit_rate": 0.2693798449612403}
+B-switch PP 4883 10000 9609 508.1
+B-switch generated 5
+B-switch {"label": "B-switch", "prompt_tokens": 10000, "resume": 0, "prompt_ms": 19334.8, "decode_ms": 2393.7, "guessed_right": 36, "guessed": 38, "hits": 7660, "lookups": 17028, "read": 10000, "decode_tps": 26.31908760496303, "hit_rate": 0.4498473103124266}
+A-interior-checkpoint PP 7047 7048 15390 191.7
+A-interior-checkpoint generated 341
+A-interior-checkpoint {"label": "A-interior-checkpoint", "prompt_tokens": 7048, "resume": 4096, "prompt_ms": 15709.2, "decode_ms": 14197.3, "guessed_right": 341, "guessed": 342, "hits": 68906, "lookups": 132354, "read": 2952, "decode_tps": 35.99275918660591, "hit_rate": 0.5206189461595419}
+RESTORE RESTORED 10511 603114484 395.7
+SAVE SAVED 10511 603114484 489.4
+A-after-explicit-restore {"label": "A-after-explicit-restore", "prompt_tokens": 10576, "resume": 10575, "prompt_ms": 1922.4, "decode_ms": 2191.1, "guessed_right": 42, "guessed": 42, "hits": 5407, "lookups": 16254, "read": 1, "decode_tps": 28.75268130162932, "hit_rate": 0.33265657684262334}
+Traceback (most recent call last):
+  File "L:\AI_pictures_generate\PolyStrata\tools\bench_poly_checkpoints.py", line 211, in <module>
+    main()
+    ~~~~^^
+  File "L:\AI_pictures_generate\PolyStrata\tools\bench_poly_checkpoints.py", line 192, in main
+    assert again['resume'] == 10511, again
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'label': 'A-after-explicit-restore', 'prompt_tokens': 10576, 'generated_ids': [93281, 20618, 283, 2735, 106620, 603, 35944, 25165, 45449, 16, 93281, 20618, 283, 2735, 106620, 603, 35944, 25165, 45449, 16, 93281, 20618, 283, 2735, 106620, 603, 35944, 25165, 45449, 16, 93281, 20618, 283, 2735, 106620, 603, 35944, 25165, 45449, 16, 93281, 20618, 283, 2735, 106620, 603, 35944, 25165, 45449, 16, 93281, 20618, 283, 2735, 106620, 603, 35944, 25165, 45449, 16, 93281, 20618, 283, 2735], 'resume': 10575, 'prompt_ms': 1922.4, 'decode_ms': 2191.1, 'guessed_right': 42, 'guessed': 42, 'hits': 5407, 'lookups': 16254, 'read': 1, 'decode_tps': 28.75268130162932, 'token_times': [0.0, 0.11706, 0.117103, 0.117129, 0.212877, 0.212905, 0.21296, 0.31319, 0.31321, 0.313272, 0.426439, 0.426462, 0.426516, 0.527241, 0.527297, 0.527349, 0.634366, 0.634394, 0.634465, 0.733054, 0.733116, 0.733174, 0.849352, 0.849379, 0.849467, 0.954303, 0.954332, 0.954394, 1.060909, 1.060935, 1.06101, 1.170559, 1.170586, 1.170622, 1.267281, 1.267321, 1.267367, 1.361262, 1.361296, 1.36135, 1.47186, 1.471884, 1.471951, 1.568807, 1.568866, 1.568918, 1.677816, 1.677845, 1.677918, 1.771002, 1.771056, 1.771117, 1.876148, 1.876175, 1.876259, 1.989739, 1.989768, 1.989839, 2.096396, 2.096424, 2.096501, 2.189168, 2.189196, 2.189239], 'hit_rate': 0.33265657684262334}

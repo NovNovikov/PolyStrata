@@ -1,0 +1,14 @@
+{
+  "local_file": "strata-dsv4-q3_k_m.json",
+  "settings": {
+    "--prompt-cache": "6",
+    "--stage-mib": "2848",
+    "--expert-swaps": "64",
+    "--session-dir": "L:\\AI_pictures_generate\\PolyStrata-data\\packs\\dsv4-q3_k_m\\sessions",
+    "--conversation-cache-mib": "0",
+    "--vram-reserve-mib": "256",
+    "--no-disk-vram-margin-mib": "256"
+  },
+  "previous_session_dir": "L:\\AI_pictures_generate\\PolyStrata-data\\packs\\glm-3.0bit\\sessions",
+  "other_settings_changed": false
+}
