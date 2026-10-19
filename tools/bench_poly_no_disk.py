@@ -29,10 +29,12 @@ def run(a, label, exe, ids, resident=False):
            '--prompt-batch', str(a.batch), '--stage-mib', str(a.stage_mib), '--threads', str(a.threads),
            '--vram-reserve-mib', str(a.reserve_mib), '--prompt-cache', '0', '--conversation-cache-mib', '0',
            '--no-draft']
+    if a.read_chunk:
+        cmd += ['--read-chunk', str(a.read_chunk)]
     if a.profile:
         cmd += ['--expert-profile', str(profile)]
     if resident:
-        cmd += ['--no-disk']
+        cmd += ['--no-disk', '--no-disk-vram-margin-mib', str(a.load_margin_mib)]
         if a.rows_vram:
             cmd += ['--rows-vram']
         if a.ram_limit_mib:
@@ -101,6 +103,8 @@ def run(a, label, exe, ids, resident=False):
             process_io1 = engine.io_counters()
             stop.set()
             result = dict(label=label, resident=resident, rows_vram=resident and a.rows_vram,
+                          command=cmd, context=a.context, batch=a.batch, read_chunk=a.read_chunk,
+                          reserve_mib=a.reserve_mib, load_margin_mib=a.load_margin_mib if resident else None,
                           prompt_tokens=len(ids), generated_ids=tokens, load_s=round(load_s, 3),
                           elapsed_s=round(time.monotonic()-t0, 3), prompt_ms=float(done[3]),
                           prompt_tps=round(len(ids)*1000/float(done[3]), 3), finish=done[5],
@@ -143,8 +147,10 @@ def main():
     ap.add_argument('--context', type=int, default=32768)
     ap.add_argument('--tokens', type=int, default=10000)
     ap.add_argument('--batch', type=int, default=4096)
+    ap.add_argument('--read-chunk', type=int, default=0)
     ap.add_argument('--stage-mib', type=int, default=2048)
     ap.add_argument('--reserve-mib', type=int, default=2048)
+    ap.add_argument('--load-margin-mib', type=int, default=512)
     ap.add_argument('--threads', type=int, default=12)
     ap.add_argument('--ram-limit-mib', type=int, default=0)
     ap.add_argument('--rows-vram', action='store_true')
@@ -152,6 +158,7 @@ def main():
     ap.add_argument('--skip-default', action='store_true')
     a = ap.parse_args()
     if not 16 <= a.tokens < a.context: ap.error('tokens must be at least 16 and below context')
+    if a.read_chunk < 0 or a.load_margin_mib < 0: ap.error('read chunk and load margin cannot be negative')
     a.output.mkdir(parents=True, exist_ok=True)
     tok = Tokenizer.from_dir(a.tokenizer)
     text = 'Reference data for a synthetic performance test.\n' + ''.join(

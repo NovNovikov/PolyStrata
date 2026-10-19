@@ -1172,6 +1172,7 @@ void usage() {
     std::fprintf(stderr,
                  "usage: strata-poly --model FILE.gguf (--serve | --tokens ID,ID,... [--max-new N])\n"
                  "  --no-disk              load weights into locked RAM / fixed VRAM and close model files\n"
+                 "  --no-disk-vram-margin-mib N  extra loading headroom, separate from VRAM reserve (default 512)\n"
                  "  --ram-limit-mib N      cap no-disk RAM allocations (0: available RAM)\n"
                  "  --rows-vram            reserve intermediate rows for the full context in VRAM\n"
                  "  --max-context N        tokens the attention caches hold (default 8192)\n"
@@ -1293,6 +1294,16 @@ int main(int argc, char** argv) {
         else if (a == "--expert-profile") o.profile = val();
         else if (a == "--no-gpu-experts") o.gpu_experts = false;
         else if (a == "--no-disk") o.no_disk = true;
+        else if (a == "--no-disk-vram-margin-mib") {
+            const char* v = val();
+            char* end = nullptr;
+            const long long n = std::strtoll(v, &end, 10);
+            if (end == v || !end || *end != '\0' || n < 0 || n > 2147483647LL) {
+                std::fprintf(stderr, "strata-poly: %s takes a nonnegative integer in MiB\n", a.c_str());
+                return 2;
+            }
+            o.no_disk_vram_margin_mib = (int) n;
+        }
         else if (a == "--rows-vram") o.rows_vram = true;
         else if (a == "--ram-limit-mib") o.ram_limit_mib = std::atoll(val());
         else if (a == "--any-node") o.stay_near = false;

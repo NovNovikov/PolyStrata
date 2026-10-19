@@ -49,6 +49,7 @@ struct Options {
     std::string profile;          ///< expert use counts; orders the expert cache, and save_profile() adds to it
     bool gpu_experts = true;
     bool no_disk = false;        ///< all weights resident in locked RAM or fixed VRAM; model files close at load
+    int no_disk_vram_margin_mib = 512; ///< extra headroom for loading, separate from the runtime reserve
     bool rows_vram = false;      ///< reserve intermediate read rows in VRAM
     int read_chunk_tokens = 0;   ///< prompt tokens in one read() pass at most; 0: context / RAM limit
     int64_t ram_limit_mib = 0;   ///< no-disk RAM allocations at most; 0: current available RAM

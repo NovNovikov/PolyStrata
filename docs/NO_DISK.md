@@ -4,8 +4,8 @@
 Without the flag, the existing mmap loader, adaptive expert cache and host staging buffers are used.
 
 The loader reads the GGUF headers without mapping the files. After the dense weights, scratch, full-context KV
-and expert staging buffer have been allocated, it divides the routed experts between RAM and VRAM. Only the
-minimum prefix of the profile's ranking needed to fit the remaining experts into RAM becomes permanent VRAM.
+and expert staging buffer have been allocated, it divides the routed experts between RAM and VRAM. Permanent
+experts fill the remaining VRAM budget after the runtime reserve and loading headroom; RAM holds the rest.
 The ranking is the existing cache's use-per-byte order. New use counts are recorded for future loads; they do
 not change the placement of this run.
 
@@ -27,8 +27,10 @@ attempt to read their payload fails instead of silently falling back to disk.
 | --- | --- |
 | `--no-disk` | Require all weights to fit in locked RAM and fixed VRAM; close model files after loading |
 | `--ram-limit-mib N` | Upper bound for resident host weights and known host buffers; 0 uses available RAM |
-| `--rows-vram` | Allocate intermediate read rows in VRAM for the entire requested context, at load |
+| `--rows-vram` | Allocate intermediate read rows in VRAM for the maximum read pass, at load |
+| `--read-chunk N` | Limit tokens in a layer-by-layer read pass independently of the context; 0 uses existing limits |
 | `--vram-reserve-mib N` | Keep this VRAM free, with the existing automatic reserve when omitted |
+| `--no-disk-vram-margin-mib N` | Additional headroom deducted from the permanent-expert budget for loading; default 512, 0 disables it |
 | `--stage-mib N` | VRAM through which RAM experts pass; at most one layer's experts |
 
 RAM is sampled after the loader's existing allocations. The OS and other programs have already been deducted
@@ -37,9 +39,14 @@ read-row buffer that may be allocated later. A RAM limit additionally subtracts 
 already allocated and those future read rows. It is not a limit on all process metadata, DLLs or chat caches.
 
 Free VRAM is sampled after dense weights, full-context KV, scratch, staging and optional VRAM read rows exist.
-Only the reserve and permanent experts come out of that remaining space. Each device allocation is checked
+The expert budget is `max(0, free - reserve - loading_headroom)`. The extra 512 MiB is a starting allowance,
+not a guarantee against driver costs or changing memory usage by other programs. Each device allocation is checked
 against free dedicated VRAM before it is requested, rather than relying on Windows to refuse a spill into RAM.
 The loader refuses a model that does not fit, or a host region that cannot be locked in full, with byte counts.
+It samples VRAM before planning, after the RAM arena, CUDA/HIP registration, expert allocation, zeroing, copying,
+and file closure. Reports include free bytes, the reserve and loading allowance, changes since the previous
+sample and the plan, and the engine's requested allocation total. Whole-device changes do not identify their
+owner or prove spill. A final reserve refusal prints the actual free, reserve and loading-headroom byte counts.
 
 Windows uses `VirtualAlloc` and the platform's working-set minimum plus `VirtualLock`, as llama.cpp does for
 residency. Linux uses anonymous memory and `mlock`; the account must have a sufficient locked-memory allowance
@@ -62,9 +69,11 @@ This mode currently requires one card; `--layer-split` is refused. The host/DMA 
 and batch rather than a hard 100 MiB limit.
 
 `--rows-vram` is separate from `--no-disk`. Without it, intermediate read rows retain their existing lazy pinned
-RAM path. With it, their size is `context * streams * embedding_width * sizeof(float)` in VRAM. Long reads copy
+RAM path. With it, their size is `max_read * streams * embedding_width * sizeof(float)` in VRAM. Set
+`--read-chunk 4096` to limit a read pass without lowering the attention context; a smaller read can cause more
+expert uploads between passes. Long reads copy
 those rows between device buffers, with the same stream/event ordering as the host path. A larger context can
-therefore fail the VRAM budget even when the model itself fits. Lower the context or omit `--rows-vram` if needed.
+therefore fail the VRAM budget even when the model itself fits unless the read size is limited.
 
 The flag governs model weights. Session SAVE/RESTORE and expert-profile persistence remain separate features.
 

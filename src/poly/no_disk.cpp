@@ -77,12 +77,35 @@ void Engine::load_resident_experts() {
             experts.push_back({il, e, raw, native ? l.slot_bytes : 0, uses});
         }
     }
-    // cudaMemGetInfo is sampled after dense, scratch, full-context KV, staging and optional VRAM rows exist.
-    size_t free = 0, total = 0;
-    ck(cudaMemGetInfo(&free, &total), "no-disk: VRAM budget");
+    if (opt_.no_disk_vram_margin_mib < 0)
+        throw std::runtime_error("--no-disk-vram-margin-mib cannot be negative");
     reserve_mib_ = opt_.vram_reserve_mib >= 0 ? std::max(opt_.vram_reserve_mib, 256) : 1024;
     const uint64_t reserve = (uint64_t) reserve_mib_ << 20;
-    const uint64_t vram = free > reserve ? free - reserve : 0;
+    const uint64_t load_margin = (uint64_t) opt_.no_disk_vram_margin_mib << 20;
+    const uint64_t headroom = resident_add(reserve, load_margin);
+    // Whole-device deltas include driver allocations and other processes. The engine's requested bytes are
+    // reported separately; a change in free memory alone does not establish spill or its owner.
+    size_t free = 0, total = 0, first_free = 0, previous_free = 0;
+    bool first_sample = true;
+    const auto sample_vram = [&](const char* phase) {
+        ck(cudaStreamSynchronize(cs(st_)), "no-disk: VRAM diagnostic fence");
+        ck(cudaMemGetInfo(&free, &total), "no-disk: VRAM diagnostic");
+        if (first_sample) { first_free = previous_free = free; first_sample = false; }
+        uint64_t tracked = 0;
+        for (const auto& allocation : dev_sizes_) tracked = resident_add(tracked, allocation.second);
+        constexpr double mib = 1048576.0;
+        std::fprintf(stderr, "strata-poly: no-disk VRAM[%s]: free=%.2f MiB (%llu bytes), "
+                             "reserve=%llu MiB, load_margin=%llu MiB, used_since_previous=%+.2f MiB, "
+                             "used_since_plan=%+.2f MiB, engine_allocated=%.2f MiB\n",
+                     phase, double(free) / mib, (unsigned long long) free,
+                     (unsigned long long) (reserve >> 20), (unsigned long long) (load_margin >> 20),
+                     (double(previous_free) - double(free)) / mib,
+                     (double(first_free) - double(free)) / mib, double(tracked) / mib);
+        previous_free = free;
+    };
+    // Dense, scratch, full-context KV, staging and optional VRAM rows already exist.
+    sample_vram("before-plan");
+    const uint64_t vram = free > headroom ? free - headroom : 0;
     // Future host read rows are counted now; no 1 GiB file-staging buffers or swap buffers exist in this mode.
     const uint64_t future_rows = opt_.rows_vram ? 0 : (uint64_t) read_rows_ * streams() * n_embd_ * sizeof(float);
     const uint64_t margin = (uint64_t(1) << 30) + future_rows;
@@ -114,6 +137,7 @@ void Engine::load_resident_experts() {
                  (unsigned long long) (plan.vram >> 20), (unsigned long long) (ram >> 20),
                  (unsigned long long) (vram >> 20), stage_bytes_ >> 20);
     auto* host = (uint8_t*) resident_->allocate((size_t) plan.ram, "routed experts");
+    sample_vram("after-ram-arena");
     if (plan.ram && stage_) {
         // WDDM refuses registration of the whole 110+ GiB arena. A working window registers original
         // source pages only, bounded by staging plus page rounding; no second RAM arena is allocated.
@@ -125,10 +149,13 @@ void Engine::load_resident_experts() {
                              "limit=%zu MiB; original resident RAM, no host staging copy\n",
                      expert_dma_->bytes() >> 20, (size_t) limit >> 20);
     }
+    sample_vram("after-registration");
     if (plan.vram) {
         exp_ = (uint8_t*) dmalloc((size_t) plan.vram, "no-disk permanent experts");
-        zero_vram(exp_, (size_t) plan.vram);
     }
+    sample_vram("after-expert-allocation");
+    if (plan.vram) zero_vram(exp_, (size_t) plan.vram);
+    sample_vram("after-expert-zero");
     std::vector<uint8_t> buffer(8u << 20);
     const auto card_read = [&](const TensorInfo& t, size_t off, uint8_t* dst, size_t n) {
         for (size_t at = 0; at < n;) {
@@ -169,11 +196,17 @@ void Engine::load_resident_experts() {
     full_bytes_ = exp_at_; full_cached_ = cached_;
     resident_host_bytes_ += (size_t) plan.ram;
     ck(cudaStreamSynchronize(cs(st_)), "no-disk load");
+    sample_vram("after-expert-copy");
     const uint64_t read = gg_->read_bytes() + (dg_ ? dg_->read_bytes() : 0);
     gg_->close_data(); gg_->release_small();
     if (dg_) { dg_->close_data(); dg_->release_small(); }
-    ck(cudaMemGetInfo(&free, &total), "no-disk: VRAM after load");
-    if (free < reserve) throw std::runtime_error("no-disk: VRAM headroom consumed during load; refusing spill");
+    sample_vram("after-file-close");
+    if (free < reserve) {
+        print_memory("load-reserve-refused");
+        throw std::runtime_error("no-disk: free VRAM below requested reserve after load: free=" +
+            std::to_string(free) + " bytes, reserve=" + std::to_string(reserve) +
+            " bytes, load_margin=" + std::to_string(load_margin) + " bytes");
+    }
     std::fprintf(stderr, "strata-poly: no-disk ready: %zu experts total, %zu in locked RAM, %d direct in VRAM; "
                          "locked=%llu MiB, read=%llu bytes, model files closed; VRAM free=%zu MiB, "
                          "host buffers=%zu MiB\n", experts.size(), experts.size() - plan.card_count, cached_,
