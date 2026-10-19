@@ -1,0 +1,13 @@
+Test project L:/AI_pictures_generate/PolyStrata/build-poly-cuda12
+    Start 4: glm_conversations_test
+1/4 Test #4: glm_conversations_test ...........   Passed    0.43 sec
+    Start 5: glm_conversations_disk_test
+2/4 Test #5: glm_conversations_disk_test ......   Passed    0.34 sec
+    Start 6: poly_no_disk_test
+3/4 Test #6: poly_no_disk_test ................   Passed    0.05 sec
+    Start 7: poly_deepseek4_scratch_test
+4/4 Test #7: poly_deepseek4_scratch_test ......   Passed    2.21 sec
+
+100% tests passed out of 4
+
+Total Test time (real) =   3.07 sec

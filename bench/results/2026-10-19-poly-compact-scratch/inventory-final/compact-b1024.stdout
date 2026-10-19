@@ -1,0 +1,2 @@
+INFO context=131072 expert_slots=0 expert_cache_mib=0 pool_workers=12 conversation_cache_mib=0 conversation_cache_slots=4 conversation_cache_min_free_mib=2560 vram_free_mib=8752 vram_elastic=1 batch_slots=0 engine=0.1.45
+READY 131072 stop

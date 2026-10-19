@@ -1,0 +1,28 @@
+{
+  "requests": [
+    {
+      "ids_equal": true,
+      "tokens": 512,
+      "baseline_decode_tps": 22.090610409821892,
+      "compact_decode_tps": 22.634856793557706,
+      "baseline_after_128_tps": 22.430787550221833,
+      "compact_after_128_tps": 22.895562995318304,
+      "baseline_prefill_tps": 275.40849965711647,
+      "compact_prefill_tps": 271.2923826524799
+    },
+    {
+      "ids_equal": true,
+      "tokens": 512,
+      "baseline_decode_tps": 22.206191659858508,
+      "compact_decode_tps": 22.964124734294742,
+      "baseline_after_128_tps": 22.509112517411506,
+      "compact_after_128_tps": 23.490784559084105,
+      "baseline_prefill_tps": 281.61557221468115,
+      "compact_prefill_tps": 273.3532516736053
+    }
+  ],
+  "baseline_extra_reads": 0,
+  "compact_extra_reads": 0,
+  "baseline_peak_rss_mib": 115612.22265625,
+  "compact_peak_rss_mib": 114196.484375
+}

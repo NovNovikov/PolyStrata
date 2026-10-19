@@ -1,0 +1,4 @@
+[1/2] Building CXX object CMakeFiles\poly_scratch_parity_test.dir\src\poly\scratch_parity_test.cpp.obj
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(41): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(42): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+[2/2] Linking CXX executable poly_scratch_parity_test.exe

@@ -1,0 +1,22 @@
+strata-poly: no-disk VRAM[before-plan]: free=5438.00 MiB (5702156288 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=17261.73 MiB
+strata-poly: no-disk plan: attempt=1, 10558 experts in RAM (115675 MiB), 450 permanent in VRAM (4917 MiB); available budgets RAM=118030 MiB VRAM=4926 MiB; staging=2848 MiB
+strata-poly: no-disk VRAM[after-ram-arena]: free=5363.39 MiB (5623918592 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+74.61 MiB, used_since_plan=+74.61 MiB, engine_allocated=17261.73 MiB
+strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=2848 MiB, limit=2850 MiB; original resident RAM, no host staging copy
+strata-poly: no-disk VRAM[after-registration]: free=5381.29 MiB (5642694656 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=-17.91 MiB, used_since_plan=+56.71 MiB, engine_allocated=17261.73 MiB
+strata-poly: no-disk replan: expert arena=5156063880 bytes exceeds live budget=5105823744 bytes after RAM/DMA setup (free=5642694656, reserve=268435456, load_margin=268435456); retrying before payload load
+strata-poly: no-disk plan: attempt=2, 10563 experts in RAM (115729 MiB), 445 permanent in VRAM (4863 MiB); available budgets RAM=118398 MiB VRAM=4869 MiB; staging=2848 MiB
+strata-poly: no-disk VRAM[after-ram-arena]: free=5363.39 MiB (5623918592 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+17.91 MiB, used_since_plan=+74.61 MiB, engine_allocated=17261.73 MiB
+strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=2848 MiB, limit=2850 MiB; original resident RAM, no host staging copy
+strata-poly: no-disk VRAM[after-registration]: free=5363.39 MiB (5623918592 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+74.61 MiB, engine_allocated=17261.73 MiB
+strata-poly: no-disk replan: expert arena=5099429720 bytes exceeds live budget=5087047680 bytes after RAM/DMA setup (free=5623918592, reserve=268435456, load_margin=268435456); retrying before payload load
+strata-poly: no-disk plan: attempt=3, 10564 experts in RAM (115741 MiB), 444 permanent in VRAM (4851 MiB); available budgets RAM=118322 MiB VRAM=4851 MiB; staging=2848 MiB
+strata-poly: no-disk VRAM[after-ram-arena]: free=5328.26 MiB (5587083264 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+35.13 MiB, used_since_plan=+109.74 MiB, engine_allocated=17261.73 MiB
+strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=2848 MiB, limit=2850 MiB; original resident RAM, no host staging copy
+strata-poly: no-disk VRAM[after-registration]: free=5346.16 MiB (5605859328 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=-17.91 MiB, used_since_plan=+91.84 MiB, engine_allocated=17261.73 MiB
+strata-poly: no-disk replan: expert arena=5086906000 bytes exceeds live budget=5068988416 bytes after RAM/DMA setup (free=5605859328, reserve=268435456, load_margin=268435456); retrying before payload load
+strata-poly: no-disk plan: attempt=4, 10566 experts in RAM (115763 MiB), 442 permanent in VRAM (4829 MiB); available budgets RAM=118333 MiB VRAM=4834 MiB; staging=2848 MiB
+strata-poly: no-disk VRAM[after-ram-arena]: free=5342.47 MiB (5601988608 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+3.69 MiB, used_since_plan=+95.53 MiB, engine_allocated=17261.73 MiB
+strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=2848 MiB, limit=2850 MiB; original resident RAM, no host staging copy
+strata-poly: no-disk VRAM[after-registration]: free=5330.70 MiB (5589639168 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+11.78 MiB, used_since_plan=+107.30 MiB, engine_allocated=17261.73 MiB
+strata-poly: no-disk replan: expert arena=5064423320 bytes exceeds live budget=5052768256 bytes after RAM/DMA setup (free=5589639168, reserve=268435456, load_margin=268435456); retrying before payload load
+strata-poly: no-disk: VRAM budget did not stabilize after four RAM/DMA placement attempts

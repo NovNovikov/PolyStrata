@@ -1,0 +1,47 @@
+strata-poly: memory[load] card=0 context=131072 sequences=1: KV=860.00 MiB VRAM (full-context=860.00 MiB), rows=0.06 MiB VRAM (chunk=1, batch=1), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[load] card=0 VRAM allocations total=8637.78 MiB: dense=7758.37, experts=0.00, KV=860.00, staging=0.00, rows=0.06, other=19.35; reserve=32768 MiB
+strata-poly: memory[load] card=0 RAM weights+buffers total=1.08 MiB: resident_weights=0.00, pinned_buffers=1.08 (includes h_res_); CUDA/HIP-registered window=0.00 MiB (part of resident_weights, peak=0.00 MiB); whole process RSS=8200.84 MiB, system RAM free=112603.98 MiB
+strata-poly: memory[load] card=0 whole device used=10177.50 / 24563.50 MiB, free=14386.00 MiB (includes CUDA libraries and other processes)
+strata-poly: buffers[load] card=0: device=8637.78 MiB (plain=7760.44, sequence=17.34, attention caches=860.00), pinned=1.08 MiB, scratch slices=1.65 MiB in 1.50 MiB
+strata-poly: buffers[load] the dense weights                  device              1 x  7758.371 MiB =   7758.371 MiB
+strata-poly: buffers[load] the attention cache (KV)           attention cache    62 x     1.000 MiB =    860.000 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[load] the compressor's rows              sequence          124 x     0.009 MiB =     11.924 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[load] the attention cache                sequence           43 x     0.126 MiB =      5.417 MiB
+strata-poly: buffers[load] scratch_ (arch scratch arena)      device              1 x     1.497 MiB =      1.497 MiB
+strata-poly: buffers[load] pinned memory                      pinned              7 x     0.000 MiB =      1.081 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[load] wlogits_ (window()/step() logits)  device              1 x     0.493 MiB =      0.493 MiB
+strata-poly: buffers[load] the read rows (--rows-vram)        device              1 x     0.062 MiB =      0.062 MiB
+strata-poly: buffers[load] q8_ (quantized weights)            device              1 x     0.009 MiB =      0.009 MiB
+strata-poly: buffers[load] xq_ (quantized activations)        device              1 x     0.004 MiB =      0.004 MiB
+strata-poly: buffers[load] sel_ (indexer picks)               device              1 x     0.002 MiB =      0.002 MiB
+strata-poly: buffers[load] the recurrent state                device              1 x     0.000 MiB =      0.000 MiB
+strata-poly: buffers[load] at_ (recorded positions)           device              1 x     0.000 MiB =      0.000 MiB
+strata-poly: buffers[load] scratch r_ (layer input rows)          offset=        0 bytes=     65536 (  0.062 MiB) count=16384 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2174
+strata-poly: buffers[load] scratch cur_                           offset=    65536 bytes=     16384 (  0.016 MiB) count=4096 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2176
+strata-poly: buffers[load] scratch xn_ (normed input)             offset=    81920 bytes=     16384 (  0.016 MiB) count=4096 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2177
+strata-poly: buffers[load] scratch ao_ (attention output)         offset=    98304 bytes=     16384 (  0.016 MiB) count=4096 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2178
+strata-poly: buffers[load] scratch fo_ (layer output)             offset=   114688 bytes=     16384 (  0.016 MiB) count=4096 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2179
+strata-poly: buffers[load] scratch g_ (expert gate rows)          offset=   131072 bytes=     16384 (  0.016 MiB) count=4096 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2180
+strata-poly: buffers[load] scratch u_ (expert up rows)            offset=   147456 bytes=     16384 (  0.016 MiB) count=4096 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2181
+strata-poly: buffers[load] scratch h_ (expert hidden rows)        offset=   163840 bytes=     16384 (  0.016 MiB) count=4096 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2182
+strata-poly: buffers[load] scratch d_ (MoE sums in progress)      offset=   180224 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2183
+strata-poly: buffers[load] scratch rl_ (router logits)            offset=   704512 bytes=      1024 (  0.001 MiB) count=256 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2184
+strata-poly: buffers[load] scratch logits_                        offset=   705536 bytes=    517120 (  0.493 MiB) count=129280 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2185
+strata-poly: buffers[load] scratch q_ (queries, then grouped attention) offset=  1222656 bytes=    131072 (  0.125 MiB) count=32768 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch ob_ (output lora b; after q_)  offset=  1222656 bytes=     32768 (  0.031 MiB) count=8192 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch att_ (attention output; after indexer) offset=  1353728 bytes=    131072 (  0.125 MiB) count=32768 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch t1_ (q lora)                   offset=  1353728 bytes=      4096 (  0.004 MiB) count=1024 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch qr_ (q lora normed)            offset=  1357824 bytes=      4096 (  0.004 MiB) count=1024 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch kv_ (the key/value row)        offset=  1361920 bytes=      2048 (  0.002 MiB) count=512 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch ckv_ (compressor kv rows)      offset=  1363968 bytes=      4096 (  0.004 MiB) count=1024 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch cscore_ (compressor scores)    offset=  1368064 bytes=      4096 (  0.004 MiB) count=1024 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch iq_ (indexer queries)          offset=  1372160 bytes=     32768 (  0.031 MiB) count=8192 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch iw_ (indexer weights)          offset=  1404928 bytes=       256 (  0.000 MiB) count=64 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch score_ (indexer scores)        offset=  1405184 bytes=    131328 (  0.125 MiB) count=32769 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch oa_ (output lora a)            offset=  1536512 bytes=     32768 (  0.031 MiB) count=8192 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch mix_ (hyper-connection mix)    offset=  1569280 bytes=       256 (  0.000 MiB) count=25 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] scratch hcw_ (hyper-connection weights) offset=  1569536 bytes=       256 (  0.000 MiB) count=20 L:\AI_pictures_generate\PolyStrata\src\poly\deepseek4.cpp:257
+strata-poly: buffers[load] check: scratch slices 1.50 of 1.50 MiB (0.00 alignment and tail), unnamed slices 0; allocator records device=8637.78, pinned=1.08 MiB; mapped KV (VMM, not in device_sizes_)=0.00 of the 860.00 requested; arena mapped=0.00 MiB
+strata-poly: buffers[load] scratch phase reuse=0.156 MiB: logical slices=1.653, physical coverage=1.497 MiB (overlapping offsets are used in different phases)
+strata-poly: loaded in 2.4 s; 0 of 11008 routed experts in VRAM (0.0 GiB), 12 CPU threads
+strata-poly: 0 of 0 prompt tokens were not read again (0.0%); 0 conversations parked in 0 MiB, 0 pushed out; 14386 MiB of VRAM free at the end

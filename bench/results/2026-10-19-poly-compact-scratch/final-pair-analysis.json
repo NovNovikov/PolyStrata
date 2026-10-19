@@ -1,0 +1,36 @@
+{
+  "requests": [
+    {
+      "ids_equal": true,
+      "first_mismatch": null,
+      "generated_baseline": 1024,
+      "generated_compact": 1024,
+      "baseline_decode": 19.860221316249273,
+      "compact_decode": 21.325873099589533,
+      "baseline_warm": 19.95239986919342,
+      "compact_warm": 21.46856457734428,
+      "baseline_prefill": 598.7787309004555,
+      "compact_prefill": 589.0807983222979,
+      "baseline_hit": 0.43375237748831147,
+      "compact_hit": 0.5126243682132654
+    },
+    {
+      "ids_equal": true,
+      "first_mismatch": null,
+      "generated_baseline": 1024,
+      "generated_compact": 1024,
+      "baseline_decode": 19.728164027245306,
+      "compact_decode": 21.284254021225998,
+      "baseline_warm": 19.72620287594664,
+      "compact_warm": 21.39747554424772,
+      "baseline_prefill": 599.9044952043635,
+      "compact_prefill": 598.0496405123611,
+      "baseline_hit": 0.4324376548682625,
+      "compact_hit": 0.5157084725726886
+    }
+  ],
+  "baseline_rss_peak_mib": 119241.2890625,
+  "compact_rss_peak_mib": 116309.61328125,
+  "baseline_extra_reads": 0,
+  "compact_extra_reads": 0
+}

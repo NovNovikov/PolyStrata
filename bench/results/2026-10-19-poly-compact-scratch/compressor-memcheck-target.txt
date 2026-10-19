@@ -1,0 +1,17 @@
+DeepSeek kernel test started
+rope, normed, YaRN                 6144 values, worst 1.7e-05: ok
+rope back                          6144 values, worst 3.3e-06: ok
+squeeze ratio 4, overlap           1536 values, worst 0.00054: ok
+squeeze ratio 4, overlap           384 values, worst 0.0007: ok
+squeeze ratio 128                  1536 values, worst 5.9e-05: ok
+compact squeeze ratio=4 dim=512 overlap=1: 11 frames, exact outputs/history and GPU guards: PASS
+compact squeeze ratio=4 dim=128 overlap=1: 11 frames, exact outputs/history and GPU guards: PASS
+compact squeeze ratio=128 dim=512 overlap=0: 11 frames, exact outputs/history and GPU guards: PASS
+attend ratio 128, 5 tokens         20480 values, worst 3.7e-05: ok
+attend ratio 4, picked, 5 tokens   20480 values, worst 3.4e-05: ok
+attend ratio 4, 5 tokens           20480 values, worst 3.2e-05: ok
+attend ratio 128, 40 tokens        245760 values, worst 5e-05: ok
+attend ratio 4, picked, 40 tokens  245760 values, worst 5e-05: ok
+attend ratio 4, 40 tokens          245760 values, worst 5.4e-05: ok
+indexer pick                       3 tokens: ok
+indexer scores                     300 values, worst 7.1e-06: ok

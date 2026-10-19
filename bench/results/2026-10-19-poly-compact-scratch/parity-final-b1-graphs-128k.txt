@@ -1,0 +1,23 @@
+strata-poly: the experts' split is frozen for the engine's whole run (STRATA_FREEZE_EXPERTS): greedy answers are a function of the request alone, and the only cache change after load is the serve VRAM resize
+strata-poly: memory[load] card=0 context=131072 sequences=1: KV=124.00 MiB VRAM (full-context=860.00 MiB), rows=0.06 MiB VRAM (chunk=1, batch=1), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[load] card=0 VRAM allocations total=7901.94 MiB: dense=7758.37, experts=0.00, KV=124.00, staging=0.00, rows=0.06, other=19.50; reserve=32768 MiB
+strata-poly: memory[load] card=0 RAM weights+buffers total=1.08 MiB: resident_weights=0.00, pinned_buffers=1.08 (includes h_res_); CUDA/HIP-registered window=0.00 MiB (part of resident_weights, peak=0.00 MiB); whole process RSS=8200.37 MiB, system RAM free=113834.70 MiB
+strata-poly: memory[load] card=0 whole device used=9439.50 / 24563.50 MiB, free=15124.00 MiB (includes CUDA libraries and other processes)
+parity compact=0: boundary 1 and window/keep complete
+parity compact=0: boundary 8 and window/keep complete
+parity compact=0: boundary 31 and window/keep complete
+parity compact=0: boundary 32 and window/keep complete
+parity compact=0: boundary 33 and window/keep complete
+parity compact=0: checkpoint complete; step=0, cancellation=0
+strata-poly: the experts' split is frozen for the engine's whole run (STRATA_FREEZE_EXPERTS): greedy answers are a function of the request alone, and the only cache change after load is the serve VRAM resize
+strata-poly: memory[load] card=0 context=131072 sequences=1: KV=124.00 MiB VRAM (full-context=860.00 MiB), rows=0.06 MiB VRAM (chunk=1, batch=1), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[load] card=0 VRAM allocations total=7901.78 MiB: dense=7758.37, experts=0.00, KV=124.00, staging=0.00, rows=0.06, other=19.35; reserve=32768 MiB
+strata-poly: memory[load] card=0 RAM weights+buffers total=1.08 MiB: resident_weights=0.00, pinned_buffers=1.08 (includes h_res_); CUDA/HIP-registered window=0.00 MiB (part of resident_weights, peak=0.00 MiB); whole process RSS=8295.27 MiB, system RAM free=113760.45 MiB
+strata-poly: memory[load] card=0 whole device used=9463.50 / 24563.50 MiB, free=15100.00 MiB (includes CUDA libraries and other processes)
+parity compact=1: boundary 1 and window/keep complete
+parity compact=1: boundary 8 and window/keep complete
+parity compact=1: boundary 31 and window/keep complete
+parity compact=1: boundary 32 and window/keep complete
+parity compact=1: boundary 33 and window/keep complete
+parity compact=1: checkpoint complete; step=0, cancellation=0
+PASS: batch=1 graphs=1 frames=34 logits=4395520 bit_differences=0 max_abs=0 mean_abs=0
