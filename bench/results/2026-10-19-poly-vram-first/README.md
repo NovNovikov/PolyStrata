@@ -194,3 +194,61 @@ allocations. The local launcher remains at the requested runtime reserve 256 and
 Raw diagnostics: 50k-reserve256-attempt1.txt, 50k-reserve256-attempt2.txt and 50k-reserve256-refusals.json.
 The previous successful 510.410 tokens/s result used only 10000 tokens and reserves 512/512; it must not be
 reported as a successful 50000-token run or a validation of the new 256/256 configuration.
+
+## Live placement reconciliation: successful 50000-token test
+
+Commit **600513ca** fixes the stale placement budget. Preparing the provisional RAM arena and DMA window can
+change available VRAM. The loader now compares its proposed expert arena to live free VRAM minus the configured
+runtime reserve and loading allowance, before reading expert payloads. If it no longer fits, it unregisters
+DMA, releases that last provisional RAM allocation, refreshes the RAM budget and rebuilds a smaller VRAM plan.
+The VRAM cap only decreases across retries and at most four candidates are attempted. No extra constant RAM or
+VRAM reserve was added. On Windows, releasing a candidate also restores its pre-allocation working-set limits,
+preventing quota growth across retries. Existing embedding/CPU-table allocations are preserved. No two full
+expert RAM arenas are held concurrently.
+
+CUDA/Windows build passed and explicitly recompiled no_disk.cpp.obj and engine.cpp.obj. Executable SHA256:
+342b459fffbb2770a70650645fb6997ea05eb9292b4ea7f9ef6909a7e1c58149. CTest passed the same three CPU suites. The
+resident probe additionally checked three release/reallocate cycles, rejected release of a non-last region,
+checked retained data and locked-byte counts, verified exact Windows working-set limit restoration, then
+passed two 16 MiB allocations. Linux/HIP were not built or run. The mmap default path was not benchmarked.
+
+This fresh process used exactly the two previously refused attempts' parameters: context 131072, batch 4096,
+read chunk 32768, staging 2848 MiB, runtime reserve 256 MiB, loading allowance 256 MiB, no fixed RAM reserve,
+12 threads, --no-disk --rows-vram, no draft, zero prompt/conversation cache, frozen experts. The same generator
+prepared exactly 50000 synthetic tokens. The local launcher configuration was not changed.
+
+| Candidate | Permanent VRAM experts | Requested expert arena MiB | Outcome |
+| ---: | ---: | ---: | --- |
+| 1 | 320 | 3498.26 | After RAM/DMA, free 3860.71 MiB; live expert budget 3348.71 MiB; replan |
+| 2 | 306 | 3342.46 | After RAM/DMA, free 3734.81 MiB; live expert budget 3222.81 MiB; replan |
+| 3 | 295 | 3221.68 | After RAM/DMA, free 3766.03 MiB; plan fits; allocation and load succeeded |
+
+Immediately after the accepted expert allocation, free VRAM was 544.03 MiB, exceeding reserve plus loading
+allowance (512 MiB). After zeroing it was 778.30 MiB. Payload loading reached READY instead of aborting on the
+obsolete initial plan. Whole-device deltas can include outside activity; these samples do not identify an owner
+or separately measure WDDM spill. Arbitrary later external memory use can still change a live budget; the normal
+allocation and final reserve checks remain.
+
+- Load including provisional-arena retries: **263.459 s**.
+- Prompt: **50000 tokens, 84845.3 ms, 589.308 tokens/s**, zero reused tokens.
+- The read crossed the 32768-token boundary, completed the second pass and generated all eight requested tokens.
+- Generated IDs: 79, 38571, 603, 29984, 1883, 28, 101853, 126889. There is no earlier successful 50k output
+  baseline for a token-equivalence comparison; the earlier 10k prompt is different.
+- Decode: 461.0 ms for seven post-first-token intervals, about 15.18 tokens/s. Eight tokens are too short for
+  a sustained decode-speed result.
+- Final placement: 295 experts direct in VRAM, 10713 in locked RAM.
+- Engine VRAM allocations: **21900.29 MiB** = dense 7758.37 + experts 3221.68 + KV 860.00 + staging 2848.00 +
+  rows 2048.00 + other 5164.24, subject to component rounding.
+- Host weights plus pinned buffers: **118782.76 MiB** = resident 118389.94 + pinned 392.82. h_res_ = 0.
+  The registered DMA window is part of those resident weights, not another host allocation.
+- At load: free VRAM **761.25 MiB**, system RAM available **2317.17 MiB**.
+- At the request report: free VRAM **637.73 MiB**, system RAM available **1990.21 MiB**, process RSS 119431.41 MiB.
+  Requested engine allocation totals remained unchanged during the request. Peak registered window 2848 MiB;
+  current registered window at request report 2759 MiB.
+- Model file closed after READY. Request process reads: **262959 bytes**, exactly the stdin command; extra reads
+  **0**. Global disk reads 461621248 bytes include other activity and are not attributed to this model.
+- The runtime VRAM resize request was refused as expected. The process exited after QUIT; none was left running.
+
+Full command and counters: 50k-replan-results.json. Candidate and memory diagnostics: 50k-replan-memory.txt.
+Protocol: 50k-replan-protocol.txt. Build/test provenance: 50k-replan-build.json.
+Temporary run: L:/Temp/poly-bench-20261019/run-10-50k-replan.

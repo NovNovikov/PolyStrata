@@ -1,0 +1,12 @@
+{
+  "source_commit": "600513ca",
+  "exe_sha256": "342b459fffbb2770a70650645fb6997ea05eb9292b4ea7f9ef6909a7e1c58149",
+  "placement_attempts": 3,
+  "replans": 2,
+  "fixed_ram_headroom_mib": 0,
+  "runtime_reserve_mib": 256,
+  "loading_margin_mib": 256,
+  "cpu_ctest": "3/3 passed",
+  "resident_release_probe": "3 release/reallocate cycles, invalid ownership refused, locked bytes and Windows working-set limits restored; 16 MiB allocation x2 passed",
+  "temporary_run": "L:\\Temp\\poly-bench-20261019\\run-10-50k-replan"
+}
