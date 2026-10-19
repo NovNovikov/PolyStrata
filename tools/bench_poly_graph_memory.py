@@ -46,6 +46,8 @@ def main():
     ap.add_argument('--trace', action='store_true')
     ap.add_argument('--engine-arg', action='append', default=[])
     ap.add_argument('--cycles', type=int, default=32)
+    ap.add_argument('--stage-mib', type=int, help='override the launch staging budget for a new run')
+    ap.add_argument('--expected-cache-slots', type=int, default=255)
     ap.add_argument('--sessions', action='store_true', help='also test disk parking, SAVE/RESTORE and process restart')
     ap.add_argument('--no-restart', action='store_true', help='with --sessions, stop after the first process (control run)')
     a = ap.parse_args()
@@ -57,6 +59,15 @@ def main():
     sessions.mkdir()
     config = json.loads(a.config.read_text(encoding='utf-8-sig'))
     args = list(config['args'])
+    if a.stage_mib is not None:
+        if a.stage_mib < 1:
+            ap.error('--stage-mib must be positive')
+        if '--stage-mib' in args:
+            args[args.index('--stage-mib')+1] = str(a.stage_mib)
+        else:
+            args += ['--stage-mib', str(a.stage_mib)]
+    if a.expected_cache_slots < 1:
+        ap.error('--expected-cache-slots must be positive')
     profile = a.work / 'expert-profile.txt'
     shutil.copyfile(a.profile, profile)
     args[args.index('--session-dir')+1] = str(sessions)
@@ -73,6 +84,7 @@ def main():
     summary = dict(binary_sha256=sha(Path(config['exe'])), config_sha256=sha(a.config),
                    source_profile_sha256=sha(a.profile), trace=a.trace, cycles=a.cycles,
                    sessions=a.sessions, restart=a.sessions and not a.no_restart, success=False)
+    summary['expected_cache_slots'] = a.expected_cache_slots
     summary['draft_policy_environment'] = {name: os.environ.get(name) for name in (
         'STRATA_TRACE_DRAFT_POLICY', 'STRATA_REFRESH_DRAFT_COSTS')}
     root = Path(__file__).resolve().parents[1]
@@ -142,9 +154,9 @@ def main():
                      reserve_satisfied=min(free)>=minimum,
                      cache_capacity=max(int(n[1]) for n in slots),
                      cache_used=max(int(n[0]) for n in slots), verified_payloads=max(verified))
-        assert check['cache_capacity'] == 255 and check['cache_used'] > 0 and check['verified_payloads'] > 0, check
+        assert check['cache_capacity'] == a.expected_cache_slots and check['cache_used'] > 0 and check['verified_payloads'] > 0, check
         if label == 'engine':
-            assert check['cache_used'] == check['verified_payloads'] == 255, check
+            assert check['cache_used'] == check['verified_payloads'] == a.expected_cache_slots, check
             data = json.loads((a.output/label/'results.json').read_text())
             counts = [int(n) for n in re.findall(r'graphs\[.*?execs=(\d+)',log)]
             warm = [(m,c) for m,c in zip(data['gpu_process_memory'],counts) if m['phase'].startswith('warm-repeat-')][-10:]

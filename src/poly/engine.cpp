@@ -2382,10 +2382,12 @@ void Engine::alloc() {
         std::iota(ramp.begin(), ramp.end(), 0);
         ck(cudaMemcpy(iota_, ramp.data(), rr * sizeof(int32_t), cudaMemcpyHostToDevice), "scratch");
 
-        // One layer's experts pass through it at a time, so it never holds more than a layer has.  A model of
-        // small experts has a few hundred MiB a layer, and the rest of the default would be VRAM that the
-        // expert cache of a small card does without.
-        stage_bytes_ = std::max(std::min((size_t) opt_.stage_mib << 20, (size_t) n_expert_ * one_expert), one_expert);
+        // File-backed staging serves one layer at a time. No-disk also uses these bytes as a decode cache
+        // spanning layers: an explicit size may exceed one layer. Keep the original automatic/default cap.
+        const size_t requested_stage = (size_t) opt_.stage_mib << 20;
+        const size_t stage_limit = opt_.no_disk && opt_.stage_mib_explicit ? requested_stage
+                                                                       : (size_t) n_expert_ * one_expert;
+        stage_bytes_ = std::max(std::min(requested_stage, stage_limit), one_expert);
         chunk_bytes_ = std::max(kChunkBytes, one_expert);
         // With stage_read_mib the buffer's addresses are reserved for the larger size, and a read maps the rest.
         // --no-disk keeps the plain buffer: there stage_ is itself the resident decode expert cache (one slot per

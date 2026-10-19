@@ -62,7 +62,8 @@ struct Options {
     int prompt_batch = 1024;      ///< prompt tokens one eval() takes; the scratch is about 1.4 MiB of VRAM a token
     int stage_mib = 2048;         ///< the buffer the experts that are not cached pass through: by default about
                                   ///< what a layer of Q2_K experts leaves out of the cache, and never more than
-                                  ///< a layer's experts take
+                                  ///< a layer's experts take; an explicit no-disk size also holds the decode cache
+    bool stage_mib_explicit = false; ///< no-disk: an explicit --stage-mib can cache experts from multiple layers
     int stage_read_mib = 0;       ///< a read of several calls: the staging buffer grows to this, at most what a
                                   ///< layer's experts take, with VRAM the expert cache lends it until the read is
                                   ///< done (end_read()), so that each layer's experts are copied once a read, not

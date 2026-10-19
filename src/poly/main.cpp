@@ -1306,6 +1306,8 @@ void usage() {
                  "  --stage-mib N          VRAM the experts outside the cache pass through in a prompt batch (default\n"
                  "                         2048, or what a layer's experts take when that is less); with less, more\n"
                  "                         of them are copied after the layer has routed\n"
+                 "                         With --no-disk an explicit N also sizes the adaptive decode cache and\n"
+                 "                         may exceed one layer, leaving less VRAM for permanent experts.\n"
                  "  --stage-ahead N        from N tokens, a batch copies those experts before it routes (default 1024,\n"
                  "                         0 = never)\n"
                  "  --stage-read-mib N     a prompt read of several batches grows the staging buffer to N MiB (at\n"
@@ -1442,7 +1444,17 @@ int main(int argc, char** argv) {
             }
             o.read_chunk_tokens = (int) n;
         }
-        else if (a == "--stage-mib") o.stage_mib = std::atoi(val());
+        else if (a == "--stage-mib") {
+            const char* v = val();
+            char* end = nullptr;
+            const long long n = std::strtoll(v, &end, 10);
+            if (end == v || !end || *end != '\0' || n < 1 || n > 2147483647LL) {
+                std::fprintf(stderr, "strata-poly: --stage-mib takes a positive integer in MiB\n");
+                return 2;
+            }
+            o.stage_mib = (int) n;
+            o.stage_mib_explicit = true;
+        }
         else if (a == "--stage-ahead") o.stage_ahead = std::atoi(val());
         else if (a == "--stage-read-mib") o.stage_read_mib = std::atoi(val());
         else if (a == "--cpu-share") o.cpu_share = (float) std::atof(val());
