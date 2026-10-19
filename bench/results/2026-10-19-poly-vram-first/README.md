@@ -164,3 +164,33 @@ available system memory differ, and no repeated statistical comparison was perfo
 
 Raw files: chunk32768-no-ram-reserve-results.json, chunk32768-no-ram-reserve-memory.txt,
 chunk32768-no-ram-reserve-protocol.txt and chunk32768-no-ram-reserve-build.json.
+
+## Requested 50000-token run with reserve 256 and loading allowance 256
+
+Two fresh-process attempts used the current SHA256 9a64a038c87ed874dccf4139a9b33c6e5786605d27ef15dc43ec5b1af80b4af6,
+context 131072, batch 4096, read chunk 32768, staging 2848 MiB, 12 threads, --no-disk --rows-vram, no draft,
+zero prompt/conversation cache and frozen experts. The benchmark prepared exactly 50000 synthetic tokens from
+its existing generator. Both attempts failed before READY and before the prompt was sent. No prefill timing or
+output IDs exist for this 50k request. The fixed 1 GiB RAM deduction remains removed.
+
+Both plans started with 4020.00 MiB free VRAM. After subtracting runtime reserve 256 and loading allowance 256,
+the expert budget was 3508 MiB. The plan selected 320 permanent experts with a requested arena of 3668187160
+bytes (3498.26 MiB), leaving 10688 experts in RAM. Engine VRAM before this arena was 18678.61 MiB.
+
+| Attempt | Free after RAM arena MiB | Free after CUDA registration MiB | Additional use since plan MiB | Shortfall including runtime reserve MiB |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 3722.81 | 3722.81 | 297.19 | 31.45 |
+| 2 | 3749.50 | 3717.76 | 302.24 | 36.49 |
+
+The actual pre-cudaMalloc budget check rejected the expert arena; this was not CUDA OOM, the final post-load
+reserve check or a failure while processing the 50000 tokens. Whole-device deltas identify timing, not the owner
+of the additional use. In these two attempts, the 256 MiB loading allowance was smaller than the observed
+297-302 MiB decrease in free VRAM before expert allocation. No code or configuration was changed between attempts.
+
+The first attempt's post-RAM-arena RAM availability was 629.93 MiB; the second's after-registration report was
+1544.71 MiB. Both had already allocated and locked their expert RAM. Both processes exited and released their
+allocations. The local launcher remains at the requested runtime reserve 256 and loading allowance 256.
+
+Raw diagnostics: 50k-reserve256-attempt1.txt, 50k-reserve256-attempt2.txt and 50k-reserve256-refusals.json.
+The previous successful 510.410 tokens/s result used only 10000 tokens and reserves 512/512; it must not be
+reported as a successful 50000-token run or a validation of the new 256/256 configuration.

@@ -1,0 +1,34 @@
+{
+  "exe_sha256": "9a64a038c87ed874dccf4139a9b33c6e5786605d27ef15dc43ec5b1af80b4af6",
+  "context": 131072,
+  "batch": 4096,
+  "read_chunk": 32768,
+  "stage_mib": 2848,
+  "runtime_reserve_mib": 256,
+  "loading_margin_mib": 256,
+  "fixed_ram_headroom_mib": 0,
+  "requested_prompt_tokens": 50000,
+  "generated_tokens_requested": 8,
+  "attempts": [
+    {
+      "attempt": 1,
+      "status": "allocation-refused-before-READY",
+      "prompt_executed": false,
+      "expert_arena_bytes": 3668187160,
+      "free_before_expert_allocation_bytes": 3903647744,
+      "runtime_reserve_bytes": 268435456,
+      "shortfall_bytes": 32974872,
+      "temporary_run": "L:\\Temp\\poly-bench-20261019\\run-8-50k-chunk32768-reserve256"
+    },
+    {
+      "attempt": 2,
+      "status": "allocation-refused-before-READY",
+      "prompt_executed": false,
+      "expert_arena_bytes": 3668187160,
+      "free_before_expert_allocation_bytes": 3898355712,
+      "runtime_reserve_bytes": 268435456,
+      "shortfall_bytes": 38266904,
+      "temporary_run": "L:\\Temp\\poly-bench-20261019\\run-9-50k-reserve256-retry"
+    }
+  ]
+}
