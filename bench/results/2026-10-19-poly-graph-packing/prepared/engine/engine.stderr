@@ -1,0 +1,14 @@
+strata-poly: compact graphs prepared before expert placement: executions=280 templates=258 global_free_delta=119537664 bytes (device-wide, not exclusive ownership)
+strata-poly: no-disk VRAM[before-plan]: free=6718.00 MiB (7044333568 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=16104.00 MiB
+strata-poly: no-disk RAM: policy=allocate-and-lock, available_now=117205 MiB, held=1411 MiB, future_rows=0 MiB, explicit_limit=0 MiB (0=none)
+strata-poly: no-disk plan: attempt=1, 10441 experts in RAM (114392 MiB), 567 permanent in VRAM (6201 MiB); expert budgets RAM=allocation/lock VRAM=6206 MiB; staging=2848 MiB
+strata-poly: no-disk VRAM[after-ram-arena]: free=6718.00 MiB (7044333568 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=16104.00 MiB
+strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=2848 MiB, limit=2850 MiB; original resident RAM, no host staging copy
+strata-poly: no-disk VRAM[after-registration]: free=6718.00 MiB (7044333568 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=16104.00 MiB
+strata-poly: no-disk VRAM[after-expert-allocation]: free=516.00 MiB (541065216 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+6202.00 MiB, used_since_plan=+6202.00 MiB, engine_allocated=22305.27 MiB
+strata-poly: no-disk VRAM[after-expert-zero]: free=427.25 MiB (448000000 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+88.75 MiB, used_since_plan=+6290.75 MiB, engine_allocated=22305.27 MiB
+strata-poly: no-disk loaded experts of layer 0
+strata-poly: no-disk loaded experts of layer 1
+strata-poly: no-disk loaded experts of layer 2
+strata-poly: no-disk loaded experts of layer 3
+strata-poly: no-disk loaded experts of layer 4

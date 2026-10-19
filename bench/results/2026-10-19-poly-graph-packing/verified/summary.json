@@ -1,0 +1,50 @@
+{
+  "binary_sha256": "844e503724cfd79a4bc6b45a14293c06581f85ac0eeb84df9f4ecdffb37a1238",
+  "config_sha256": "eb0cde6a44416d6d87ac9ba1843558fcfe565478b37ed69b38122ef75a3a50f0",
+  "source_profile_sha256": "b06d1fcd08c83787b79f3528d2da54577e3d557151b6aa1608865199070ec6ed",
+  "trace": false,
+  "cycles": 32,
+  "sessions": true,
+  "success": true,
+  "source_sha256": {
+    "src/poly/engine.cpp": "49032bc7ce53b2c7b4d6247bed369fde68d9313b6a991050fa321cc3c72de0eb",
+    "src/poly/engine.hpp": "242d725169095350b1d5dc0b5d8bbb6904b2abf69fb90c27be26fef1a21bc657",
+    "src/poly/deepseek4.hpp": "ecfbdb0e8272a91d7d1200d152ab682d099eb871e44dfc550d48a503846ce829",
+    "src/poly/main.cpp": "b0fd7b40e8d4cf21ff1ef13218f6a3e86ee257d90aa6862ed488d39518a2d4a4",
+    "tools/bench_poly_graph_memory.py": "08b6b120a5ac8f23850e2639dfedcbacddfc833f81d3243a24bf6dc94a3d3da8"
+  },
+  "session_sha256": "287efb42e08419d8007cd609bd5f9c859edc2bd5a9a30edfff8882094998478b",
+  "checks": {
+    "engine": {
+      "minimum_cuda_free_mib": 351.61328125,
+      "reserve_mib": 256,
+      "reserve_satisfied": true,
+      "cache_capacity": 255,
+      "cache_used": 255,
+      "verified_payloads": 255,
+      "last_ten_graph_counts": [
+        281,
+        281,
+        281,
+        281,
+        281,
+        281,
+        281,
+        281,
+        281,
+        281
+      ],
+      "last_ten_local_spread_mib": 0.0,
+      "plateau": true
+    },
+    "restart": {
+      "minimum_cuda_free_mib": 307.98046875,
+      "reserve_mib": 256,
+      "reserve_satisfied": true,
+      "cache_capacity": 255,
+      "cache_used": 253,
+      "verified_payloads": 253
+    }
+  },
+  "functional_success": true
+}

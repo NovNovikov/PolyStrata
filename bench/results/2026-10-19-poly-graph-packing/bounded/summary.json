@@ -1,0 +1,10 @@
+{
+  "binary_sha256": "36b3c9594863c7ce29ea20adcee0b3e18092ebb58240ee63041af201c82879f5",
+  "config_sha256": "eb0cde6a44416d6d87ac9ba1843558fcfe565478b37ed69b38122ef75a3a50f0",
+  "source_profile_sha256": "b06d1fcd08c83787b79f3528d2da54577e3d557151b6aa1608865199070ec6ed",
+  "trace": false,
+  "cycles": 32,
+  "sessions": true,
+  "success": false,
+  "session_sha256": "73ab921ac9d04d3d3285e04c44146b4699c934f9c2c783f8948a41e2b30f048e"
+}

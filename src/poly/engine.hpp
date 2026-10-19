@@ -255,6 +255,7 @@ public:
     /// the guesses can be checked, and keep(n) makes the first n tokens part of the sequence and forgets the rest.
     /// What a kept token computed is what eval() would have computed for it.
     int max_window() const { return opt_.window; }
+    bool compact_graphs() const { return opt_.compact_graphs && opt_.graphs && !opt_.dump && !split_; }
     void window(const int32_t* tokens, int t);
     const float* logits_of(int i) const { return next_ ? next_->logits_of(i) : h_wlogits_ + (size_t) i * n_vocab_; }
     void keep(int n);
@@ -271,7 +272,7 @@ public:
     /// the block, since load.  Two or more in one read are back-to-back refills of its pinned input rows.
     int64_t read_draft_calls_for_test() const { return next_ ? next_->read_draft_calls_for_test() : read_draft_calls_; }
     int32_t draft(int32_t token, int i, float* prob);
-    /// Whether a call since the last time this was asked recorded launches for replaying, which takes far longer
+    /// Whether a call since the last time this was asked recorded or updated launches for replaying, taking longer
     /// than the call does afterwards: its time says nothing of the calls to come.
     bool took_record() {
         const bool later = next_ && next_->took_record();
@@ -499,6 +500,7 @@ protected:
     void* record(F&& work, const char* kind = "other", int layer = -1, size_t key = 0, int rows = 0,
                  void* reuse = nullptr, void** source = nullptr);
     void compact_head(int il, int rows, size_t rec, bool launch);
+    size_t compact_slot(int rows, size_t rec) const;
     void prepare_compact_graphs();
     void moe_rows(Layer& L, int il, int n);
     void stage(const Layer& L, const int32_t* experts, int m, void* stream, bool alone = false);

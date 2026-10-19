@@ -1,0 +1,17 @@
+{
+  "binary_sha256": "49c97c06ec692e46cff57f41daff64b753abc1bca4cebeead26e38330e6021f0",
+  "config_sha256": "eb0cde6a44416d6d87ac9ba1843558fcfe565478b37ed69b38122ef75a3a50f0",
+  "source_profile_sha256": "b06d1fcd08c83787b79f3528d2da54577e3d557151b6aa1608865199070ec6ed",
+  "trace": false,
+  "cycles": 32,
+  "sessions": true,
+  "restart": true,
+  "success": false,
+  "source_sha256": {
+    "src/poly/engine.cpp": "3f6f663fe1ea5769f74da453747dbdf2e0293d0fb6c3f47407668f59f7bf00fb",
+    "src/poly/engine.hpp": "7d6977c5d10e28a9d275e287ae4294d3c38afb602564023869d9b6efd26aabcf",
+    "src/poly/deepseek4.hpp": "ecfbdb0e8272a91d7d1200d152ab682d099eb871e44dfc550d48a503846ce829",
+    "src/poly/main.cpp": "b0fd7b40e8d4cf21ff1ef13218f6a3e86ee257d90aa6862ed488d39518a2d4a4",
+    "tools/bench_poly_graph_memory.py": "d0a186a9ae034071e6fd7c5eadc58a8c7015efb24514e42fc33e7195d0b9893c"
+  }
+}

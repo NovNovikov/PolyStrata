@@ -46,6 +46,7 @@ def main():
     ap.add_argument('--engine-arg', action='append', default=[])
     ap.add_argument('--cycles', type=int, default=32)
     ap.add_argument('--sessions', action='store_true', help='also test disk parking, SAVE/RESTORE and process restart')
+    ap.add_argument('--no-restart', action='store_true', help='with --sessions, stop after the first process (control run)')
     a = ap.parse_args()
     a.work = a.work.resolve()
     a.output = a.output.resolve()
@@ -70,10 +71,11 @@ def main():
     gc.collect()
     summary = dict(binary_sha256=sha(Path(config['exe'])), config_sha256=sha(a.config),
                    source_profile_sha256=sha(a.profile), trace=a.trace, cycles=a.cycles,
-                   sessions=a.sessions, success=False)
+                   sessions=a.sessions, restart=a.sessions and not a.no_restart, success=False)
     root = Path(__file__).resolve().parents[1]
     summary['source_sha256'] = {name:sha(root/name) for name in (
         'src/poly/engine.cpp','src/poly/engine.hpp','src/poly/deepseek4.hpp','src/poly/main.cpp',
+        'include/strata/spec/draft_policy.hpp','src/spec/draft_policy.cpp',
         'tools/bench_poly_graph_memory.py')}
     def record():
         (a.output/'summary.json').write_text(json.dumps(summary,indent=2),encoding='utf8')
@@ -108,7 +110,7 @@ def main():
             e.close()
         finally:
             record()
-    if a.sessions:
+    if a.sessions and not a.no_restart:
         e = MemoryEngine(config, args, a.output/'restart')
         try:
             e.ready()
@@ -127,7 +129,7 @@ def main():
                 record()
     minimum = int(args[args.index('--vram-reserve-mib')+1])
     summary['checks'] = {}
-    for label in ['engine'] + (['restart'] if a.sessions else []):
+    for label in ['engine'] + (['restart'] if a.sessions and not a.no_restart else []):
         log = (a.output/label/'engine.stderr').read_text(encoding='utf8',errors='replace')
         free = [int(n)/2**20 for n in re.findall(r'device-memory\[.*?global_free=(\d+)',log)]
         slots = re.findall(r'staging_cache=(\d+)/(\d+) slots',log)

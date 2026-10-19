@@ -491,10 +491,11 @@ struct Session {
             while (show(t)) {
                 // t goes into the model now, and with it guesses at what follows when there are any that pay
                 const Clock::time_point round = Clock::now();
-                const bool room = engine.pos() + most <= engine.max_context();
-                const int offered = look && room ? repeats.propose(most - 1, w + 1) : 0;
+                const int span = engine.compact_graphs() ? (int) std::min<int64_t>(most, max_new - r.produced) : most;
+                const bool room = engine.pos() + span <= engine.max_context();
+                const int offered = look && room ? repeats.propose(span - 1, w + 1) : 0;
                 const int match = repeats.last_match();
-                const int widest = match >= kCopyMatch ? most : std::min(most, kBlockWindow);   // this round's window
+                const int widest = match >= kCopyMatch ? span : std::min(span, kBlockWindow);   // this round's window
                 const int k = std::min(offered, widest - 1);
                 // A repeat that fills the window, from a match of a length that has been right nine times in ten,
                 // is taken as it is: the block would mostly say the same, and asking it takes time.  Otherwise the
@@ -508,7 +509,7 @@ struct Session {
                 strata::spec::DraftPolicy::Pick use = policy.choose(1, k, match);
                 if (ask) {
                     int n_d = 0;
-                    for (int32_t from = t; n_d < std::min(most, kBlockWindow) - 1 && guesses.wants(n_d); from = d[n_d++]) {
+                    for (int32_t from = t; n_d < std::min(span, kBlockWindow) - 1 && guesses.wants(n_d); from = d[n_d++]) {
                         float p = 0.f;
                         const Clock::time_point asked_at = Clock::now();
                         d[n_d] = engine.draft(from, n_d, &p);

@@ -3176,6 +3176,9 @@ int Engine::room_key(int n) const {
 // Records what `work` hands to the stream, as a graph that is launched with one call from then on.
 template <class F>
 void* Engine::record(F&& work, const char* kind, int layer, size_t key, int rows, void* reuse, void** source) {
+    // Updating a cached template is setup too. Training either timing chooser on that transition
+    // can permanently penalize a fast window size, although its following replays need no update.
+    recorded_ = true;
     size_t before = 0, after = 0, total = 0;
     if (opt_.trace_graphs) {
         ck(cudaStreamSynchronize(cs(st_)), "graph diagnostic fence before capture");
@@ -3273,17 +3276,24 @@ void* Engine::record(F&& work, const char* kind, int layer, size_t key, int rows
     return exec;
 }
 
+// DeepSeek4 has no recurrent snapshots in these intervals. A whole call and its first half use the same
+// launches when their row counts match: same pointers, event and dynamic positions. The second half has
+// another row offset/event. Keep one execution for each DISTINCT layout, rather than update it every time
+// a different window length reappears. Attention buckets update that layout's existing execution.
+size_t Engine::compact_slot(int m, size_t rec) const {
+    const size_t wn = (size_t) opt_.window;
+    const bool second = rec >= wn && (rec - wn) % 2 != 0;
+    return second ? wn + (rec - wn) / 2 - 1 : (size_t) m - 1;
+}
+
 void Engine::compact_head(int il, int m, size_t rec, bool launch) {
 #ifndef HIP_VERSION
     Layer& L = layers_[(size_t) il];
-    const size_t wn = (size_t) opt_.window, recs = 3 * wn + (size_t) opt_.batch + 1;
-    const size_t head = (size_t) head_key(il, m) * recs + rec;
-    // Whole / first half / second half, each with separate scalar and batched topology:
-    // at most six live executions a layer and sequence, independent of context buckets.
-    // step() uses the slots from 3*window onward, so these lanes cannot alias its heads.
-    const size_t lane = (rec < wn ? 0 : 1 + (rec - wn) % 2) * 2 + (m > 1);
-    if (L.heads.size() <= lane) L.heads.resize(lane + 1, nullptr);
-    void*& made = L.heads[lane];
+    const size_t slots = 2 * (size_t) opt_.window - 1, slot = compact_slot(m, rec);
+    const size_t head = (size_t) head_key(il, m) * slots + slot;
+    // At most window + (window-1) heads a layer/sequence (15 at window 8). step() starts at 3*window.
+    if (L.heads.size() <= slot) L.heads.resize(slot + 1, nullptr);
+    void*& made = L.heads[slot];
     if (!made || graph_form_.at(made) != head) {
         void* old = made;
         void*& source = graph_templates_[{bound_, il, head}];
@@ -3327,23 +3337,20 @@ void Engine::prepare_compact_graphs() {
             shift_rows(-offset);
             ev_ = ev_row_[0];
         };
-        prepare(1, 0, 0, 0);
-        if (wn > 1) prepare((int) wn, 0, wn - 1, 0);
-        const auto halves = [&](int n) {
+        for (int n = 1; n <= (int) wn; ++n) prepare(n, 0, n - 1, 0);
+        for (int n = 2; n <= (int) wn; ++n) {
             const int first = (n + 1) / 2;
-            prepare(first, 0, wn + 2 * (n - 1), 0);
             prepare(n - first, first, wn + 2 * (n - 1) + 1, 1);
-        };
-        if (wn > 1) halves(2);
-        if (wn > 2) halves((int) wn);
+        }
         // The last layer's post-expert node also has one form per full/half row offset.
         Layer& last = layers_[(size_t) hi_ - 1];
-        last.tail.resize(3 * wn, nullptr);
+        last.tail.resize(2 * wn - 1, nullptr);
         const auto tail = [&](int m, int offset, size_t rec) {
             shift_rows(offset);
             try {
-                last.tail[rec] = record([&] { layer_tail(last, hi_ - 1, m); }, "tail", hi_ - 1, rec, m);
-                ck(cudaGraphUpload((cudaGraphExec_t) last.tail[rec], cs(st_)), "prepare last layer graph");
+                const size_t slot = compact_slot(m, rec);
+                last.tail[slot] = record([&] { layer_tail(last, hi_ - 1, m); }, "tail", hi_ - 1, slot, m);
+                ck(cudaGraphUpload((cudaGraphExec_t) last.tail[slot], cs(st_)), "prepare last layer graph");
             }
             catch (...) { shift_rows(-offset); throw; }
             shift_rows(-offset);
@@ -3353,7 +3360,6 @@ void Engine::prepare_compact_graphs() {
             for (int n = 1; n <= (int) wn; ++n) tail(n, 0, n - 1);
             for (int n = 2; n <= (int) wn; ++n) {
                 const int first = (n + 1) / 2;
-                tail(first, 0, wn + 2 * (n - 1));
                 tail(n - first, first, wn + 2 * (n - 1) + 1);
             }
         }
@@ -3458,7 +3464,8 @@ void Engine::run(const int32_t* tokens, int n) {
         Layer& L = layers_[(size_t) il];
         if (packed && il + 1 < hi_) return; // replayed at the start of the next layer, after this layer's moe_add
         dbg("ffn", il, fo_, n_embd_);
-        if (replay && L.fixed) replayed(L.tail, rec, [&] { layer_tail(L, il, m); }, "tail", il, m);
+        if (replay && L.fixed) replayed(L.tail, packed ? compact_slot(m, rec) : rec,
+                                      [&] { layer_tail(L, il, m); }, "tail", il, m);
         else layer_tail(L, il, m);
     };
 

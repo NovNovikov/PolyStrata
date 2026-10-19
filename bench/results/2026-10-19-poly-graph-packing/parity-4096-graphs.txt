@@ -1,0 +1,21 @@
+strata-poly: memory[load] card=0 context=16384 sequences=2: KV=248.00 MiB VRAM (full-context=215.00 MiB), rows=512.00 MiB VRAM (chunk=8192, batch=4096), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[load] card=0 VRAM allocations total=13347.28 MiB: dense=7758.37, experts=0.00, KV=248.00, staging=2048.00, rows=512.00, other=2780.91; reserve=32768 MiB
+strata-poly: memory[load] card=0 RAM weights+buffers total=1416.82 MiB: resident_weights=0.00, pinned_buffers=1416.82 (includes h_res_); CUDA/HIP-registered window=0.00 MiB (part of resident_weights, peak=0.00 MiB); whole process RSS=9617.65 MiB, system RAM free=110574.44 MiB
+strata-poly: memory[load] card=0 whole device used=15055.50 / 24563.50 MiB, free=9508.00 MiB (includes CUDA libraries and other processes)
+parity compact=1: boundary 1 and window/keep complete
+parity compact=1: boundary 8 and window/keep complete
+parity compact=1: boundary 31 and window/keep complete
+parity compact=1: boundary 32 and window/keep complete
+parity compact=1: boundary 33 and window/keep complete
+parity compact=1: checkpoint complete; step=1, cancellation=1
+strata-poly: memory[load] card=0 context=16384 sequences=2: KV=248.00 MiB VRAM (full-context=215.00 MiB), rows=512.00 MiB VRAM (chunk=8192, batch=4096), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[load] card=0 VRAM allocations total=13347.28 MiB: dense=7758.37, experts=0.00, KV=248.00, staging=2048.00, rows=512.00, other=2780.91; reserve=32768 MiB
+strata-poly: memory[load] card=0 RAM weights+buffers total=1416.82 MiB: resident_weights=0.00, pinned_buffers=1416.82 (includes h_res_); CUDA/HIP-registered window=0.00 MiB (part of resident_weights, peak=0.00 MiB); whole process RSS=9564.39 MiB, system RAM free=110211.78 MiB
+strata-poly: memory[load] card=0 whole device used=15255.50 / 24563.50 MiB, free=9308.00 MiB (includes CUDA libraries and other processes)
+parity compact=1: boundary 1 and window/keep complete
+parity compact=1: boundary 8 and window/keep complete
+parity compact=1: boundary 31 and window/keep complete
+parity compact=1: boundary 32 and window/keep complete
+parity compact=1: boundary 33 and window/keep complete
+parity compact=1: checkpoint complete; step=1, cancellation=1
+PASS: batch=4096 graphs=1 frames=71 logits=9178880 bit_differences=0 max_abs=0 mean_abs=0
