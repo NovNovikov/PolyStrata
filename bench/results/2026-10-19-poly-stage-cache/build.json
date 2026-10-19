@@ -1,0 +1,24 @@
+{
+  "source_commit": "f5adeec5b0d09d172f9ea6d37a1a08a4371f3ea2",
+  "exe_sha256": "6d222e46fbd15b8168e5bf2b2cc4c6475c62400b9726690c3d444ce8e6c47741",
+  "compiled_version_base": "2a9a5d37",
+  "cuda": "12.4",
+  "architecture": "89",
+  "cpu_ctest": "3/3 passed; existing placement and conversation tests",
+  "long_adaptive_requests": 2,
+  "long_adaptive_output_tokens": 1024,
+  "final_replay_requests": 2,
+  "final_replay_output_tokens": 512,
+  "stage_gpu_payload_and_tail_verification": "255 slots checked after each of four adaptive answers",
+  "new_gpu_weight_arena": false,
+  "no_test_process_left": true,
+  "untested": [
+    "HIP",
+    "Linux",
+    "SYCL",
+    "other models",
+    "concurrent batch slots",
+    "cancellation"
+  ],
+  "runtime_reserve_limitation": "short 4k/batch256 replay ended with 69.30 MiB whole-device free; see README"
+}
