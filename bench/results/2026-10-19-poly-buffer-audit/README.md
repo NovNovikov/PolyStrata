@@ -84,51 +84,53 @@ buffers[load] check: scratch slices 3294.68 of 3294.68 MiB (0.00 alignment and t
   slice, so the scratch arena is fully explained by named slices.
 - pinned records 392.82 MiB = the pinned line; mapped KV is 0.00 because no-disk sets `kv_grow=false`,
   so the attention caches are plain allocations and appear in `device_sizes_`.
-- `other` is not a residual: 4908.35 = scratch arena 3294.681 + MMQ/decoder buffers 260.50
+- `other` is not a residual: 4908.35 = scratch arena 3294.681 + the device buffers outside the arena 264.652
   (`mq_` 108.018, `mq2_` 54.018, `mqx_` 36.018, `q8_` 36.000, `xq_` 18.000, `sel_` 8.000, `wlogits_`
   3.945, `tab_` 0.287, `d_ids_` 0.094, `d_wts_` 0.094, `iota_` 0.094, `d_slots_` 0.084) + compressor
   rows 1171.641 + raw attention rings 177.375.
 
-## Finding 1 - 1349.02 MiB of attention state is counted as "other", not as KV
+## Finding 1 - the attention state is under-counted in the KV line
 
-`print_memory()` counts a buffer as KV only when it comes from `kv_alloc()` with `per > 0`. In this
-run `kv_alloc()` is reached 105 times: 62 with `per > 0` (215.00 MiB, printed as KV) and 43 with
-`per = 0` (177.375 MiB, the raw attention rings), and `seq_alloc()` adds 124 more slices (1171.641
-MiB, the compressor rows). The last two groups are per-sequence attention state that lives as long as
-the sequence does, but they are printed inside `other`. Attention state is therefore 1564.02 MiB, of
-which the KV line shows only 215.00 MiB. This is the misclassification the spec predicted, with sizes.
+`print_memory()` counts a buffer as KV only when it comes from `kv_alloc()` with `per > 0`; that
+allocator is the one that divides the context into `per`-token entries. The raw attention rings are
+**not** from it - they are `seq_alloc()` (`deepseek4.cpp:223`), and so are the compressor rows
+(`deepseek4.cpp:230-231`). In this run the KV line shows the 215.00 MiB that came from `kv_alloc()`
+with `per > 0` (the sizes differ per layer, 0.250 MiB is the smallest), while 177.375 MiB of raw rings
+and 1171.641 MiB of compressor rows - per-sequence attention state that lives as long as the
+sequence - are printed inside `other`. Attention state is therefore 1564.02 MiB, of which the KV line
+shows 215.00 MiB. This is the misclassification the spec predicted, with sizes.
 
 ## Inventory of the `dump2` run
 
-Device (`DEVICE`), largest first - MiB, as printed:
+The last column gives the size as the code writes it, with the line - not a guess at the symbols:
 
-| MiB | buffer | allocation site | what the size follows |
+| MiB | buffer | allocated by | the size in the code |
 | --- | --- | --- | --- |
-| 7758.371 | the dense weights | `dmalloc` in `Engine::load` | the model's non-expert tensors, one arena |
-| 6191.775 | no-disk permanent experts | `dmalloc` in the placement | experts that fit in VRAM, 566 here |
-| 3294.681 | scratch_ (arch scratch arena) | `seq_alloc`/`assign_scratch` | one slice per intermediate, chunk- and layer-sized |
+| 7758.371 | the dense weights | one `dmalloc` in `Engine::load` | the model's non-expert tensors |
+| 6191.775 | no-disk permanent experts | `dmalloc` in the placement | the experts that fit in VRAM (566 here) |
+| 3294.681 | scratch_ (arch scratch arena) | one `dmalloc`, sliced by `fbuf()` | the sum of the slices in the table below |
 | 2848.000 | the expert staging buffer | `dmalloc` in the no-disk setup | `--stage-mib` |
-| 256.000 | the read rows (`--rows-vram`) | `dmalloc` in the no-disk setup | `--rows-vram`, chunk 4096 |
-| 215.000 | the attention cache (KV) | `kv_alloc`, `per > 0` | 62 allocations; the sizes differ per layer (0.250 MiB is the smallest, not every one) |
-| 177.375 | the attention cache (sequence) | `seq_alloc`, one raw ring per layer | 43 slices; sizes differ per layer (4.125 MiB is the smallest) |
-| 108.018 | mq_ (MMQ rows of x) | `dmalloc` at assign_scratch | batch x n_embd |
-| 54.018 | mq2_ (MMQ rows of the expert output) | `dmalloc` at assign_scratch | batch x |
-| 36.018 | mqx_ (MMQ rows of q8_tile) | `dmalloc` at assign_scratch | batch x |
-| 36.000 | q8_ (quantized weights) | `dmalloc` at assign_scratch | tile of the quantizer |
-| 18.000 | xq_ (quantized activations) | `dmalloc` at assign_scratch | batch x n_embd/8 |
-| 8.000 | sel_ (indexer picks) | `dmalloc` at assign_scratch | |
-| 3.945 | wlogits_ (window()/step() logits) | `dmalloc` at assign_scratch | |
-| 0.287 | tab_ (MoE tile tables) | `dmalloc` at assign_scratch | |
-| 0.094 | d_ids_, d_wts_, iota_ (row -> expert, weight, index) | `dmalloc` at assign_scratch | 3 x batch |
-| 0.084 | d_slots_ (expert slots) | `dmalloc` at assign_scratch | |
-| ~0 | the recurrent state, snap_, at_ | `dmalloc` at assign_scratch | 0 floats for this architecture; `at_` clamps to 256 B |
+| 256.000 | the read rows (`--rows-vram`) | `dmalloc` in the no-disk setup | `--rows-vram` x the chunk |
+| 215.000 | the attention cache (KV) | `kv_alloc`, `per > 0` | the context divided into `per`-token entries |
+| 177.375 | the raw attention rings | `seq_alloc` (`deepseek4.cpp:223`) | `min(max_context, window_ + rows_) * head_dim_ * 2` B per layer |
+| 108.018 | mq_ (MMQ rows of x) | `dmalloc` (`engine.cpp:2267`) | `Mmq::q8_bytes(rr, n_embd_)`, `rr = rows_ * n_used_` |
+| 54.018 | mq2_ (MMQ rows of the expert output) | `dmalloc` (`:2268`) | `Mmq::q8_bytes(rr, n_ff_exp_)` |
+| 36.018 | mqx_ (MMQ rows of q8_tile) | `dmalloc` (`:2269`) | `Mmq::q8_bytes(rows_, q_max)` |
+| 36.000 | q8_ (quantized inputs) | `dmalloc` | quantized inputs, e.g. `native_quantize_q8_1(att_, q8_, ...)` (`deepseek4.cpp:281`) |
+| 18.000 | xq_ (quantized activations) | `dmalloc` | the layer input quantized, `native_quantize_q8_1(xn_, xq_, ...)` (`:468`) |
+| 8.000 | sel_ (indexer picks) | `dmalloc` (`:238`) | `rows_ * idx_top_k_ * 4` B |
+| 3.945 | wlogits_ (window()/step() logits) | `dmalloc` | |
+| 0.287 | tab_ (MoE tile tables) | `dmalloc` (`:2274`) | `(3*rr + 3*n_expert_ + 3 + kClasses*(n_expert_+1)) * 4` B |
+| 0.094 | d_ids_, d_wts_, iota_ (row -> expert, weight, index) | `dmalloc` (`:2270-2276`) | `rr * 4` B each |
+| 0.084 | d_slots_ (expert slots) | `dmalloc` (`:2273`) | `n_layer_ * n_expert_ * 8` B |
+| ~0 | the recurrent state, snap_, at_ | `dmalloc` (`:2257`) | 0 floats for this architecture; `at_` clamps to 256 B |
 
 Sequence state, in `other`:
 
-| MiB | buffer | allocation site | what the size follows |
+| MiB | buffer | allocated by | the size in the code |
 | --- | --- | --- | --- |
-| 1171.641 | the compressor's rows (124 allocations; sizes differ per layer, 4.008 MiB is the smallest) | `seq_alloc` in `deepseek4.cpp` | the attention compressors of 43 layers; `B.ring = rows_ + overlap` rows (deepseek4.cpp:227) |
-| 177.375 | the raw attention rings (43 x 4.125 MiB) | `kv_alloc` with `per = 0` | window + 4096 rows x 512 values, f16 |
+| 1171.641 | the compressor's rows, 124 allocations (sizes differ per layer, 4.008 MiB is the smallest) | `seq_alloc` (`deepseek4.cpp:230-231`) | `B.ring * S->width * 4` B, `B.ring = rows_ + overlap` (`:227`) |
+| 177.375 | the raw attention rings, 43 allocations (sizes differ per layer, 4.125 MiB is the smallest) | `seq_alloc` (`:223`) | `min(max_context, window_ + rows_) * head_dim_ * 2` B per layer |
 
 Pinned: 392.82 MiB in 7 allocations (`h_guess_`, `h_tab_`, `h_ids_`, the shell buffers, the queries).
 RAM: resident weights 115420.56 MiB + pinned 392.82 MiB; the staging window 2848.00 MiB is CUDA-
@@ -136,24 +138,28 @@ registered inside the resident weights (`no-disk DMA verified` in the control ru
 
 ## The architecture scratch arena, slice by slice (3294.681 MiB)
 
-| MiB | slice | formula on this model |
+Sizes as dumped; the third column is the expression in the code (`engine.cpp` unless another file is
+named), and a blank one means the expression was not read, not that the slice has no size.
+
+| MiB | slice | as the code writes it |
 | --- | --- | --- |
-| 256.000 | r_ (layer input rows) | batch x n_embd (4096 x 16384) |
-| 64.000 each | cur_, xn_, ao_, fo_, g_, u_, h_ | batch x n_embd |
-| 0.500 | d_ (MoE sums in progress) | batch x 32 |
-| 4.000 | rl_ (router logits) | batch x n_expert |
-| 0.493 | logits_ | |vocab| x 8 |
+| 256.000 | r_ (layer input rows) | `max(streams(), draft_ ? 3 : 1) * (read_rows_ > rows_ ? 2 : 1) * rows_ * n_embd_` (:2160) |
+| 64.000 each | cur_, xn_, ao_, fo_ | `rows_ * n_embd_` (:2162-2165) |
+| 64.000 each | g_, u_, h_ | `rows_ * max(n_ff_, n_ff_shexp_, 2 * n_ff_exp_)` (:2166-2168) |
+| 0.500 | d_ (MoE sums in progress) | `kSumRows * n_embd_` - constant, not batch (:2169) |
+| 4.000 | rl_ (router logits) | `rows_ * n_expert_` (:2170) |
+| 0.493 | logits_ | `n_vocab_` - constant (:2171) |
 | 16.000 | wf_ (BF16 matrix as floats) | |
-| 384.000 | gu_ (expert gate/up rows) | rows x 2 x n_ff |
-| 192.000 | hx_ (expert activation rows) | rows x n_ff |
-| 384.000 | dx_ (expert down rows) | rows x n_ff |
+| 384.000 | gu_ (expert gate/up rows) | `rr * 2 * n_ff_exp_`, `rr = rows_ * n_used_` (:2175) |
+| 192.000 | hx_ (expert activation rows) | `rr * n_ff_exp_` (:2176) |
+| 384.000 | dx_ (expert down rows) | `rr * n_embd_` (:2177) |
 | 0.391 | mix_ (hyper-connection mix) | |
 | 0.312 | hcw_ (hyper-connection weights) | |
 | 16.000 | t1_ (q lora) | |
 | 16.000 | qr_ (q lora normed) | |
-| 512.000 | q_ (queries, then attention output) | batch x n_head x head_dim |
-| 8.000 | kv_ (the key/value row) | batch x (2 x head_dim) |
-| 512.000 | att_ (attention output) | batch x n_head x head_dim |
+| 512.000 | q_ (queries, then attention output) | `n * n_head_ * head_dim_` (deepseek4.cpp:248) |
+| 8.000 | kv_ (the key/value row) | `n * head_dim_` (deepseek4.cpp:249) |
+| 512.000 | att_ (attention output) | `n * n_head_ * head_dim_` (deepseek4.cpp:250) |
 | 128.000 | oa_ (output lora a) | |
 | 128.000 | ob_ (output lora b) | |
 | 16.000 | ckv_ (compressor kv rows) | |
@@ -247,8 +253,10 @@ that run has not been made. What the pair does show is that neither configuratio
 correct answer: both produce the same eight reference ids.
 
 What is measured and free of this confound: the 2048.00 MiB of VRAM that the read rows hold, and the
-fact that the placement gives them to experts instead (297 -> 508 permanent, 3248.01 -> 5555.31 MiB,
-hit rate 0.220 -> 0.297, decode +12%).
+fact that the placement gives them to experts instead (297 -> 508 permanent, 3248.01 -> 5555.31 MiB;
+over the same eight decode steps the hit rate moves 0.220 -> 0.297). The decode times of those runs are
+not used as a speed result anywhere in this file (see the harness caveat), so no generation speedup is
+claimed here.
 
 ## Phase 2, buffer 2: the expert staging window, 2848 vs 1488 MiB
 
@@ -302,22 +310,35 @@ because they do not follow the context at all), while the attention caches grow 
 A batch series (for example 1024 against 4096, same chunk) has not been run and is needed before
 anything is said about the batch.
 
-Cost of the arena per prompt-batch token, from the dumped sizes divided by the batch (measured bytes,
-one sequence, batch 4096, chunk 4096, context 32768):
+Cost per prompt-batch token, from the dumped sizes divided by the batch (measured bytes, one sequence,
+batch 4096, chunk 4096, context 32768). The arena and the separately allocated device buffers are kept
+apart - the second group is not part of `scratch_`, so it cannot go into an arena table.
 
-| KiB/token | slices |
-| --- | --- |
-| 128 | `q_` |
-| 128 | `att_` |
-| 96 | `dx_` |
-| 96 | `gu_` |
-| 64 | `r_` |
-| 48 | `hx_` |
-| 112 | `cur_`, `xn_`, `ao_`, `fo_`, `g_`, `u_`, `h_` (7 x 16) |
-| 63 | `mq_`, `mq2_`, `mqx_`, `q8_`, `xq_` |
-| 32 + 32 | `oa_`, `ob_` |
-| 32 | `iq_` |
-| ~75 | `score_` (capped), `sel_`, `iw_`, `ckv_`, `cscore_`, `kv_`, `tab_`, `mix_`, `hcw_`, `rl_`, the row-index buffers |
+The arena (`scratch_`, 3294.681 MiB - 823.7 KiB per token):
+
+| KiB/token | slices | MiB at batch 4096 |
+| --- | --- | --- |
+| 128 | `q_` | 512.000 |
+| 128 | `att_` | 512.000 |
+| 96 | `dx_` | 384.000 |
+| 96 | `gu_` | 384.000 |
+| 64 | `r_` | 256.000 |
+| 48 | `hx_` | 192.000 |
+| 16 each | `cur_`, `xn_`, `ao_`, `fo_`, `g_`, `u_`, `h_` | 448.000 |
+| 32 | `iq_` | 128.000 |
+| 32 | `oa_` | 128.000 |
+| 32 | `ob_` | 128.000 |
+| 50.4 | `score_` (capped), `t1_`, `qr_`, `ckv_`, `cscore_`, `kv_`, `iw_`, `mix_`, `hcw_` | 201.687 |
+| 5.2 | `d_`, `logits_`, `wf_`, `rl_` | 20.993 |
+| **823.7** | the arena in total | **3294.681** |
+
+Device buffers allocated outside the arena (264.652 MiB - 66.2 KiB per token): `mq_` 108.018,
+`mq2_` 54.018, `mqx_` 36.018, `q8_` 36.000, `xq_` 18.000, `sel_` 8.000, `wlogits_` 3.945, `tab_` 0.287,
+`d_ids_`, `d_wts_`, `iota_` 0.094 each, `d_slots_` 0.084.
+
+So what the batch moves in VRAM is the arena plus these buffers (823.7 + 66.2 KiB per token), plus the
+two per-sequence groups (`seq_alloc`), whose own relation to the batch is read from the formulas
+(`B.ring = rows_ + overlap`, `min(max_context, window_ + rows_)`) and not measured here.
 
 ### `att_`: a candidate with a real obstacle, not a proven saving
 
