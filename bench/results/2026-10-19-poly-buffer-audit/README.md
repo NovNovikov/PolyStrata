@@ -238,10 +238,105 @@ So the trade is: 2048 MiB of VRAM buys 1.57x prefill when held as read rows, or 
 experts (hit rate 0.220 -> 0.297, decode +12%) when given to the placement. Both configurations are
 correct; neither is a default change, and this is one measurement on one machine.
 
+## Phase 2, buffer 2: the expert staging window, 2848 vs 1488 MiB
+
+`p2-stage1488-ctx131072-chunk32768/` is the reference point with `--stage-mib 1488`, nothing else
+changed. The staging window is the DMA window experts are read through; half of it frees VRAM for the
+placement, and `other` does not move (5164.24 MiB at both), so staging is not part of `other`.
+
+| | `--stage-mib 2848` | `--stage-mib 1488` | |
+| --- | --- | --- | --- |
+| staging (VRAM) | 2848.00 MiB | 1488.00 MiB | |
+| experts permanent in VRAM | 297 (3248.01 MiB) | 432 (4719.34 MiB) | +135 experts |
+| experts in RAM | 10711 (117344 MiB) | 10576 (116892 MiB) | |
+| device total | 21926.63 MiB | 22037.96 MiB | |
+| prefill, 10000 tokens | 509.06 t/s | **341.95 t/s** | -33% |
+| decode (8 tokens, see the caveat below) | 16.88 t/s | 18.60 t/s | |
+| expert hit rate | 0.2198 | 0.2641 | |
+| load | 236.69 s | 236.28 s | |
+| generated ids | reference | reference | unchanged |
+
+So the trade is 1360.00 MiB of VRAM for 33% of prefill, or for about 135 resident experts. As with the
+read rows, both configurations answer identically.
+
+## Phase 2: what grows with the batch inside `other`, and what does not
+
+Measured, from the same dump at two scales (batch 4096 in both, see the comparison table above):
+
+- the only batch-dependent part of `other` is the architecture scratch arena, and its size is
+  `rows_ = min(prompt_batch, max_context)` (`engine.cpp:2187`), so every slice in it is linear in the
+  batch - there is no quadratic slice;
+- not batch-dependent: the compressor rows (1171.641 MiB, 124 slices) and the raw attention rings
+  (177.375 MiB, 43 slices) are per-sequence state of this architecture and are identical at both
+  scales; the MMQ/decoder buffers are 260.50 MiB at both; `score_` is capped by a constant
+  (`kScoreBytes`; `score_stride_ = max_context / 4 + 1` and `score_rows_` is clamped to fit,
+  `deepseek4.cpp:236-237`), so it is <= ~128 MiB whatever the batch is;
+- therefore `other` grows linearly with the batch at a measured ~0.84 MiB per prompt-batch token
+  (arena 3294.681 MiB at batch 4096, ctx 32768 - 3225.665 MiB of it without the per-sequence state).
+
+Cost of the arena per prompt-batch token, from the dumped sizes divided by the batch (measured bytes,
+one sequence, batch 4096, chunk 4096, context 32768):
+
+| KiB/token | slices |
+| --- | --- |
+| 128 | `q_` |
+| 128 | `att_` |
+| 96 | `dx_` |
+| 96 | `gu_` |
+| 64 | `r_` |
+| 48 | `hx_` |
+| 112 | `cur_`, `xn_`, `ao_`, `fo_`, `g_`, `u_`, `h_` (7 x 16) |
+| 63 | `mq_`, `mq2_`, `mqx_`, `q8_`, `xq_` |
+| 32 + 32 | `oa_`, `ob_` |
+| 32 | `iq_` |
+| ~75 | `score_` (capped), `sel_`, `iw_`, `ckv_`, `cscore_`, `kv_`, `tab_`, `mix_`, `hcw_`, `rl_`, the row-index buffers |
+
+### The one removable buffer found so far: `att_`
+
+Code reading (`deepseek4.cpp:242-258`, `engine.cpp:2160-2178`): `q_` and `att_` are both
+`fbuf(rows_ * n_head_ * head_dim_)` - the same size, 512.00 MiB each at batch 4096 - and the comment on
+`q_` (line 248) already says it holds "queries, then attention output". The attention flow is
+
+```text
+368:  lin(B.q_b, qr_, q_, n);                  // q_ = the queries
+402/405: dsv4_attend(q_, ..., att_, ...);      // reads q_, writes att_
+408:  dsv4_rope(att_, att_, ...);              // in place
+281:  native_quantize_q8_1(att_, q8_, ...);
+294:  permute_groups(att_, q_, in, ...);       // att_ -> q_
+```
+
+`att_` is a second 128 KiB-per-token buffer whose only purpose is that the attention does not write
+over the queries it has finished reading, and then the result is copied into `q_` anyway. A head's
+query row is read before its output row is written, so the output can go in place; `att_` would then
+be gone: -512.00 MiB of VRAM at batch 4096, -2 GiB at batch 16384.
+
+Not verified yet: that the in-place form is numerically identical (needs a canary run and the eight
+reference ids), and no run at batch 16384 was made (this machine's RAM does not allow it).
+
+## Caveat on the test harness: the decode numbers above are not speed results
+
+Every run in this directory used `tools/bench_poly_no_disk.py` with `--generate 8`, that is eight
+decode steps with no warmup. Decode t/s figures here are indicative and are not used as a speed
+result anywhere; prefill figures are one 10000-token call and are not affected. The spec asks for
+>= 512 generated tokens after warmup (`docs/POLY_VRAM_BUFFERS_AUDIT_RU.md`), and that change to the
+harness had not been made when these runs were taken.
+
+## What is not here
+
+Two exploratory directories were removed before this directory's first commit, because they were not
+documented and one of them ran the model in mmap mode rather than `--no-disk` (`series1b-mapped`,
+and `series1-control-fit`). Only reproducible runs with their exact command in `results.json` are
+kept here.
+
 ## What is not established yet
 
-- Whether each buffer is needed, overstated, or mergeable by lifetime: not measured here. The spec's
-  Phase 2 does that one buffer at a time, and each result is checked against the same eight ids above.
+- Whether each buffer is needed, overstated, or mergeable by lifetime: two are measured here (the read
+  rows, the staging window) and one is shown removable by reading the code (`att_`, not yet changed).
+  The rest of the arena, the compressor rows and the MMQ buffers have no verdict yet; the spec's
+  Phase 2 wants one at a time, each checked against the same eight ids above.
+- The per-token table above is arithmetic on dumped sizes, not a proof of each slice's formula; only
+  `q_ == att_` and the arena's `n = rows_` are taken from the code.
+- Decode speed after warmup over >= 512 tokens: the harness still generates 8 tokens.
 - Whether the same numbers hold at context 131072 and chunk 32768 *while loading*: the spec's
   configuration refuses on this machine while other processes hold RAM (its refusal inventory is
   above, and it is the same 18678.61 MiB allocated before placement as the spec's table).
