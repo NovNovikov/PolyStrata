@@ -350,13 +350,21 @@ struct Session {
     strata::spec::SuffixDrafter repeats;
     strata::spec::DraftPolicy policy;
     Guesses guesses;                      // whether the block is asked in a round, and for how many (guesses.hpp)
+    bool trace_policy = [] {
+        const char* v = std::getenv("STRATA_TRACE_DRAFT_POLICY");
+        return v && std::strcmp(v, "1") == 0;
+    }();
     int piece_calls = kPiece;             // generate()'s pieces when it is given `between`
 
     Session(Engine& e, std::vector<int32_t> eos_ids, const CacheFlags& f, int lookup)
         : engine(e), eos(std::move(eos_ids)), flags(f), kept(e, with_floor(f)),
           most(lookup > 0 || e.drafts() ? std::min<int>(e.max_window(), strata::spec::DraftPolicy::kMaxT) : 1),
           look(lookup > 0 && most > 1),
-          repeats(std::max(lookup, 3), 64, (size_t) e.max_context() + 4096), policy(most) {}
+          repeats(std::max(lookup, 3), 64, (size_t) e.max_context() + 4096),
+          policy(most, 0.03, [] {
+              const char* v = std::getenv("STRATA_REFRESH_DRAFT_COSTS");
+              return v && std::strcmp(v, "1") == 0;
+          }()) {}
 
     static CacheOptions with_floor(const CacheFlags& f) {
         CacheOptions o = f.o;
@@ -463,6 +471,14 @@ struct Session {
         if (std::strcmp(r.finish, "cancel") == 0) return r;
 
         t0 = Clock::now();
+        // Buffer numeric diagnostics until decode_ms is sealed. No prompt or token IDs are logged.
+        struct PolicyRound {
+            int offered, match, chosen = 0, accepted = 0;
+            bool lookup = false, setup = false;
+            double q, elapsed = 0, counted = 0;
+            double cost[9] = {}, samples[9] = {}, age[9] = {};
+        };
+        std::vector<PolicyRound> policy_trace;
         std::vector<int32_t> history = kept.seq();
         std::replace_if(history.begin(), history.end(), [](int32_t t) { return t < 0; }, pad);
         if (look) {
@@ -497,6 +513,18 @@ struct Session {
                 const int match = repeats.last_match();
                 const int widest = match >= kCopyMatch ? span : std::min(span, kBlockWindow);   // this round's window
                 const int k = std::min(offered, widest - 1);
+                if (trace_policy) {
+                    PolicyRound sample{};
+                    sample.offered = k;
+                    sample.match = match;
+                    sample.q = policy.lookup_rate(match);
+                    for (int j = 1; j <= most; ++j) {
+                        sample.cost[j] = policy.cost_ms(j);
+                        sample.samples[j] = policy.cost_samples(j);
+                        sample.age[j] = policy.cost_age(j);
+                    }
+                    policy_trace.push_back(sample);
+                }
                 // A repeat that fills the window, from a match of a length that has been right nine times in ten,
                 // is taken as it is: the block would mostly say the same, and asking it takes time.  Otherwise the
                 // block guesses, each guess from the one before, while a guess more pays (Guesses).
@@ -504,7 +532,18 @@ struct Session {
                 const bool ask = guesses.begin(blocks, policy);
                 // the round's time, as the policy counts it: a window of `in` tokens wrote n of them
                 const auto count = [&](int in, int n) {
-                    return guesses.end(in, n, ms_since(round), engine.took_record());
+                    const double elapsed = ms_since(round);
+                    const bool setup = engine.took_record();
+                    const double counted = guesses.end(in, n, elapsed, setup);
+                    if (trace_policy) {
+                        auto& sample = policy_trace.back();
+                        sample.chosen = in;
+                        sample.accepted = n - 1;
+                        sample.elapsed = elapsed;
+                        sample.counted = counted;
+                        sample.setup = setup;
+                    }
+                    return counted;
                 };
                 strata::spec::DraftPolicy::Pick use = policy.choose(1, k, match);
                 if (ask) {
@@ -517,6 +556,7 @@ struct Session {
                     }
                     use = policy.choose(1 + n_d, k, match);
                 }
+                if (trace_policy) policy_trace.back().lookup = use.lookup;
                 if (use.t == 1) {
                     engine.eval(&t, 1, true);
                     kept.read(&t, 1);
@@ -542,6 +582,19 @@ struct Session {
             }
         }
         r.decode_ms = ms_since(t0);
+        if (trace_policy) {
+            std::fprintf(stderr, "strata-poly: draft-policy begin produced=%lld rounds=%zu decode_ms=%.3f\n",
+                         (long long) r.produced, policy_trace.size(), r.decode_ms);
+            for (size_t i = 0; i < policy_trace.size(); ++i) {
+                const auto& x = policy_trace[i];
+                std::fprintf(stderr, "strata-poly: draft-policy round=%zu offered=%d match=%d q=%.6f chosen=%d lookup=%d accepted=%d setup=%d elapsed_ms=%.3f counted_ms=%.3f costs=",
+                             i, x.offered, x.match, x.q, x.chosen, x.lookup, x.accepted, x.setup, x.elapsed, x.counted);
+                for (int j = 1; j <= most; ++j)
+                    std::fprintf(stderr, "%s%d:%.3f/%.0f/%.0f", j == 1 ? "" : ",", j, x.cost[j], x.samples[j], x.age[j]);
+                std::fputc('\n', stderr);
+            }
+            std::fprintf(stderr, "strata-poly: draft-policy end\n");
+        }
         return r;
     }
 };
@@ -1292,6 +1345,8 @@ void usage() {
                  "                         little (default 0 = none is; setup gives Qwen3.6 6)\n"
                  "  --skip-weight F        in place of --tail-skip: an expert outside VRAM that every token of a\n"
                  "                         window weighs under F of its experts' weight is left out (default 0 = off)\n"
+                 "environment: STRATA_TRACE_DRAFT_POLICY=1  numeric window choices/costs after each answer\n"
+                 "environment: STRATA_REFRESH_DRAFT_COSTS=1  remeasure stale intermediate lookup windows\n"
                  "environment: STRATA_ROUTE_TAIL_SKIP=N  in place of --tail-skip (0 turns it off)\n"
                  "environment: STRATA_FREEZE_EXPERTS=1  hold the split of the routed experts between the card\n"
                  "                         and the CPU still, so the same request gives the same greedy answer\n"

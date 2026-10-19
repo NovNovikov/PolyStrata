@@ -24,8 +24,8 @@ constexpr double kStaleRounds = 300.0;
 
 }  // namespace
 
-DraftPolicy::DraftPolicy(int max_t, double margin)
-    : max_t_(std::clamp(max_t, 1, kMaxT)), margin_(margin) {}
+DraftPolicy::DraftPolicy(int max_t, double margin, bool refresh_lookup_costs)
+    : max_t_(std::clamp(max_t, 1, kMaxT)), margin_(margin), refresh_lookup_costs_(refresh_lookup_costs) {}
 
 int DraftPolicy::bucket(int match) {
     return match < 6 ? 0 : match < 12 ? 1 : match < 24 ? 2 : 3;
@@ -72,6 +72,15 @@ DraftPolicy::Pick DraftPolicy::choose(int t_mtp, int lookup_k, int match) const 
         if (r > best) { best = r; best_t = k + 1; }
     }
     const int t_full = std::min(lookup_k, max_t_ - 1) + 1;
+    if (refresh_lookup_costs_ && q >= 0.85) {
+        // Probing only t_full can leave an intermediate optimum permanently priced out. In particular,
+        // retrying 8 says nothing about a stale estimate for 7. Probe the least recently measured
+        // available size; observe() makes it fresh, so several stale sizes cannot starve one another.
+        int probe = 0;
+        for (int t = 2; t <= t_full; ++t)
+            if ((cost_n_[t] < kProbes || stale(t)) && (!probe || last_[t] < last_[probe])) probe = t;
+        if (probe) return {true, probe};
+    }
     if (best_t > 0 && best > base * (1.0 + margin_)) {
         p.lookup = true;
         p.t = best_t;
@@ -91,7 +100,8 @@ DraftPolicy::Pick DraftPolicy::choose(int t_mtp, int lookup_k, int match) const 
 void DraftPolicy::observe(bool lookup, int t, int accepted, int match, double round_ms) {
     t = std::clamp(t, 1, kMaxT);
     if (round_ms > 0) {
-        cost_[t] = cost_n_[t] > 0 ? (1.0 - kCostAlpha) * cost_[t] + kCostAlpha * round_ms : round_ms;
+        const bool fresh = cost_n_[t] > 0 && !(refresh_lookup_costs_ && stale(t));
+        cost_[t] = fresh ? (1.0 - kCostAlpha) * cost_[t] + kCostAlpha * round_ms : round_ms;
         cost_n_[t] += 1.0;
         last_[t] = rounds_;
     }
@@ -142,7 +152,8 @@ int DraftPolicy::chain(int t_mtp, double p_mtp, int k_avail, int match) const {
 void DraftPolicy::observe_chain(int t_mtp, int k, int accepted, int match, double round_ms) {
     const int t = std::clamp(t_mtp + k, 1, kMaxT);
     if (round_ms > 0) {
-        cost_[t] = cost_n_[t] > 0 ? (1.0 - kCostAlpha) * cost_[t] + kCostAlpha * round_ms : round_ms;
+        const bool fresh = cost_n_[t] > 0 && !(refresh_lookup_costs_ && stale(t));
+        cost_[t] = fresh ? (1.0 - kCostAlpha) * cost_[t] + kCostAlpha * round_ms : round_ms;
         cost_n_[t] += 1.0;
         last_[t] = rounds_;
     }

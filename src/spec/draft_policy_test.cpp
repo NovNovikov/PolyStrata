@@ -114,6 +114,55 @@ int main() {
               "chain: stale full size is re-probed despite a profitable shorter chain");
         check(probes > 0 && confident, "chain: stale re-probes retain the MTP confidence gate");
     }
+    {
+        // A wide first-use stall must not lock the policy into 3 forever. The full proposal is 8,
+        // but the actual optimum is 7: probing only 8 cannot discover it.
+        const double early[9] = {0, 60, 73, 84, 200, 220, 240, 500, 260};
+        const double now[9] = {0, 60, 73, 84, 200, 220, 240, 170, 260};
+        int legacy7 = 0, refreshed7 = 0;
+        for (bool refresh : {false, true}) {
+            DraftPolicy p(8, 0.03, refresh);
+            for (int t = 1; t <= 8; ++t)
+                for (int i = 0; i < 4; ++i) p.observe(true, t, t - 1, 64, early[t]);
+            for (int i = 0; i < 1200; ++i) {
+                const auto k = p.choose(1, 7, 64);
+                if (k.t == 7) ++(refresh ? refreshed7 : legacy7);
+                p.observe(k.lookup, k.t, k.t - 1, 64, now[k.t]);
+            }
+            if (refresh) check(p.cost_ms(7) < 171, "refresh: stale intermediate cost is replaced by current measurement");
+        }
+        check(legacy7 == 0, "legacy: full-size probes never rediscover intermediate optimum");
+        check(refreshed7 > 800, "refresh: intermediate optimum is rediscovered and retained");
+    }
+    {
+        DraftPolicy p(8, 0.03, true);
+        const double dear[9] = {0, 60, 73, 84, 200, 220, 240, 500, 600};
+        int short_window = 0;
+        for (int i = 0; i < 1500; ++i) {
+            const auto k = p.choose(1, 7, 64);
+            if (i >= 500 && k.t == 3) ++short_window;
+            p.observe(k.lookup, k.t, k.t - 1, 64, dear[k.t]);
+        }
+        check(short_window > 950, "refresh: genuinely expensive wide windows remain occasional probes");
+        DraftPolicy weak(8, 0.03, true);
+        for (int t = 1; t <= 8; ++t) weak.observe(false, t, 0, 1, t == 1 ? 1 : 100);
+        check(!weak.choose(1, 7, 1).lookup, "refresh: low-confidence unprofitable lookup is not forced");
+        check(!p.choose(1, 0, 64).lookup, "refresh: no proposal stays scalar");
+        check(p.choose(1, 1, 64).t <= 2, "refresh: no probe exceeds the available proposal");
+    }
+    {
+        DraftPolicy p(8, 0.03, true);
+        for (int i = 0; i < 4; ++i) p.observe(true, 7, 6, 64, 500);
+        for (int i = 0; i < 310; ++i) p.observe(true, 3, 2, 64, 84);
+        const double age = p.cost_age(7);
+        p.observe(true, 7, 6, 64, 0); // graph setup excluded by Guesses::end()
+        check(p.cost_ms(7) == 500 && p.cost_age(7) > age,
+              "refresh: excluded setup does not freshen a stale cost");
+        p.observe(true, 7, 6, 64, 170);
+        p.observe(true, 7, 6, 64, 180);
+        check(p.cost_ms(7) > 170.9 && p.cost_ms(7) < 171.1,
+              "refresh: subsequent fresh samples keep normal EMA smoothing");
+    }
     std::printf(g_fail ? "FAIL\n" : "PASS\n");
     return g_fail ? 1 : 0;
 }

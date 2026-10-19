@@ -6,6 +6,7 @@ import argparse
 import errno
 import gc
 import json
+import os
 import re
 from pathlib import Path
 import shutil
@@ -72,6 +73,8 @@ def main():
     summary = dict(binary_sha256=sha(Path(config['exe'])), config_sha256=sha(a.config),
                    source_profile_sha256=sha(a.profile), trace=a.trace, cycles=a.cycles,
                    sessions=a.sessions, restart=a.sessions and not a.no_restart, success=False)
+    summary['draft_policy_environment'] = {name: os.environ.get(name) for name in (
+        'STRATA_TRACE_DRAFT_POLICY', 'STRATA_REFRESH_DRAFT_COSTS')}
     root = Path(__file__).resolve().parents[1]
     summary['source_sha256'] = {name:sha(root/name) for name in (
         'src/poly/engine.cpp','src/poly/engine.hpp','src/poly/deepseek4.hpp','src/poly/main.cpp',
