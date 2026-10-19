@@ -48,6 +48,14 @@ and file closure. Reports include free bytes, the reserve and loading allowance,
 sample and the plan, and the engine's requested allocation total. Whole-device changes do not identify their
 owner or prove spill. A final reserve refusal prints the actual free, reserve and loading-headroom byte counts.
 
+The first placement plan is provisional. After locking its RAM arena and registering the DMA window, the loader
+checks the planned expert arena against `live_free - reserve - loading_headroom` again. If the live budget has
+shrunk, it unregisters and frees only that provisional RAM arena, recomputes available RAM, and rebuilds a smaller
+VRAM plan before reading expert payloads. Retries never hold two model-sized RAM arenas. Windows working-set
+limits are restored when an arena is released, so retries do not accumulate quotas. The VRAM budget only shrinks
+between attempts; four attempts at most prevent an endless loop if other device usage keeps changing. No extra
+constant headroom is added by this reconciliation.
+
 Windows uses `VirtualAlloc` and the platform's working-set minimum plus `VirtualLock`, as llama.cpp does for
 residency. Linux uses anonymous memory and `mlock`; the account must have a sufficient locked-memory allowance
 (`ulimit -l`). OS residency alone does not register a DMA source with CUDA. Before an expert upload, its original

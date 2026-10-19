@@ -105,50 +105,73 @@ void Engine::load_resident_experts() {
     };
     // Dense, scratch, full-context KV, staging and optional VRAM rows already exist.
     sample_vram("before-plan");
-    const uint64_t vram = free > headroom ? free - headroom : 0;
+    uint64_t vram = free > headroom ? free - headroom : 0;
     // Future host read rows are counted now; no 1 GiB file-staging buffers or swap buffers exist in this mode.
     const uint64_t future_rows = opt_.rows_vram ? 0 : (uint64_t) read_rows_ * streams() * n_embd_ * sizeof(float);
-    uint64_t available = 0;
+    const auto ram_budget = [&]() {
+        uint64_t available = 0;
 #ifdef _WIN32
-    MEMORYSTATUSEX status{}; status.dwLength = sizeof status;
-    if (GlobalMemoryStatusEx(&status)) available = status.ullAvailPhys;
+        MEMORYSTATUSEX status{}; status.dwLength = sizeof status;
+        if (GlobalMemoryStatusEx(&status)) available = status.ullAvailPhys;
 #else
-    if (FILE* f = std::fopen("/proc/meminfo", "r")) {
-        char line[128]; unsigned long long kb = 0;
-        while (std::fgets(line, sizeof line, f)) if (std::sscanf(line, "MemAvailable: %llu kB", &kb) == 1) break;
-        std::fclose(f); available = kb << 10;
-    }
+        if (FILE* f = std::fopen("/proc/meminfo", "r")) {
+            char line[128]; unsigned long long kb = 0;
+            while (std::fgets(line, sizeof line, f)) if (std::sscanf(line, "MemAvailable: %llu kB", &kb) == 1) break;
+            std::fclose(f); available = kb << 10;
+        }
 #endif
-    uint64_t ram = available > future_rows ? available - future_rows : 0;
-    if (opt_.ram_limit_mib) {
-        const uint64_t limit = (uint64_t) opt_.ram_limit_mib << 20;
-        const uint64_t held = resident_->bytes() + service_host_bytes_ + future_rows;
-        if (held > limit) throw std::runtime_error("no-disk: host weights and buffers need " +
-            std::to_string(held) + " RAM bytes before experts; --ram-limit-mib provides " + std::to_string(limit));
-        ram = std::min(ram, limit > held ? limit - held : 0);
-    }
+        uint64_t ram = available > future_rows ? available - future_rows : 0;
+        if (opt_.ram_limit_mib) {
+            const uint64_t limit = (uint64_t) opt_.ram_limit_mib << 20;
+            const uint64_t held = resident_->bytes() + service_host_bytes_ + future_rows;
+            if (held > limit) throw std::runtime_error("no-disk: host weights and buffers need " +
+                std::to_string(held) + " RAM bytes before experts; --ram-limit-mib provides " + std::to_string(limit));
+            ram = std::min(ram, limit > held ? limit - held : 0);
+        }
+        return ram;
+    };
     ResidentPlan plan;
-    try { plan = plan_resident(experts, ram, vram); }
-    catch (const std::runtime_error&) { print_memory("placement-refused"); throw; }
-    std::fprintf(stderr, "strata-poly: no-disk plan: %zu experts in RAM (%llu MiB), %zu permanent in VRAM "
+    uint8_t* host = nullptr;
+    bool placement_ready = false;
+    // Preparing locked RAM and DMA can change the device budget. Rebuild a smaller plan from the live
+    // budget instead of passing an obsolete plan to dmalloc(). No expert payload has been read yet.
+    for (int attempt = 1; attempt <= 4; ++attempt) {
+        const uint64_t ram = ram_budget();
+        try { plan = plan_resident(experts, ram, vram); }
+        catch (const std::runtime_error&) { print_memory("placement-refused"); throw; }
+        std::fprintf(stderr, "strata-poly: no-disk plan: attempt=%d, %zu experts in RAM (%llu MiB), %zu permanent in VRAM "
                          "(%llu MiB); available budgets RAM=%llu MiB VRAM=%llu MiB; staging=%zu MiB\n",
-                 experts.size() - plan.card_count, (unsigned long long) (plan.ram >> 20), plan.card_count,
+                 attempt, experts.size() - plan.card_count, (unsigned long long) (plan.ram >> 20), plan.card_count,
                  (unsigned long long) (plan.vram >> 20), (unsigned long long) (ram >> 20),
                  (unsigned long long) (vram >> 20), stage_bytes_ >> 20);
-    auto* host = (uint8_t*) resident_->allocate((size_t) plan.ram, "routed experts");
-    sample_vram("after-ram-arena");
-    if (plan.ram && stage_) {
-        // WDDM refuses registration of the whole 110+ GiB arena. A working window registers original
-        // source pages only, bounded by staging plus page rounding; no second RAM arena is allocated.
-        const uint64_t limit = resident_add(stage_bytes_, uint64_t(2) * n_expert_ * ResidentDma::page_size());
-        if (limit > SIZE_MAX) throw std::runtime_error("no-disk: DMA window size overflow");
-        expert_dma_ = std::make_unique<ResidentDma>(host, (size_t) plan.ram, (size_t) limit);
-        expert_dma_->prepare({{0, std::min((size_t) plan.ram, stage_bytes_)}});
-        std::fprintf(stderr, "strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=%zu MiB, "
+        host = (uint8_t*) resident_->allocate((size_t) plan.ram, "routed experts");
+        sample_vram("after-ram-arena");
+        if (plan.ram && stage_) {
+            // WDDM refuses registration of the whole 110+ GiB arena. A working window registers original
+            // source pages only, bounded by staging plus page rounding; no second RAM arena is allocated.
+            const uint64_t limit = resident_add(stage_bytes_, uint64_t(2) * n_expert_ * ResidentDma::page_size());
+            if (limit > SIZE_MAX) throw std::runtime_error("no-disk: DMA window size overflow");
+            expert_dma_ = std::make_unique<ResidentDma>(host, (size_t) plan.ram, (size_t) limit);
+            expert_dma_->prepare({{0, std::min((size_t) plan.ram, stage_bytes_)}});
+            std::fprintf(stderr, "strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=%zu MiB, "
                              "limit=%zu MiB; original resident RAM, no host staging copy\n",
                      expert_dma_->bytes() >> 20, (size_t) limit >> 20);
+        }
+        sample_vram("after-registration");
+        const uint64_t live_vram = free > headroom ? free - headroom : 0;
+        if (plan.vram <= live_vram) { placement_ready = true; break; }
+        std::fprintf(stderr, "strata-poly: no-disk replan: expert arena=%llu bytes exceeds live budget=%llu bytes "
+                             "after RAM/DMA setup (free=%llu, reserve=%llu, load_margin=%llu); retrying before payload load\n",
+                     (unsigned long long) plan.vram, (unsigned long long) live_vram, (unsigned long long) free,
+                     (unsigned long long) reserve, (unsigned long long) load_margin);
+        // Unregister before releasing its source. Do not hold two model-sized RAM arenas during a retry.
+        expert_dma_.reset();
+        if (host) resident_->release_last(host);
+        host = nullptr;
+        vram = std::min(vram, live_vram);   // never oscillate back to the optimistic pre-setup budget
     }
-    sample_vram("after-registration");
+    if (!placement_ready)
+        throw std::runtime_error("no-disk: VRAM budget did not stabilize after four RAM/DMA placement attempts");
     if (plan.vram) {
         exp_ = (uint8_t*) dmalloc((size_t) plan.vram, "no-disk permanent experts");
     }

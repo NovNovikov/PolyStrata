@@ -15,7 +15,13 @@
 
 namespace strata::poly {
 class ResidentMemory {
-    struct Region { void* p; size_t n; bool owned; };
+    struct Region {
+        void* p; size_t n; bool owned;
+#ifdef _WIN32
+        SIZE_T before_min = 0, before_max = 0;
+        DWORD before_flags = 0;
+#endif
+    };
     std::vector<Region> regions_;
     std::vector<std::pair<void*, uint64_t>> pending_;
     uint64_t bytes_ = 0;
@@ -65,8 +71,33 @@ public:
 #endif
             throw;
         }
+#ifdef _WIN32
+        auto& added = regions_.back();
+        if (!GetProcessWorkingSetSizeEx(GetCurrentProcess(), &added.before_min, &added.before_max,
+                                        &added.before_flags))
+            throw std::runtime_error("no-disk: cannot snapshot working-set limits before locking RAM");
+#endif
         lock({{p, n}}, what);
         return p;
+    }
+    // Only a fresh, last allocation may be released for replanning. Its CUDA registrations must be gone.
+    // Restoring this allocation's Windows limits prevents every retry adding another arena-sized minimum.
+    void release_last(void* p) {
+        if (!p || regions_.empty() || regions_.back().p != p || !regions_.back().owned || !pending_.empty())
+            throw std::logic_error("no-disk: RAM replanning release is not the last owned region");
+        const Region r = regions_.back();
+        platform::unlock_resident(r.p, r.n);
+#ifdef _WIN32
+        if (!VirtualFree(r.p, 0, MEM_RELEASE)) throw std::runtime_error("no-disk: cannot free provisional RAM arena");
+#else
+        if (munmap(r.p, r.n) != 0) throw std::runtime_error("no-disk: cannot free provisional RAM arena");
+#endif
+        regions_.pop_back();
+        bytes_ -= r.n;
+#ifdef _WIN32
+        if (!SetProcessWorkingSetSizeEx(GetCurrentProcess(), r.before_min, r.before_max, r.before_flags))
+            throw std::runtime_error("no-disk: cannot restore working-set limits after RAM replanning");
+#endif
     }
     void add_external(void* p, size_t n) {
         if (!p || !n) return;
