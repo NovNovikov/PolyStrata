@@ -30,6 +30,7 @@ protected:
     void save_layer(int il, int64_t pos, uint8_t* dst) override;
     void alloc_caches() override;
     void assign_scratch() override;
+    bool supports_compact_scratch() const override { return true; }
     int widest() const override;
     int streams() const override;
     void layer_head(Layer& L, int il, int n) override;

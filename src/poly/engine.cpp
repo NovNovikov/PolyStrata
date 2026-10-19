@@ -1306,10 +1306,12 @@ void Engine::dump_buffers(const char* when) const {
         size_t count = 0, bytes = 0, lo = SIZE_MAX, hi = 0;
     };
     std::vector<Group> groups;
+    std::vector<std::pair<size_t, size_t>> spans;
     size_t scratch = 0, dev = 0, host = 0, kv = 0, seq = 0, unnamed = 0, end = 0;
     for (const AllocRec& r : allocs_) {
         if (r.kind == AllocRec::kScratch) {
             scratch += r.bytes;
+            spans.emplace_back(r.off, r.off + r.bytes);
             end = std::max(end, r.off + r.bytes);
             if (!std::strcmp(r.name, "(unnamed fbuf)")) ++unnamed;
             continue;
@@ -1333,6 +1335,12 @@ void Engine::dump_buffers(const char* when) const {
         g.hi = std::max(g.hi, r.bytes);
     }
     std::sort(groups.begin(), groups.end(), [](const Group& a, const Group& b) { return a.bytes > b.bytes; });
+    std::sort(spans.begin(), spans.end());
+    size_t covered = 0, reached = 0;
+    for (const auto& span : spans) {
+        if (span.second > reached) covered += span.second - std::max(reached, span.first);
+        reached = std::max(reached, span.second);
+    }
     const char* kinds[] = {"device", "pinned", "scratch", "sequence", "attention cache"};
     std::fprintf(stderr, "strata-poly: buffers[%s] card=%d: device=%.2f MiB (plain=%.2f, sequence=%.2f, "
                  "attention caches=%.2f), pinned=%.2f MiB, scratch slices=%.2f MiB in %.2f MiB\n",
@@ -1355,8 +1363,12 @@ void Engine::dump_buffers(const char* when) const {
     for (const Seq& q : seqs_) for (const Kv& k : q.kv) kmap += k.mapped;
     std::fprintf(stderr, "strata-poly: buffers[%s] check: scratch slices %.2f of %.2f MiB (%.2f alignment and "
                  "tail), unnamed slices %zu; allocator records device=%.2f, pinned=%.2f MiB; mapped KV (VMM, not "
-                 "in device_sizes_)=%.2f of the %.2f requested; arena mapped=%.2f MiB\n", when, mib(scratch),
-                 mib(end), mib(end - scratch), unnamed, mib(dsz), mib(hsz), mib(kmap), mib(kv), mib(arena_.mapped));
+                 "in device_sizes_)=%.2f of the %.2f requested; arena mapped=%.2f MiB\n", when, mib(covered),
+                 mib(end), mib(end - covered), unnamed, mib(dsz), mib(hsz), mib(kmap), mib(kv), mib(arena_.mapped));
+    if (scratch > covered)
+        std::fprintf(stderr, "strata-poly: buffers[%s] scratch phase reuse=%.3f MiB: logical slices=%.3f, "
+                     "physical coverage=%.3f MiB (overlapping offsets are used in different phases)\n",
+                     when, mib(scratch - covered), mib(scratch), mib(covered));
 }
 
 // Experts go to VRAM by use per byte when there are counts, the profile's and this run's, and otherwise the same
@@ -1933,6 +1945,8 @@ void Engine::follow(int written) {
 
 void Engine::load(const Options& o) {
     opt_ = o;
+    if (opt_.compact_scratch && !supports_compact_scratch())
+        throw std::runtime_error("--compact-scratch currently supports only DeepSeek4");
     // --dump-buffers records from the first allocation, dense weights included.
     dumping_ = opt_.dump_buffers;
     allocs_.clear();
@@ -2170,6 +2184,7 @@ void Engine::shared_scratch() {
     rl_ = fbuf(n * n_expert_, "rl_ (router logits)");
     logits_ = fbuf((size_t) n_vocab_, "logits_");
     if (rows_ >= kStageRows && bf16_max_ > 0) wf_ = fbuf(bf16_max_, "wf_ (BF16 matrix as floats)");
+    moe_scratch_at_ = scratch_at_;
     if (mmq_) {
         const size_t rr = n * n_used_;
         gu_ = fbuf(rr * 2 * n_ff_exp_, "gu_ (expert gate/up rows)");

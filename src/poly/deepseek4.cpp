@@ -1,6 +1,7 @@
 // src/poly/deepseek4.cpp - DeepSeek V4's layers.  The reference for the math is llama.cpp's deepseek4 graph
 // (src/models/deepseek4.cpp) and its compressed caches (src/llama-kv-cache-dsv4.cpp).
 #include "deepseek4.hpp"
+#include "deepseek4_scratch.hpp"
 
 #include "runtime.hpp"
 #include "strata/kernels/native_mmvq.hpp"
@@ -241,6 +242,35 @@ void DeepSeek4::alloc_caches() {
 // Per-token buffers hold rows_ tokens, row after row.
 void DeepSeek4::assign_scratch() {
     const size_t n = (size_t) rows_, heads = n * n_head_ * head_dim_;
+    if (opt_.compact_scratch) {
+        // All these phases run on st_. Batched MoE consumes gu_/hx_/dx_ only AFTER
+        // attention and out_proj finish; the next layer's attention follows moe_sum.
+        // Small-token MoE uses g_/u_/h_/d_ instead, outside this region. This also
+        // works without MMQ: moe_scratch_at_ is then the end of shared scratch.
+        const auto s = deepseek_scratch(moe_scratch_at_, scratch_at_, n, heads, q_rank_, head_dim_,
+                                       n * o_groups_ * o_rank_, n * idx_heads_ * idx_dim_, idx_heads_,
+                                       (size_t) score_rows_ * score_stride_, kHc);
+        const auto use = [&](ScratchSpan p, const char* name) {
+            scratch_at_ = p.at;
+            return fbuf(p.count, name);
+        };
+        q_ = use(s.q, "q_ (queries, then grouped attention)");
+        ob_ = use(s.ob, "ob_ (output lora b; after q_)");
+        att_ = use(s.att, "att_ (attention output; after indexer)");
+        t1_ = use(s.t1, "t1_ (q lora)");
+        qr_ = use(s.qr, "qr_ (q lora normed)");
+        kv_ = use(s.kv, "kv_ (the key/value row)");
+        ckv_ = use(s.ckv, "ckv_ (compressor kv rows)");
+        cscore_ = use(s.cscore, "cscore_ (compressor scores)");
+        iq_ = use(s.iq, "iq_ (indexer queries)");
+        iw_ = use(s.iw, "iw_ (indexer weights)");
+        score_ = use(s.score, "score_ (indexer scores)");
+        oa_ = use(s.oa, "oa_ (output lora a)");
+        mix_ = use(s.mix, "mix_ (hyper-connection mix)");
+        hcw_ = use(s.hcw, "hcw_ (hyper-connection weights)");
+        scratch_at_ = s.end;
+        return;
+    }
     mix_ = fbuf(n * (kHc * (2 + kHc) + 1), "mix_ (hyper-connection mix)");
     hcw_ = fbuf(n * (kHc + kHc * kHc), "hcw_ (hyper-connection weights)");
     t1_ = fbuf(n * q_rank_, "t1_ (q lora)");

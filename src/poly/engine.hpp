@@ -55,6 +55,7 @@ struct Options {
     int64_t ram_limit_mib = 0;   ///< no-disk RAM allocations at most; 0: current available RAM
     bool dump = false;            ///< print a checksum of every stage, for comparing against llama.cpp
     bool dump_buffers = false;    ///< print every VRAM/RAM allocation and scratch slice with its size and call site
+    bool compact_scratch = false; ///< DeepSeek4: share scratch between phases with disjoint lifetimes
     // A prompt batch.  More tokens a call and a larger staging buffer read a prompt faster, and both take VRAM
     // that the expert cache, and so decoding, does without.
     int prompt_batch = 1024;      ///< prompt tokens one eval() takes; the scratch is about 1.4 MiB of VRAM a token
@@ -352,6 +353,7 @@ protected:
     virtual void load_card_rows(const uint8_t* src, int64_t from, int64_t count, int64_t first, int64_t n) = 0;
     /// The scratch of the architecture's own kernels, a fbuf() each.  Called twice: the first time only counts.
     virtual void assign_scratch() = 0;
+    virtual bool supports_compact_scratch() const { return false; }
     /// The widest input lin() gets, beside the model's width and the FFNs'.
     virtual int widest() const = 0;
     /// The copies of a token's embedding a layer's input starts from.
@@ -656,6 +658,7 @@ protected:
     size_t full_bytes_ = 0;
     float* scratch_ = nullptr;
     size_t scratch_at_ = 0;
+    size_t moe_scratch_at_ = 0;   ///< first float of the batched MoE workspace; architectures may reuse it by phase
 
     /// --dump-buffers: one record for every allocation, and for every fbuf() slice of the architecture's scratch.
     /// Names come from the call site; a slice's offset is inside scratch_.  The sums are checked against the

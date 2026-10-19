@@ -133,6 +133,8 @@ if(STRATA_BUILD_CONVERSATION_TESTS)
   add_executable(poly_no_disk_test src/poly/no_disk_test.cpp)
   target_include_directories(poly_no_disk_test PRIVATE include)
   add_test(NAME poly_no_disk_test COMMAND poly_no_disk_test)
+  add_executable(poly_deepseek4_scratch_test src/poly/deepseek4_scratch_test.cpp)
+  add_test(NAME poly_deepseek4_scratch_test COMMAND poly_deepseek4_scratch_test)
   add_executable(poly_resident_probe src/poly/resident_probe.cpp src/platform/memory.cpp)
   target_include_directories(poly_resident_probe PRIVATE include)
   add_executable(poly_guesses_test src/poly/guesses_test.cpp src/spec/draft_policy.cpp)
@@ -2075,6 +2077,15 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
                                            ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target}
                                            ${_strata_poly_driver}
                                            Threads::Threads)
+  # Manual synthetic model test: compare full logits with identical (empty) expert placement.
+  get_target_property(_poly_scratch_sources strata-poly SOURCES)
+  list(REMOVE_ITEM _poly_scratch_sources src/poly/main.cpp)
+  add_executable(poly_scratch_parity_test EXCLUDE_FROM_ALL src/poly/scratch_parity_test.cpp ${_poly_scratch_sources})
+  target_include_directories(poly_scratch_parity_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
+                                                           ${_strata_gpu_include_directories})
+  target_link_libraries(poly_scratch_parity_test PRIVATE strata_poly_mmq strata_kernels strata_spec ggml-cpu ggml-base
+                                                      ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target}
+                                                      ${_strata_poly_driver} Threads::Threads)
   add_executable(poly_resident_dma_probe src/poly/resident_dma_probe.cpp src/platform/memory.cpp)
   target_include_directories(poly_resident_dma_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
                                                            ${_strata_gpu_include_directories})

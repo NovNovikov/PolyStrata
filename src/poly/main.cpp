@@ -1275,6 +1275,7 @@ void usage() {
                  "  --image-pad ID         the token whose runs in --tokens are the pictures' places, a token a row\n"
                  "  --dump-layers          print a checksum of every layer's stages to stderr\n"
                  "  --dump-buffers         print every allocation and scratch slice with its size and call site\n"
+                 "  --compact-scratch      DeepSeek4: reuse attention/MoE scratch between phases (opt-in)\n"
                  "  --top-probs N          with --tokens: print the N most likely ids of every step to stderr\n"
                  "  --follow ID,ID,...     with --tokens: write these tokens in place of the ones picked, for\n"
                  "                         --top-probs of the same answer under other settings\n"
@@ -1387,6 +1388,7 @@ int main(int argc, char** argv) {
         else if (a == "--session-min-free-mib") cache.min_save_free_mib = std::atoll(val());
         else if (a == "--dump-layers") o.dump = true;
         else if (a == "--dump-buffers") o.dump_buffers = true;
+        else if (a == "--compact-scratch") o.compact_scratch = true;
         else if (a == "--images") images = val();
         else if (a == "--image-pad") image_pad = std::atoi(val());
         else if (a == "--top-probs") top_probs = std::atoi(val());
