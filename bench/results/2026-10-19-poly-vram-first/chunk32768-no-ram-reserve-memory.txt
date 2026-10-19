@@ -1,0 +1,17 @@
+strata-poly: no-disk VRAM[before-plan]: free=4020.00 MiB (4215275520 bytes), reserve=512 MiB, load_margin=512 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=18678.61 MiB
+strata-poly: no-disk plan: 10734 experts in RAM (117602 MiB), 274 permanent in VRAM (2990 MiB); available budgets RAM=118572 MiB VRAM=2996 MiB; staging=2848 MiB
+strata-poly: no-disk VRAM[after-ram-arena]: free=3750.38 MiB (3932557312 bytes), reserve=512 MiB, load_margin=512 MiB, used_since_previous=+269.62 MiB, used_since_plan=+269.62 MiB, engine_allocated=18678.61 MiB
+strata-poly: no-disk VRAM[after-registration]: free=3748.32 MiB (3930394624 bytes), reserve=512 MiB, load_margin=512 MiB, used_since_previous=+2.06 MiB, used_since_plan=+271.68 MiB, engine_allocated=18678.61 MiB
+strata-poly: no-disk VRAM[after-expert-allocation]: free=756.32 MiB (793055232 bytes), reserve=512 MiB, load_margin=512 MiB, used_since_previous=+2992.00 MiB, used_since_plan=+3263.68 MiB, engine_allocated=21669.05 MiB
+strata-poly: no-disk VRAM[after-expert-zero]: free=880.91 MiB (923701248 bytes), reserve=512 MiB, load_margin=512 MiB, used_since_previous=-124.59 MiB, used_since_plan=+3139.09 MiB, engine_allocated=21669.05 MiB
+strata-poly: no-disk VRAM[after-expert-copy]: free=869.11 MiB (911331328 bytes), reserve=512 MiB, load_margin=512 MiB, used_since_previous=+11.80 MiB, used_since_plan=+3150.89 MiB, engine_allocated=21669.05 MiB
+strata-poly: no-disk VRAM[after-file-close]: free=869.11 MiB (911331328 bytes), reserve=512 MiB, load_margin=512 MiB, used_since_previous=+0.00 MiB, used_since_plan=+3150.89 MiB, engine_allocated=21669.05 MiB
+strata-poly: no-disk ready: 11008 experts total, 10734 in locked RAM, 274 direct in VRAM; locked=118621 MiB, read=135653146972 bytes, model files closed; VRAM free=869 MiB, host buffers=392 MiB
+strata-poly: memory[load] card=0 context=131072 sequences=1: KV=860.00 MiB VRAM (full-context=860.00 MiB), rows=2048.00 MiB VRAM (chunk=32768, batch=4096), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[load] card=0 VRAM allocations total=21669.05 MiB: dense=7758.37, experts=2990.43, KV=860.00, staging=2848.00, rows=2048.00, other=5164.24; reserve=512 MiB
+strata-poly: memory[load] card=0 RAM weights+buffers total=119013.95 MiB: resident_weights=118621.13, pinned_buffers=392.82 (includes h_res_); CUDA/HIP-registered window=2848.00 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=119428.91 MiB, system RAM free=2713.29 MiB
+strata-poly: memory[load] card=0 whole device used=23694.39 / 24563.50 MiB, free=869.11 MiB (includes CUDA libraries and other processes)
+strata-poly: memory[request] card=0 context=131072 sequences=1: KV=860.00 MiB VRAM (full-context=860.00 MiB), rows=2048.00 MiB VRAM (chunk=32768, batch=4096), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[request] card=0 VRAM allocations total=21669.05 MiB: dense=7758.37, experts=2990.43, KV=860.00, staging=2848.00, rows=2048.00, other=5164.24; reserve=512 MiB
+strata-poly: memory[request] card=0 RAM weights+buffers total=119013.95 MiB: resident_weights=118621.13, pinned_buffers=392.82 (includes h_res_); CUDA/HIP-registered window=2770.12 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=119661.25 MiB, system RAM free=2353.55 MiB
+strata-poly: memory[request] card=0 whole device used=23815.84 / 24563.50 MiB, free=747.66 MiB (includes CUDA libraries and other processes)

@@ -1,0 +1,6 @@
+{
+  "code_commit": "ee3e5135",
+  "sha256": "9a64a038c87ed874dccf4139a9b33c6e5786605d27ef15dc43ec5b1af80b4af6",
+  "fixed_ram_headroom_mib": 0,
+  "temporary_run": "L:\\Temp\\poly-bench-20261019\\run-7-chunk32768-no-ram-reserve"
+}

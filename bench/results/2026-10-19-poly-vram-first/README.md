@@ -131,3 +131,36 @@ For this 10000-token prompt, both 16384 and 32768 would allow a single long read
 without removing another read boundary in this particular test. It could matter on longer prompts. The local
 DeepSeek configuration remains at --read-chunk 32768 as requested; it was not silently reverted after refusal.
 Raw counts: chunk32768-refusal.json and chunk32768-refusal.txt. The process exited; no model was left loaded.
+
+## Read chunk 32768 after removing fixed RAM headroom
+
+Commit ee3e5135 removes the fixed 1 GiB RAM-headroom deduction. Future host read rows, when applicable, and an
+explicit RAM limit are still accounted for. The CUDA binary was rebuilt, explicitly recompiling no_disk.cpp.obj.
+Its SHA256 is 9a64a038c87ed874dccf4139a9b33c6e5786605d27ef15dc43ec5b1af80b4af6.
+
+A new fresh-process run with context 131072, batch 4096, read chunk 32768, staging 2848 MiB, runtime reserve
+512 MiB, loading allowance 512 MiB and 12 threads passed placement, reached READY and completed generation.
+All other benchmark settings were as above; the same 10000 synthetic tokens were used, with zero reuse.
+
+- Load: 191.046 s. Prompt: 19592.1 ms, **510.410 tokens/s**.
+- All eight generated IDs match the earlier runs. The full 32768-token capacity was allocated, but the prompt
+  itself was 10000 tokens, not 32768 or 131072 tokens.
+- Experts: 274 direct in VRAM (2990.43 MiB), 10734 in locked RAM (117602.25 MiB of routed weights).
+- Requested engine VRAM: 21669.05 MiB = dense 7758.37 + experts 2990.43 + KV 860.00 + staging 2848.00 +
+  intermediate rows 2048.00 + other 5164.24 (rounding of components applies).
+- Host weights and pinned buffers: 119013.95 MiB = resident weights 118621.13 + pinned buffers 392.82.
+  h_res_ = 0; the registered window is part of resident weights.
+- At load: device free 869.11 MiB, system RAM free 2713.29 MiB, process RSS 119428.91 MiB.
+- At the request memory report: device free 747.66 MiB, system RAM free 2353.55 MiB, process RSS 119661.25 MiB.
+  Whole-device used was 23815.84 MiB out of 24563.50 MiB. Runtime reserve remained 512 MiB.
+- Model closed after loading. Process reads during the request were exactly 52453 stdin bytes; extra reads 0.
+  Global disk activity is not attributed to this process. Live VRAM resize was refused as expected.
+- The process exited after QUIT; no test engine was left running. Local launcher settings remain context 128k,
+  read chunk 32k, batch 4096, runtime reserve 512 MiB; loading allowance uses the 512 MiB default.
+
+The earlier 16k read-chunk run was 505.755 tokens/s; this single 32k run was about 0.9% faster. This is not evidence
+of a reproducible speed gain: both sizes already fit the same 10000-token prompt in one read, placement and
+available system memory differ, and no repeated statistical comparison was performed.
+
+Raw files: chunk32768-no-ram-reserve-results.json, chunk32768-no-ram-reserve-memory.txt,
+chunk32768-no-ram-reserve-protocol.txt and chunk32768-no-ram-reserve-build.json.
