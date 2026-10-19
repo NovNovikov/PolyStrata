@@ -4,6 +4,7 @@ Run with the server's Python environment. --baseline-exe enables a byte comparis
 between the previous binary and the current default path. --no-disk-runs 2 tests independent resident loads.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -57,6 +58,11 @@ def run(a, label, exe, ids, resident=False):
     print(label, 'loading', flush=True)
     started = time.monotonic()
     transcript = []
+    digest = hashlib.sha256()
+    with exe.open('rb') as binary:
+        for block in iter(lambda: binary.read(1 << 20), b''):
+            digest.update(block)
+    exe_sha256 = digest.hexdigest()
     with (home / 'engine.stderr').open('w', encoding='utf-8') as err:
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err,
                              text=True, bufsize=1, env=env,
@@ -124,13 +130,15 @@ def run(a, label, exe, ids, resident=False):
                 requests.append(dict(generated=len(tokens), prompt_ms=float(done[3]), decode_ms=float(done[4]),
                                      decode_tps=(len(tokens)-1)*1000/float(done[4]) if float(done[4]) else 0,
                                      hits=int(done[9]), lookups=lookups, hit_rate=int(done[9])/lookups if lookups else 0,
-                                     finish=done[5], token_times=[round(t-times[0],6) for t in times]))
-                print(label, f'request {request+1}', json.dumps({k:v for k,v in requests[-1].items() if k!='token_times'}), flush=True)
+                                     finish=done[5], generated_ids=tokens,
+                                     token_times=[round(t-times[0],6) for t in times]))
+                print(label, f'request {request+1}', json.dumps({k:v for k,v in requests[-1].items()
+                                                              if k not in ('token_times', 'generated_ids')}), flush=True)
             io1 = psutil.disk_io_counters()
             process_io1 = engine.io_counters()
             stop.set()
             result = dict(label=label, resident=resident, rows_vram=resident and a.rows_vram,
-                          command=cmd, context=a.context, batch=a.batch, read_chunk=a.read_chunk,
+                          command=cmd, exe_sha256=exe_sha256, context=a.context, batch=a.batch, read_chunk=a.read_chunk,
                           reserve_mib=a.reserve_mib, load_margin_mib=a.load_margin_mib if resident else None,
                           adaptive_experts=a.adaptive_experts, teacher_forced=a.teacher_forced, requests=requests,
                           prompt_tokens=len(ids), generated_ids=tokens, load_s=round(load_s, 3),
@@ -151,7 +159,7 @@ def run(a, label, exe, ids, resident=False):
                 refusal = line()
                 assert refusal.startswith('ERR ') and 'no-disk' in refusal, refusal
                 result['resize_refused'] = True
-            print(json.dumps(result), flush=True)
+            print(json.dumps({k: v for k, v in result.items() if k not in ('requests', 'generated_ids')}), flush=True)
             return result
         finally:
             try:
