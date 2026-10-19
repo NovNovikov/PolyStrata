@@ -278,8 +278,11 @@ depends on the context and the chunk, and they do **not** measure the batch. Rea
 batch is in these sizes too:
 
 - the arena is sized by `rows_ = min(prompt_batch, max_context)` (`engine.cpp:2187`), and its
-  per-token slices are linear in the batch; but not every slice is: `d_`, `logits_`, `wf_` and the
-  tables are constants;
+  per-token slices are linear in the batch; the constants among them are only `d_`, `logits_` and
+  `wf_`. The tile tables and the row-index buffers are **not** constant: `tab_` is
+  `(3 * rr + 3 * n_expert_ + 3 + kClasses * (n_expert_ + 1)) * 4` bytes with `rr = rows_ * n_used_`,
+  and `d_ids_`, `d_wts_`, `iota_` are `rr * 4` bytes each (`engine.cpp:2264-2276`), so they follow the
+  rows and the experts per row;
 - the compressor rows are `B.ring = rows_ + (ratio == 4 ? 2 : 1) * ratio` rows per block
   (`deepseek4.cpp:227`), so they do grow with the batch;
 - the raw attention rings are `min(max_context, window_ + rows_)` rows per layer
@@ -339,11 +342,33 @@ permutation reworked (or the attention output written straight into the grouped 
 `permute_groups` produces), not just two pointers merged. The saving it would give - 128 KiB per
 prompt-batch token, 512.00 MiB at batch 4096 - is a candidate, not a measured result.
 
-A second, safer path for the same 512 MiB: overlap `att_` with a slice that is dead while the
-attention runs and is used later in the same layer step - the expert scratch `gu_` (96 KiB/token),
-`dx_` (96) and `hx_` (48) belong to the MoE phase, which comes after the attention. That does not
-touch the permutation at all, and it is the variant to test first. Neither path has been implemented
-or measured; both need a canary run and the eight reference ids.
+A second path, which does not touch the permutation: overlap `att_` with space that is dead while the
+attention runs and used later in the same layer step. The MoE scratch belongs to the phase after the
+attention, but no single one of its buffers reaches the 128 KiB per token that `att_` needs
+(`gu_` 96 KiB/token, `dx_` 96, `hx_` 48), so it would have to be one contiguous region - `gu_ + hx_`
+is 144 KiB/token at batch 4096 - and, worse, these buffers are only allocated when MMQ is on
+(`engine.cpp:2264` `if (mmq_)`), so the other modes need another placement for the same idea. Before
+anything is built: the last read of each of them in the layer step, the execution order (before or
+after the attention, prefill against decode) and the CUDA graph path all have to be settled - the
+engine records a graph per layer by default (`graphs = true`, `--no-graphs`), so a placement that is
+safe one launch at a time is not automatically safe inside a capture. Neither path has been
+implemented or measured; the 512.00 MiB stays potential.
+
+### What a change like this needs before it counts as proven
+
+A canary read plus the eight reference ids are not enough for a placement change. Such a test has to
+cover: a partial last batch (a prompt whose length is not a multiple of the chunk), the 31/32/33 batch
+boundary, a prefill *after* a generation (the sequence state differs between the two), and the CUDA
+graph path as well as `--no-graphs` (the default records a graph per layer). A short test can miss the
+branch that breaks exactly there. None of this exists yet.
+
+## Order of work from here
+
+1. the same measurements with the adaptive cache working (`--adaptive-experts`), warmup and >= 512
+   generated tokens - the frozen-cache runs above are not a statement about the shipped decode path;
+2. the batch comparison (1024 against 4096 at one chunk, `other` sliced by the dump);
+3. only then memory work, one buffer at a time, `att_` first (the overlap variant), with the checks
+   listed above.
 
 ## Caveat on the test harness: the adaptive expert cache was frozen
 
