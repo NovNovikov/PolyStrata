@@ -36,11 +36,10 @@ inline ResidentPlan plan_resident(const std::vector<ResidentExpert>& experts, ui
         const double xv = x.use / (double) x.vram, yv = y.use / (double) y.vram;
         return xv != yv ? xv > yv : x.expert < y.expert;
     });
-    // Only the prefix needed to fit RAM becomes permanent VRAM; do not fill the rest of the card.
+    // The card fills first, with the experts used most per byte of VRAM; RAM holds whatever is left.
     for (const size_t i : order) {
-        if (p.ram <= ram) break;
         const auto& e = experts[i];
-        if (e.vram > vram - p.vram) continue;
+        if (e.vram > vram - p.vram) continue;      // one that does not fit is left in RAM, not a reason to stop
         p.on_card[i] = true;
         p.ram -= e.ram;
         p.vram += e.vram;

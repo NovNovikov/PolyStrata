@@ -30,12 +30,16 @@ int main() {
         check(ranges.size() == 1 && ranges[0].first == offset / 4096 * 4096 && ranges[0].second == 4096);
     }
     std::vector<ResidentExpert> e{{0,0,10,12,1}, {0,1,10,12,30}, {1,0,10,12,10}};
+    // The card fills first: with room for all three, nothing stays in RAM even though RAM would hold them.
     auto p = plan_resident(e, 30, 1000);
-    check(p.card_count == 0 && p.ram == 30 && p.vram == 0);
-    p = plan_resident(e, 20, 1000);
-    check(p.card_count == 1 && p.on_card[1] && p.ram == 20 && p.vram == 12);
+    check(p.card_count == 3 && p.ram == 0 && p.vram == 36);
+    p = plan_resident(e, 0, 1000);
+    check(p.card_count == 3 && p.ram == 0);
     p = plan_resident(e, 10, 24);
-    check(p.card_count == 2 && p.on_card[1] && p.on_card[2]);
+    check(p.card_count == 2 && p.on_card[1] && p.on_card[2] && p.ram == 10 && p.vram == 24);
+    // Room for one slot goes to the expert used most per byte (index 1), whatever the order of the vector.
+    p = plan_resident(e, 20, 12);
+    check(p.card_count == 1 && p.on_card[1] && p.ram == 20 && p.vram == 12);
     check(fails([&] { plan_resident(e, 9, 24); }));
     check(fails([&] { plan_resident(e, 20, 11); }));
     check(fails([&] { plan_resident({{0,0,0,1,0}}, 0, 0); }));
@@ -46,9 +50,10 @@ int main() {
     check(!p.on_card[0] && p.on_card[1]);
     check(fails([&] { plan_resident({{0,0,10,0,100}}, 9, 100); }));
     for (uint64_t r = 0; r <= 30; ++r) for (uint64_t v = 0; v <= 40; ++v) {
-        const uint64_t need = (30 - r + 9) / 10;
-        if (v < need * 12) check(fails([&] { plan_resident(e, r, v); }));
-        else { const auto q = plan_resident(e, r, v); check(q.card_count == need && q.ram <= r && q.vram <= v); }
+        const uint64_t on_card = std::min<uint64_t>(3, v / 12), need = (3 - on_card) * 10;
+        if (need > r) check(fails([&] { plan_resident(e, r, v); }));
+        else { const auto q = plan_resident(e, r, v); check(q.card_count == on_card && q.ram == need &&
+                                                             q.vram == on_card * 12 && q.ram <= r && q.vram <= v); }
     }
     // A real tiny GGUF: the new reader and the unchanged mapping see the same metadata and payload.
     const auto file = std::filesystem::temp_directory_path() /
