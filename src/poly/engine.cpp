@@ -390,6 +390,7 @@ Engine::~Engine() {
     for (Seq& q : seqs_)
         for (Kv& k : q.kv) vmm_free(k);
     vmm_free(arena_);
+    vmm_free(stage_map_);
     for (void* p : host_allocs_) cudaFreeHost(p);
     for (void* e : {ev_stage_[0], ev_stage_[1], ev_ahead_, ev_free_, ev_in_[0], ev_in_[1], ev_out_[0], ev_out_[1], ev_hr_})
         if (e) cudaEventDestroy((cudaEvent_t) e);
@@ -1599,6 +1600,51 @@ bool Engine::mind_card_vram() {
     return free >= keep + (int64_t) (kArenaPiece >> 20) && grow_cache(size_t(free - keep) << 20) > 0;
 }
 
+// A read of several calls copies each layer's experts that are not cached through the staging buffer, a round
+// at a time, and again for each call: at 1 GiB, a layer of GLM 5.3 Flash Q2_K (about 2.4 GiB) went through in
+// three rounds a call.  For the read the buffer grows to stage_wide_, which holds the layer, with VRAM the
+// expert cache gives up (its least used experts) when the card has not that much free; narrow_stage() gives it
+// back.  VRAM the card does not give leaves the buffer as it was.
+void Engine::widen_stage() {
+    if (stage_lent_ || stage_wide_ <= stage_narrow_) return;
+    if (up_) ck(cudaStreamSynchronize(cs(up_)), "the expert staging buffer");
+    ck(cudaStreamSynchronize(cs(st_)), "the expert staging buffer");
+    const size_t want = up_to(stage_wide_ + 256 + kTail, grain_) - stage_map_.mapped;
+    size_t free_b = 0, total_b = 0;
+    ck(cudaMemGetInfo(&free_b, &total_b), "cudaMemGetInfo");
+    const size_t quarter = (size_t(std::max(reserve_mib_, 0)) << 20) / 4;
+    stage_cut_ = 0;
+    if (exp_ && free_b < want + quarter) {
+        const size_t had = arena_.mapped;
+        shrink_cache(want + quarter - free_b);
+        held_is_budget();
+        stage_cut_ = had - arena_.mapped;
+    }
+    stage_lent_ = true;   // narrow_stage() gives back what was cut even if the map below fails
+    try {
+        vmm_map(stage_map_, stage_wide_ + 256 + kTail, SIZE_MAX, "the expert staging buffer");
+    } catch (const std::runtime_error&) {
+        narrow_stage();
+        return;
+    }
+    stage_bytes_ = stage_wide_;
+    staged_il_ = -1;
+}
+
+// The read is done: the staging buffer goes back to stage_narrow_, and the expert cache takes back what it gave
+// up for it, the most used experts it lacks.
+void Engine::narrow_stage() {
+    if (!stage_lent_) return;
+    if (up_) ck(cudaStreamSynchronize(cs(up_)), "the expert staging buffer");
+    ck(cudaStreamSynchronize(cs(st_)), "the expert staging buffer");
+    vmm_unmap(stage_map_, stage_narrow_ + 256 + kTail);
+    stage_bytes_ = stage_narrow_;
+    staged_il_ = -1;
+    stage_lent_ = false;
+    if (exp_ && stage_cut_ > 0) grow_cache(stage_cut_);
+    stage_cut_ = 0;
+}
+
 // The cache's VRAM and the attention caches' as they are now become the budget cover() keeps them to.
 void Engine::held_is_budget() {
     budget_ = arena_.mapped + other_rows();
@@ -1993,6 +2039,8 @@ void Engine::load(const Options& o) {
     if (opt_.window < 0 || opt_.window > 8)
         throw std::runtime_error("a window is 1 to 8 tokens, or 0 for the model's own");
     if (opt_.tail_skip < 0) throw std::runtime_error("--tail-skip (STRATA_ROUTE_TAIL_SKIP) cannot be negative");
+    if (!(opt_.skip_weight >= 0.f && opt_.skip_weight < 1.f))
+        throw std::runtime_error("--skip-weight is a share of a token's experts' weight: 0 (off) up to below 1");
     if (opt_.dump || std::min(opt_.prompt_batch, opt_.max_context) == 1) opt_.window = 1;
     gg_ = std::make_unique<Shards>(opt_.model, !opt_.no_disk);
     if (!opt_.draft_model.empty() && opt_.draft && opt_.window != 1)
@@ -2320,7 +2368,20 @@ void Engine::alloc() {
         // expert cache of a small card does without.
         stage_bytes_ = std::max(std::min((size_t) opt_.stage_mib << 20, (size_t) n_expert_ * one_expert), one_expert);
         chunk_bytes_ = std::max(kChunkBytes, one_expert);
-        stage_ = (uint8_t*) dmalloc(stage_bytes_ + 256 + kTail, "the expert staging buffer");
+        // With stage_read_mib the buffer's addresses are reserved for the larger size, and a read maps the rest.
+        // --no-disk keeps the plain buffer: there stage_ is itself the resident decode expert cache (one slot per
+        // expert), so growing it for a read would displace the cache rather than borrow a bounce buffer.
+        stage_narrow_ = stage_wide_ = stage_bytes_;
+        if (vmm_ && !split_ && !opt_.no_disk && opt_.stage_read_mib > 0)
+            stage_wide_ = std::max(stage_bytes_, std::min((size_t) opt_.stage_read_mib << 20,
+                                                          (size_t) n_expert_ * one_expert));
+        if (stage_wide_ > stage_narrow_) {
+            vmm_reserve(stage_map_, stage_wide_ + 256 + kTail);
+            vmm_map(stage_map_, stage_narrow_ + 256 + kTail, SIZE_MAX, "the expert staging buffer");
+            stage_ = (uint8_t*) stage_map_.base;
+        } else {
+            stage_ = (uint8_t*) dmalloc(stage_bytes_ + 256 + kTail, "the expert staging buffer");
+        }
         if (!opt_.no_disk)
             for (int b = 0; b < 2; ++b) h_stage_[b] = (uint8_t*) hmalloc(chunk_bytes_, "pinned memory");
         for (void** e : {&ev_stage_[0], &ev_stage_[1], &ev_ahead_, &ev_free_}) {
@@ -2574,12 +2635,16 @@ bool Engine::moe(Layer& L, int il, int n, const std::function<void()>* first) {
         CpuExpert host[kCpuRows * kMaxUsed];
         Cached cached[kCpuRows * kMaxUsed];
         int32_t host_e[kCpuRows * kMaxUsed], host_k[kCpuRows * kMaxUsed];   // a host entry's expert and its place
+        float host_rel[kCpuRows * kMaxUsed];   // and its weight's share of its token's experts' weight
         int n_host = 0, n_cached = 0;
         for (int t = 0; t < m; ++t) {
             int ids[kMaxUsed];
             float w[kMaxUsed];
             route(il, h_rl_ + (size_t) (at + t) * n_expert_, tok_ ? tok_[at + t] : -1, ids, w, route_tmp_.data());
+            float w_all = 0.f;
+            for (int k = 0; k < n_used_; ++k) w_all += w[k];
             for (int k = 0; k < n_used_; ++k) {
+                host_rel[n_host] = w_all > 0.f ? w[k] / w_all : 1.f;
                 const size_t e = (size_t) ids[k];
                 ++use_[(size_t) il * n_expert_ + e];
                 if (n_swap_ > 0) recent_[(size_t) il * n_expert_ + e] += 1.f;
@@ -2595,7 +2660,19 @@ bool Engine::moe(Layer& L, int il, int n, const std::function<void()>* first) {
         }
         // Strata's STRATA_ROUTE_TAIL_SKIP: an expert outside VRAM that every token here ranks at tail_skip or later
         // adds little to any of them, so it is not computed.  The others keep the weights the router gave them.
-        if (opt_.tail_skip > 0) {
+        // Options::skip_weight in place of the places: one whose weight is under that share of its token's experts'
+        // weight, for every token here.  It keeps an expert the router weighs high at any place, and leaves out one it
+        // weighs low at any place, so for the same change of the answers it leaves out more (docs/BACKENDS.md).
+        if (opt_.skip_weight > 0.f) {
+            int kept = 0;
+            for (int i = 0; i < n_host; ++i) {
+                bool low = true;
+                for (int j = 0; j < n_host && low; ++j) low = host_e[j] != host_e[i] || host_rel[j] < opt_.skip_weight;
+                if (low) ++stats_.tail_experts;
+                else host[kept++] = host[i];
+            }
+            n_host = kept;
+        } else if (opt_.tail_skip > 0) {
             int kept = 0;
             for (int i = 0; i < n_host; ++i) {
                 bool low = true;
@@ -3321,6 +3398,7 @@ void Engine::run(const int32_t* tokens, int n) {
 void Engine::step(const int* seqs, const int32_t* tokens, int n) {
     if (n < 1 || n > std::min(rows_, sequences())) throw std::logic_error("step takes 1 to sequences() tokens");
     OnCard here(device_, split_);
+    end_read();
     const int home = bound_;
     const auto use = [&](int s) { hold(s); };
     std::vector<int64_t> at((size_t) n);
@@ -3619,6 +3697,7 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
         behind.wait();
         return true;
     }
+    widen_stage();
     turn = share_to(hi_);
     if (pos_ + n > opt_.max_context)
         throw std::runtime_error("the context is full (" + std::to_string(opt_.max_context) + " tokens)");
@@ -3776,6 +3855,7 @@ unsigned Engine::snap_tokens(int t) const {
 void Engine::window(const int32_t* tokens, int t) {
     if (t < 1 || t > opt_.window) throw std::logic_error("a window takes 1 to max_window() tokens");
     OnCard here(device_, split_);
+    end_read();
     // the two ways are a choice only with experts on the CPU; a call that records launches says nothing of them
     const bool timed = t > 1 && !all_cached();
     const bool recorded = std::exchange(recorded_, false);

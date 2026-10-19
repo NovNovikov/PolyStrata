@@ -964,6 +964,11 @@ def main(argv=None) -> int:
                 cfg_path = found[0]
                 if len(found) > 1:
                     say(f"Several models are installed; using {cfg_path.name} (the one used last). Pick another with --config FILE.")
+        if a.config and not cfg_path.is_file():          # a start script's name, or a typo
+            names = ", ".join(p.name for p in find_configs()) or "none"
+            print(f"{a.config}: no such run config. --config takes a model's strata-<model>.json; the ones here: "
+                  f"{names}", file=sys.stderr)
+            return 2
         if cfg_path is None or not cfg_path.is_file():
             print("No PolyStrata model is set up in this folder: run START-HERE.bat (Windows) or ./setup.sh (Linux) first, "
                   "or give --url of a running server.", file=sys.stderr)

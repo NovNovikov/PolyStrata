@@ -339,6 +339,12 @@ class ReportTests(unittest.TestCase):
     def test_no_server_is_an_error_not_a_crash(self):
         self.assertEqual(B.main(["--url", "http://127.0.0.1:9", "--quiet"]), 2)
 
+    def test_a_config_that_is_not_there_is_named(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(B.main(["--config", "run-qwen36-ud-q3_k_m.json", "--quiet"]), 2)
+        self.assertIn("run-qwen36-ud-q3_k_m.json: no such run config", err.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

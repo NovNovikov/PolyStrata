@@ -441,6 +441,7 @@ struct Session {
                     break;
                 }
             } else {
+                if (last) engine.end_read();   // the last token, as the answer's, with the whole expert cache
                 engine.eval(ids.data() + i, (int) m, last);
             }
             kept.read(ids.data() + i, m);
@@ -456,6 +457,7 @@ struct Session {
                 break;
             }
         }
+        engine.end_read();
         kept.prompt_was(n);
         r.prompt_ms = ms_since(t0);
         if (std::strcmp(r.finish, "cancel") == 0) return r;
@@ -1250,6 +1252,9 @@ void usage() {
                  "                         of them are copied after the layer has routed\n"
                  "  --stage-ahead N        from N tokens, a batch copies those experts before it routes (default 1024,\n"
                  "                         0 = never)\n"
+                 "  --stage-read-mib N     a prompt read of several batches grows the staging buffer to N MiB (at\n"
+                 "                         most a layer's experts) with VRAM the expert cache lends it until the\n"
+                 "                         answer starts (default 0 = never)\n"
                  "  --cpu-share F          under that, the share of those experts the CPU computes meanwhile, the\n"
                  "                         ones the fewest tokens chose (default: as the times say; 0 = none)\n"
                  "  --prompt-cache N       checkpoints kept of a conversation, about 150 MB of RAM each (default 6;\n"
@@ -1282,6 +1287,8 @@ void usage() {
                  "  --tail-skip N          an expert outside VRAM that every token of a window ranks at place N+1\n"
                  "                         or later among its experts is left out: faster, and the answers move a\n"
                  "                         little (default 0 = none is; setup gives Qwen3.6 6)\n"
+                 "  --skip-weight F        in place of --tail-skip: an expert outside VRAM that every token of a\n"
+                 "                         window weighs under F of its experts' weight is left out (default 0 = off)\n"
                  "environment: STRATA_ROUTE_TAIL_SKIP=N  in place of --tail-skip (0 turns it off)\n"
                  "environment: STRATA_FREEZE_EXPERTS=1  hold the split of the routed experts between the card\n"
                  "                         and the CPU still, so the same request gives the same greedy answer\n"
@@ -1359,6 +1366,7 @@ int main(int argc, char** argv) {
         else if (a == "--draft-model") o.draft_model = val();
         else if (a == "--expert-swaps") o.expert_swaps = std::atoi(val());
         else if (a == "--tail-skip") o.tail_skip = std::atoi(val());
+        else if (a == "--skip-weight") o.skip_weight = (float) std::atof(val());
         else if (a == "--layer-split") o.layer_split = val();
         else if (a == "--batch" || a == "--slots") o.batch = std::atoi(val());
         else if (a == "--check-batch") check = std::atoi(val());
@@ -1376,6 +1384,7 @@ int main(int argc, char** argv) {
         }
         else if (a == "--stage-mib") o.stage_mib = std::atoi(val());
         else if (a == "--stage-ahead") o.stage_ahead = std::atoi(val());
+        else if (a == "--stage-read-mib") o.stage_read_mib = std::atoi(val());
         else if (a == "--cpu-share") o.cpu_share = (float) std::atof(val());
         else if (a == "--prompt-cache") cache.o.checkpoints = std::atoi(val());
         else if (a == "--prompt-cache-every") cache.o.every = std::atoll(val());
@@ -1436,7 +1445,11 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "strata-poly: loaded in %.1f s; %d of %d routed experts in VRAM (%.1f GiB), %d CPU threads\n",
                      ms_since(t0) / 1000.0, engine.cached_experts(), engine.total_experts(), engine.cached_gib(),
                      engine.threads());
-        if (o.tail_skip > 0)
+        if (o.skip_weight > 0)
+            std::fprintf(stderr, "strata-poly: skip weight %.3f: an expert outside VRAM that every token of a window "
+                                 "weighs under %.1f%% of its experts' weight is left out (in place of --tail-skip)\n",
+                         o.skip_weight, 100.0 * o.skip_weight);
+        else if (o.tail_skip > 0)
             std::fprintf(stderr, "strata-poly: tail skip %d: an expert outside VRAM that every token of a window ranks "
                                  "at place %d or later among its experts is left out; STRATA_ROUTE_TAIL_SKIP=0 turns "
                                  "it off\n",
