@@ -1,0 +1,17 @@
+INFO context=32768 expert_slots=566 expert_cache_mib=6191 pool_workers=12 conversation_cache_mib=0 conversation_cache_slots=4 conversation_cache_min_free_mib=2560 vram_free_mib=437 vram_elastic=0 batch_slots=0 engine=0.1.45
+READY 32768 stop
+RESUME 0
+PP 4096 10000 14768 277.4
+PP 8192 10000 29852 274.4
+PP 9999 10000 43469 230.0
+PP 10000 10000 43802 228.3
+T 126889
+T 77070
+T 32901
+T 1229
+T 79
+T 38571
+T 603
+T 19093
+DONE 8 10000 43801.7 381.8 length 5 5 0 584 1806 0 0 0.0 10000 0
+ERR VRAM: no-disk permanent expert placement cannot be resized
