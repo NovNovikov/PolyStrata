@@ -278,7 +278,10 @@ public:
     const Stats& stats() const;
     int cached_experts() const { return cached_ + (next_ ? next_->cached_experts() : 0); }
     int total_experts() const { return n_moe_ * n_expert_ + (next_ ? next_->total_experts() : 0); }
-    double cached_gib() const { return double(exp_at_) / double(1ull << 30) + (next_ ? next_->cached_gib() : 0); }
+    double cached_gib() const {
+        return double(exp_at_ + resident_stage_used_ * slot_max_) / double(1ull << 30) +
+               (next_ ? next_->cached_gib() : 0);
+    }
     /// The cache as load() filled it, which is as large as resize_cache() makes it again.
     int full_experts() const { return full_cached_ + (next_ ? next_->full_experts() : 0); }
     double full_gib() const { return double(full_bytes_) / double(1ull << 30) + (next_ ? next_->full_gib() : 0); }
@@ -457,6 +460,8 @@ protected:
     Layer::Host host_expert(const Layer& l, size_t e) const;
     void pin_host_weights(void* p, size_t bytes);
     void start_swaps();
+    void follow_resident(int available);
+    void drop_resident_stage_cache();
     void plan_ahead(Layer& L, int il);
     void run(const int32_t* tokens, int n);
     bool pick_way(int t);
@@ -749,6 +754,11 @@ protected:
     std::vector<uint8_t> coming_;    ///< per (layer, expert): on its way into the cache
     std::vector<Pick> in_, out_;     ///< per trade number: the experts to bring in, and the ones to give up
     std::vector<size_t> trade_at_;   ///< per trade number: how many of its pairs follow() has taken
+    // no-disk: borrowed staging slots hold disposable copies of RAM experts during decode. Permanent
+    // exp_ slots never enter this pool. -1 is empty, -2 uploading; otherwise a flattened (layer, expert).
+    std::vector<int> resident_stage_owners_;
+    size_t resident_stage_used_ = 0;
+    bool resident_stage_active_ = false;
 
     int64_t pos_ = 0;
     const int32_t* tok_ = nullptr;       ///< the tokens of the call under way, a row each as h_rl_ has them (route())

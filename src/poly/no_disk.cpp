@@ -69,6 +69,7 @@ void Engine::load_resident_experts() {
             const size_t unit = std::lcm(std::lcm(ggml_type_size((ggml_type) l.gu_type),
                                                   ggml_type_size((ggml_type) l.d_type)), size_t(8));
             l.slot_bytes = (raw + kTail + unit - 1) / unit * unit;
+            slot_max_ = std::max(slot_max_, l.slot_bytes);
         }
         l.resident_host.resize((size_t) n_expert_);
         for (int e = 0; e < n_expert_; ++e) {

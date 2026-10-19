@@ -359,6 +359,7 @@ struct Engine::Swap {
     uint8_t* slot = nullptr;       // where it goes in VRAM: the slot of the expert it replaces
     uint8_t* pinned = nullptr;
     cudaEvent_t done = nullptr;    // marks its upload
+    size_t stage_slot = 0;         // no-disk: borrowed staging slot, never a permanent expert's slot
 };
 
 Engine::Engine() = default;
@@ -1180,6 +1181,36 @@ int64_t Engine::vram_free_mib() const {
 
 void Engine::print_memory(const char* when) const {
     OnCard here(device_, split_);
+    // Opt-in integration check, outside timed generation: compare every published staging copy and its
+    // zero tail with the immutable resident RAM source. No model-file reads and no extra device allocation.
+    if (opt_.no_disk && resident_stage_active_ && std::getenv("STRATA_VERIFY_STAGE_CACHE")) {
+        ck(cudaStreamSynchronize(cs(st_)), "checking staging cache readers");
+        ck(cudaStreamSynchronize(cs(swap_st_)), "checking staging cache uploads");
+        std::vector<uint8_t> check(64u << 10);
+        size_t checked = 0;
+        for (size_t j = 0; j < resident_stage_owners_.size(); ++j) {
+            const int owner = resident_stage_owners_[j];
+            if (owner < 0) continue;
+            const Layer& L = layers_[(size_t) owner / n_expert_];
+            const size_t e = (size_t) owner % n_expert_;
+            const auto h = host_expert(L, e);
+            const size_t raw = 2 * L.gu_bytes + L.d_bytes;
+            if (L.slot[e] != stage_ + j * slot_max_) throw std::logic_error("staging cache owner mismatch");
+            for (size_t at = 0; at < slot_max_;) {
+                const size_t n = std::min(check.size(), (at < raw ? raw : slot_max_) - at);
+                ck(cudaMemcpy(check.data(), L.slot[e] + at, n, cudaMemcpyDeviceToHost), "checking cache bytes");
+                if (at < raw) {
+                    if (std::memcmp(check.data(), h.gate + at, n)) throw std::runtime_error("staging cache payload mismatch");
+                } else if (std::any_of(check.begin(), check.begin() + n, [](uint8_t b) { return b != 0; })) {
+                    throw std::runtime_error("staging cache kernel tail is not zero");
+                }
+                at += n;
+            }
+            ++checked;
+        }
+        if (checked != resident_stage_used_) throw std::logic_error("staging cache count mismatch");
+        std::fprintf(stderr, "strata-poly: staging cache verified: %zu GPU payloads match original RAM; zero tails OK\n", checked);
+    }
     const auto size_of = [](const auto& sizes, const void* p) -> uint64_t {
         const auto it = sizes.find(const_cast<void*>(p));
         return it == sizes.end() ? 0 : it->second;
@@ -1225,6 +1256,11 @@ void Engine::print_memory(const char* when) const {
                          "experts=%.2f, KV=%.2f, staging=%.2f, rows=%.2f, other=%.2f; reserve=%d MiB\n",
                  when, device_, mib(device), mib(dense), mib(experts), mib(kv), mib(staging), mib(rows), mib(other),
                  opt_.vram_reserve_mib >= 0 ? std::max(opt_.vram_reserve_mib, 256) : reserve_mib_);
+    if (opt_.no_disk)
+        std::fprintf(stderr, "strata-poly: memory[%s] expert placement: permanent=%d, staging_cache=%zu/%zu "
+                             "slots (%.2f MiB used inside existing staging); uploads=%lld\n", when, full_cached_,
+                     resident_stage_used_, resident_stage_owners_.size(), mib(resident_stage_used_ * slot_max_),
+                     (long long) stats_.swapped_experts);
     std::fprintf(stderr, "strata-poly: memory[%s] card=%d RAM weights+buffers total=%.2f MiB: "
                          "resident_weights=%.2f, pinned_buffers=%.2f (includes h_res_); "
                          "CUDA/HIP-registered window=%.2f MiB (part of resident_weights, peak=%.2f MiB); "
@@ -1346,20 +1382,27 @@ void Engine::fill_expert_cache() {
 
 // The thread and the stream that bring experts into the cache while an answer is written (follow()).
 void Engine::start_swaps() {
-    if (opt_.no_disk) return;
-    if (swap_ || cached_ == 0 || opt_.expert_swaps == 0) return;
+    if (swap_ || (!opt_.no_disk && cached_ == 0) || opt_.expert_swaps == 0) return;
+    if (opt_.no_disk) {
+        if (!expert_dma_ || !stage_ || !slot_max_ || stage_bytes_ < slot_max_) return;
+        resident_stage_owners_.assign(stage_bytes_ / slot_max_, -1);
+    }
     swap_ = std::make_unique<Swap[]>((size_t) opt_.expert_swaps);
     cudaStream_t up = nullptr;
     ck(cudaStreamCreateWithFlags(&up, cudaStreamNonBlocking), "cudaStreamCreate");
     swap_st_ = up;
-    for (; n_swap_ < opt_.expert_swaps; ++n_swap_) {
+    const int count = opt_.no_disk ? std::min(opt_.expert_swaps, (int) resident_stage_owners_.size()) : opt_.expert_swaps;
+    for (; n_swap_ < count; ++n_swap_) {
         Swap& s = swap_[(size_t) n_swap_];
-        s.pinned = (uint8_t*) hmalloc(slot_max_, "pinned memory");
+        if (!opt_.no_disk) s.pinned = (uint8_t*) hmalloc(slot_max_, "pinned memory");
         ck(cudaEventCreateWithFlags(&s.done, cudaEventDisableTiming), "cudaEventCreate");
     }
     recent_.assign(use_.size(), 0.f);
     coming_.assign(use_.size(), 0);
-    follower_ = std::thread([this] { follow_loop(); });
+    if (!opt_.no_disk) follower_ = std::thread([this] { follow_loop(); });
+    else std::fprintf(stderr, "strata-poly: no-disk decode cache borrows staging: %zu slots of %zu bytes, "
+                              "%d uploads in flight; no additional weight allocation; permanent slots protected\n",
+                      resident_stage_owners_.size(), slot_max_, n_swap_);
 }
 
 // The cache gives up what it has and is filled again for another reserve.  The experts on their way into it
@@ -1578,6 +1621,111 @@ void Engine::follow_loop() {
     }
 }
 
+// no-disk has immutable RAM sources and a separate permanent GPU arena. Only disposable RAM copies in
+// staging compete here. The ranking and replacement threshold are the regular cache's recent/prior policy.
+void Engine::follow_resident(int available) {
+    std::vector<Pick> incoming;
+    for (int il = 0; il < (int) layers_.size(); ++il) {
+        const Layer& L = layers_[(size_t) il];
+        if (!L.moe || !L.slot_bytes) continue;
+        for (int e = 0; e < n_expert_; ++e) {
+            const size_t i = (size_t) il * n_expert_ + e;
+            if (L.slot[(size_t) e] || coming_[i] || !L.resident_host[(size_t) e].gate || recent_[i] < kSwapMin) continue;
+            incoming.push_back({il, e, recent_[i], prior_.empty() ? 0 : prior_[i]});
+        }
+    }
+    const auto more = [](const Pick& a, const Pick& b) {
+        return a.recent != b.recent ? a.recent > b.recent : a.prior > b.prior;
+    };
+    std::stable_sort(incoming.begin(), incoming.end(), more);
+    std::vector<size_t> slots;
+    for (size_t j = 0; j < resident_stage_owners_.size(); ++j)
+        if (resident_stage_owners_[j] != -2) slots.push_back(j); // an upload owns its destination until arrival
+    std::stable_sort(slots.begin(), slots.end(), [&](size_t a, size_t b) {
+        const int x = resident_stage_owners_[a], y = resident_stage_owners_[b];
+        if (x < 0 || y < 0) return x < 0 && y >= 0;
+        return recent_[(size_t) x] != recent_[(size_t) y] ? recent_[(size_t) x] < recent_[(size_t) y]
+            : !prior_.empty() && prior_[(size_t) x] < prior_[(size_t) y];
+    });
+    const size_t count = std::min({incoming.size(), slots.size(), (size_t) available});
+    std::vector<DmaRange> sources;
+    for (size_t j = 0; j < count; ++j) {
+        const Pick& in = incoming[j];
+        const size_t slot = slots[j];
+        const int old = resident_stage_owners_[slot];
+        if (old >= 0 && in.recent < 2.f * recent_[(size_t) old] + kSwapMin) break;
+        Swap* s = nullptr;
+        for (int k = 0; k < n_swap_ && !s; ++k)
+            if (swap_[(size_t) k].at.load() == Swap::kFree) s = &swap_[(size_t) k];
+        if (!s) throw std::logic_error("no-disk: no free cache upload record");
+        const Layer& L = layers_[(size_t) in.il];
+        const auto h = host_expert(L, (size_t) in.e);
+        sources.emplace_back((size_t) (h.gate - expert_dma_->base()), 2 * L.gu_bytes + L.d_bytes);
+        if (old >= 0) {
+            layers_[(size_t) old / n_expert_].slot[(size_t) old % n_expert_] = nullptr;
+            --cached_;
+            --resident_stage_used_;
+        }
+        s->il = in.il;
+        s->e = in.e;
+        s->stage_slot = slot;
+        s->slot = stage_ + slot * slot_max_;
+        resident_stage_owners_[slot] = -2;
+        coming_[(size_t) in.il * n_expert_ + in.e] = 1;
+        s->at.store(Swap::kAsked);
+    }
+    if (sources.empty()) return;
+    // One owner manages every registered source window; no background mmap reader and no host copy.
+    // Previous evals have finished reading destinations before this function is called.
+    resident_stage_active_ = true;
+    staged_il_ = -1;
+    expert_dma_->prepare(std::move(sources));
+    expert_dma_->begin(cs(swap_st_));
+    for (int j = 0; j < n_swap_; ++j) {
+        Swap& s = swap_[(size_t) j];
+        if (s.at.load() != Swap::kAsked) continue;
+        const Layer& L = layers_[(size_t) s.il];
+        const auto h = host_expert(L, (size_t) s.e);
+        const size_t raw = 2 * L.gu_bytes + L.d_bytes;
+        ck(cudaMemcpyAsync(s.slot, h.gate, raw, cudaMemcpyHostToDevice, cs(swap_st_)), "no-disk: cache upload");
+        ck(cudaMemsetAsync(s.slot + raw, 0, slot_max_ - raw, cs(swap_st_)), "no-disk: cache tail");
+        ck(cudaEventRecord(s.done, cs(swap_st_)), "no-disk: cache arrival");
+        s.at.store(Swap::kSent);
+    }
+    expert_dma_->end(cs(swap_st_));
+}
+
+// A prefill needs the same bytes. Finish both readers and uploads before invalidating only the staging
+// cache's pointers. RAM source ownership and the permanent GPU slots are never changed.
+void Engine::drop_resident_stage_cache() {
+    if (!opt_.no_disk || !resident_stage_active_) return;
+    if (!swap_error_.empty()) throw std::runtime_error("expert upload: " + swap_error_);
+    ck(cudaStreamSynchronize(cs(st_)), "no-disk: releasing decode cache readers");
+    ck(cudaStreamSynchronize(cs(swap_st_)), "no-disk: releasing decode cache uploads");
+    const size_t discarded = resident_stage_used_;
+    for (size_t j = 0; j < resident_stage_owners_.size(); ++j) {
+        const int owner = resident_stage_owners_[j];
+        if (owner < 0) continue;
+        Layer& L = layers_[(size_t) owner / n_expert_];
+        const size_t e = (size_t) owner % n_expert_;
+        if (!L.resident_host[e].gate || L.slot[e] != stage_ + j * slot_max_)
+            throw std::logic_error("no-disk: staging cache ownership mismatch");
+        L.slot[e] = nullptr;
+        --cached_;
+    }
+    for (int j = 0; j < n_swap_; ++j) {
+        Swap& s = swap_[(size_t) j];
+        if (s.at.load() != Swap::kFree) coming_[(size_t) s.il * n_expert_ + s.e] = 0;
+        s.at.store(Swap::kFree);
+    }
+    std::fill(resident_stage_owners_.begin(), resident_stage_owners_.end(), -1);
+    resident_stage_used_ = 0;
+    resident_stage_active_ = false;
+    staged_il_ = -1;
+    std::fprintf(stderr, "strata-poly: no-disk staging returned to prefill: %zu cached RAM copies discarded; "
+                         "permanent GPU experts and RAM weights retained\n", discarded);
+}
+
 // The cache follows what is written.  Called at the start of an eval, where nothing queued reads the cache, with
 // the number of tokens the eval writes (0 for a prompt batch).  The experts whose upload has arrived get their
 // slots.  Then, for written tokens, the experts used lately that the cache lacks start on their way, each to the
@@ -1586,7 +1734,7 @@ void Engine::follow_loop() {
 // A prompt batch neither counts nor moves anything.  What a prompt routes to says no more about the answer than
 // the profile does, and moving the cache while the prompt was read cost 3% of the reading speed (measured).
 void Engine::follow(int written) {
-    if (opt_.no_disk) return;
+    if (opt_.no_disk && written >= kStageRows) written = 0; // this eval needs staging for batched MoE
     {
         std::lock_guard<std::mutex> l(swap_m_);
         if (!swap_error_.empty()) throw std::runtime_error("expert upload: " + swap_error_);
@@ -1606,6 +1754,11 @@ void Engine::follow(int written) {
             if (arrived == cudaErrorNotReady) continue;
             ck(arrived, "expert upload");
             layers_[(size_t) s.il].slot[(size_t) s.e] = s.slot;
+            if (opt_.no_disk) {
+                resident_stage_owners_.at(s.stage_slot) = s.il * n_expert_ + s.e;
+                ++cached_;
+                ++resident_stage_used_;
+            }
             coming_[(size_t) s.il * ne + (size_t) s.e] = 0;
             s.at.store(Swap::kFree);
             ++stats_.swapped_experts;
@@ -1617,6 +1770,11 @@ void Engine::follow(int written) {
     const float keep = std::exp2(-(float) written / (float) kSwapHalf);
     for (float& r : recent_) r *= keep;
     if (n_free == 0) return;
+    if (opt_.no_disk) {
+        try { follow_resident(n_free); }
+        catch (const std::exception& e) { swap_error_ = e.what(); throw; }
+        return;
+    }
 
     // One pass over the experts lists, for each slot size, the ones that may come in, the most used first, and
     // the cached ones that may go, the least used first: as many of each as uploads are free, which is all the
@@ -1697,7 +1855,6 @@ void Engine::load(const Options& o) {
         throw std::runtime_error("--ram-limit-mib must be a nonnegative byte budget");
     if (opt_.no_disk) {
         opt_.kv_grow = false;
-        opt_.expert_swaps = 0;
         resident_ = std::make_unique<ResidentMemory>();
         resident_ram_start_ = ram_available();
         if (!resident_ram_start_) throw std::runtime_error("no-disk: available RAM is unknown; refusing to guess");
@@ -2502,6 +2659,7 @@ void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, 
 // A call that copies only the experts it routes to leaves a share of them to the CPU, which computes them while
 // the others are copied: the share that had the two take about as long (Options::cpu_share).
 void Engine::moe_rows(Layer& L, int il, int n) {
+    drop_resident_stage_cache(); // before any cached-slot lookup or prefetch can reuse staging
     const int rr = n * n_used_;
     const size_t cap = (size_t) rows_ * n_used_;
     const bool ahead = opt_.stage_ahead > 0 && (n >= opt_.stage_ahead || shared_ahead_);
@@ -2829,6 +2987,7 @@ void Engine::run(const int32_t* tokens, int n) {
 
     // h_r_ and h_cpu_ may still be the source of the previous call's copies
     ck(cudaStreamSynchronize(cs(st_)), "eval");
+    if (n >= kStageRows && mmq_) drop_resident_stage_cache();
     // Greedy answers have to be a function of the request alone: which experts take the GPU path and which the
     // CPU one decides a layer's sums to the last bit (the two paths add in different orders), so the cache's
     // state at the first layer may not depend on whether an upload happened to have finished.  Every expert on
@@ -3053,6 +3212,7 @@ void Engine::step(const int* seqs, const int32_t* tokens, int n) {
     }
 
     ck(cudaStreamSynchronize(cs(st_)), "step");
+    if (n >= kStageRows && mmq_) drop_resident_stage_cache();
     if (n_swap_ > 0) follow(n);
     tok_ = tokens;
     windowed_ = false;
@@ -3296,6 +3456,7 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
     }
     const int n_calls = (int) calls_.size();
     OnCard here(device_, split_);
+    if (n >= kStageRows && mmq_) drop_resident_stage_cache(); // before all_cached() chooses the read path
     cover(pos_ + n);
     // On several cards, each reads through its own layers and hands the rows on, and `turn` hears of a card's
     // turns as its share of the model's layers: [lo_, to).

@@ -6,14 +6,33 @@ Without the flag, the existing mmap loader, adaptive expert cache and host stagi
 The loader reads the GGUF headers without mapping the files. After the dense weights, scratch, full-context KV
 and expert staging buffer have been allocated, it divides the routed experts between RAM and VRAM. Permanent
 experts fill the remaining VRAM budget after the runtime reserve and loading headroom; RAM holds the rest.
-The ranking is the existing cache's use-per-byte order. New use counts are recorded for future loads; they do
-not change the placement of this run.
+The ranking is the existing cache's use-per-byte order. This permanent placement does not change during a run.
+During generation the existing GPU staging allocation also holds an adaptive cache of RAM experts.
 
 An expert permanently in VRAM has no RAM copy. Its slot is used directly by the existing GPU kernels. An expert
 in RAM has its gate, up and down bytes together in an anonymous allocation. CUDA copies them directly from
-a registered window of that locked region into the GPU's staging buffer. The two 512 MiB host staging buffers and the swap buffers
+a registered window of that locked region into the GPU's staging buffer. The two 512 MiB host staging buffers and the host swap buffers
 are not allocated in this mode. A staging buffer large enough for a layer lets a long read reuse that layer's
 uploaded experts across its calls.
+
+During small-token evals, staging is borrowed for disposable copies of hot RAM experts. Empty slots fill after
+an expert has been used at least twice recently. A full slot is replaced using the regular cache's policy:
+incoming recent use must be at least twice the victim's plus two; recent counts halve every 128 evaluated
+small-token rows. The profile breaks ties. Original weights stay in their locked RAM locations. No GPU-only
+permanent expert is a candidate for eviction, and no weights are copied back to RAM or read from GGUF.
+Uploads use a separate CUDA stream and the shared bounded registration coordinator; no mmap-reading follower
+or host weight staging copies are started in this mode. `--expert-swaps 0` disables adaptation explicitly.
+
+The pool uses slots large enough for the largest supported expert, with zeroed kernel tails, within
+`--stage-mib`. Its RAM metadata and stream/events are additional, but no second GPU expert arena or host
+weight copies are allocated. Diagnostic GPU totals still count staging once. The expert-placement line
+reports permanent GPU experts, the number/capacity of staging cache slots and completed uploads separately.
+
+Before batched MoE reuses staging, the engine fences compute and upload streams, cancels pending cache
+arrivals and invalidates only the borrowed staging slots. The next prefill keeps all permanent GPU slots and
+all RAM originals. Its following generation fills the staging cache again. This also applies when a prefill
+is interleaved with batched writing. `STRATA_FREEZE_EXPERTS` disables adaptive filling for reproducibility;
+it must be absent in cache warm-up/performance tests.
 
 The embedding table is read into locked RAM at load, so token lookup also needs no file. DeepSeek's CPU
 token-to-expert tables are copied and locked as well. Dense tensors upload through bounded temporary buffers; routed experts read
@@ -71,8 +90,9 @@ registration on the RTX 4090 test PC even though all 110 GiB could be OS-locked;
 locked arena registered successfully. Bounded registration avoids requiring CUDA to register the whole model.
 This is not a giant `cudaMallocHost` arena. A failed load releases registrations, allocations and OS locks.
 
-Expert swaps, cache growth, shrinking and VRAM resizing are disabled. The line protocol's `VRAM` request is
-refused, and the server is told `vram_elastic=0`. The fixed expert placement stays valid throughout the run.
+Permanent-arena growth, shrinking and VRAM resizing are disabled. The line protocol's `VRAM` request is
+refused, and the server is told `vram_elastic=0`. The permanent expert placement stays valid throughout the run;
+adaptive replacement takes place only among the RAM-backed copies in staging.
 This mode currently requires one card; `--layer-split` is refused. The host/DMA buffer sizes depend on the model
 and batch rather than a hard 100 MiB limit.
 
@@ -129,6 +149,19 @@ also compares the generated token IDs of the old and current mmap paths. It reco
 reuse, process memory, system disk counters, process read bytes and whether the model file is still open. The
 engine's stdin token command itself counts as process I/O; the tool reports its size separately. System disk
 counters include unrelated activity and must not be called model reads without attribution.
+
+The benchmark defaults to a frozen split and eight output tokens, for historical comparisons only. For actual
+cache adaptation use `--adaptive-experts --generate 512 --requests 2`. The second request changes the first
+input token to force a fresh prefill and test staging reclamation. `--teacher-forced` replays the last
+`--generate` synthetic input IDs as output, so frozen/adaptive runs evaluate the same continuation and reach
+the full output length; this is a compute/cache test, not a free-running text quality test. Results include
+per-request hit rate, decode timings and token timestamps. no-disk stderr additionally reports 128-token
+decode intervals and upload counts. DONE's no-disk hit statistics start at the first emitted token, excluding
+short-prompt CPU work; a cancelled prompt with no output reports zero decode lookups.
+`--verify-stage-cache` additionally sets `STRATA_VERIFY_STAGE_CACHE=1`: after each answer, outside decode
+timing, every published GPU cache payload is compared byte-for-byte with its original RAM source and its
+kernel padding is checked for zeros. This diagnostic allocates only a 64 KiB host comparison buffer and is
+off during normal use. It adds GPU-to-host test traffic and must not be included in request wall-time comparisons.
 
 Measured results and limits on the RTX 4090 Windows PC are recorded in
 [the 2026-10-18 run](../bench/results/2026-10-18-poly-no-disk/README.md).

@@ -33,6 +33,8 @@ def run(a, label, exe, ids, resident=False):
         cmd += ['--read-chunk', str(a.read_chunk)]
     if a.profile:
         cmd += ['--expert-profile', str(profile)]
+    if a.teacher_forced:
+        cmd += ['--follow', ','.join(map(str, ids[-a.generate:]))]
     if resident:
         cmd += ['--no-disk', '--no-disk-vram-margin-mib', str(a.load_margin_mib)]
         if a.rows_vram:
@@ -40,7 +42,14 @@ def run(a, label, exe, ids, resident=False):
         if a.ram_limit_mib:
             cmd += ['--ram-limit-mib', str(a.ram_limit_mib)]
     env = os.environ.copy()
-    env['STRATA_FREEZE_EXPERTS'] = '1'
+    if a.adaptive_experts:
+        env.pop('STRATA_FREEZE_EXPERTS', None)
+    else:
+        env['STRATA_FREEZE_EXPERTS'] = '1'
+    if a.verify_stage_cache:
+        env['STRATA_VERIFY_STAGE_CACHE'] = '1'
+    else:
+        env.pop('STRATA_VERIFY_STAGE_CACHE', None)
     cuda = r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin'
     if os.name == 'nt':
         env['PATH'] = cuda + os.pathsep + env.get('PATH', '')
@@ -83,28 +92,46 @@ def run(a, label, exe, ids, resident=False):
             swap0 = psutil.swap_memory().used
             process_io0 = engine.io_counters()
             t0 = time.monotonic()
-            command = 'GEN 8 temperature=0 seed=42 ' + ','.join(map(str, ids)) + '\n'
-            stdin_bytes = len(command.encode('ascii')) + (1 if os.name == 'nt' else 0)
-            p.stdin.write(command)
-            p.stdin.flush()
-            tokens = []
-            last = t0
-            while True:
-                text = line()
-                if text.startswith('T '): tokens.append(int(text.split()[1]))
-                if text.startswith(('ERR ', 'FATAL ')): raise RuntimeError(text)
-                if text.startswith('PP ') and time.monotonic() - last >= 10:
-                    print(label, text, flush=True)
-                    last = time.monotonic()
-                if text.startswith('DONE '):
-                    done = text.split()
-                    break
+            requests = []
+            stdin_bytes = 0
+            for request in range(a.requests):
+                request_ids = list(ids)
+                if request % 2:
+                    request_ids[0] = next(t for t in ids if t != ids[0])  # force a new prefill, not prefix reuse
+                command = f'GEN {a.generate} temperature=0 seed=42 ' + ','.join(map(str, request_ids)) + '\n'
+                stdin_bytes += len(command.encode('ascii')) + (1 if os.name == 'nt' else 0)
+                p.stdin.write(command)
+                p.stdin.flush()
+                tokens, times = [], []
+                last = time.monotonic()
+                while True:
+                    text = line()
+                    if text.startswith('T '):
+                        tokens.append(int(text.split()[1]))
+                        times.append(time.monotonic())
+                    if text.startswith(('ERR ', 'FATAL ')): raise RuntimeError(text)
+                    if time.monotonic() - last >= 10:
+                        print(label, f'request {request+1}', text if text.startswith('PP ') else f'generated {len(tokens)}', flush=True)
+                        last = time.monotonic()
+                    if text.startswith('DONE '):
+                        done = text.split()
+                        break
+                assert int(done[8]) == 0, done
+                if a.teacher_forced:
+                    assert tokens == ids[-a.generate:], 'forced token sequence ended early'
+                lookups = int(done[10])
+                requests.append(dict(generated=len(tokens), prompt_ms=float(done[3]), decode_ms=float(done[4]),
+                                     decode_tps=(len(tokens)-1)*1000/float(done[4]) if float(done[4]) else 0,
+                                     hits=int(done[9]), lookups=lookups, hit_rate=int(done[9])/lookups if lookups else 0,
+                                     finish=done[5], token_times=[round(t-times[0],6) for t in times]))
+                print(label, f'request {request+1}', json.dumps({k:v for k,v in requests[-1].items() if k!='token_times'}), flush=True)
             io1 = psutil.disk_io_counters()
             process_io1 = engine.io_counters()
             stop.set()
             result = dict(label=label, resident=resident, rows_vram=resident and a.rows_vram,
                           command=cmd, context=a.context, batch=a.batch, read_chunk=a.read_chunk,
                           reserve_mib=a.reserve_mib, load_margin_mib=a.load_margin_mib if resident else None,
+                          adaptive_experts=a.adaptive_experts, teacher_forced=a.teacher_forced, requests=requests,
                           prompt_tokens=len(ids), generated_ids=tokens, load_s=round(load_s, 3),
                           elapsed_s=round(time.monotonic()-t0, 3), prompt_ms=float(done[3]),
                           prompt_tps=round(len(ids)*1000/float(done[3]), 3), finish=done[5],
@@ -152,6 +179,11 @@ def main():
     ap.add_argument('--reserve-mib', type=int, default=2048)
     ap.add_argument('--load-margin-mib', type=int, default=512)
     ap.add_argument('--threads', type=int, default=12)
+    ap.add_argument('--generate', type=int, default=8)
+    ap.add_argument('--requests', type=int, default=1)
+    ap.add_argument('--adaptive-experts', action='store_true')
+    ap.add_argument('--verify-stage-cache', action='store_true', help='compare published GPU cache payloads with RAM after each request, outside decode timing')
+    ap.add_argument('--teacher-forced', action='store_true', help='replay a fixed synthetic token sequence for cache/performance comparisons')
     ap.add_argument('--ram-limit-mib', type=int, default=0)
     ap.add_argument('--rows-vram', action='store_true')
     ap.add_argument('--no-disk-runs', type=int, default=2)
@@ -159,12 +191,17 @@ def main():
     a = ap.parse_args()
     if not 16 <= a.tokens < a.context: ap.error('tokens must be at least 16 and below context')
     if a.read_chunk < 0 or a.load_margin_mib < 0: ap.error('read chunk and load margin cannot be negative')
+    if a.generate < 1 or a.requests < 1: ap.error('generate and requests must be positive')
+    if a.teacher_forced and a.generate > a.tokens: ap.error('forced output cannot exceed synthetic source length')
     a.output.mkdir(parents=True, exist_ok=True)
     tok = Tokenizer.from_dir(a.tokenizer)
     text = 'Reference data for a synthetic performance test.\n' + ''.join(
         f'{i:05d}: amber birch cobalt delta elm frost.\n' for i in range(a.tokens))
     ids = tok.encode(text)[:a.tokens]
     assert len(ids) == a.tokens
+    del tok, text  # the runner must not retain a tokenizer/model-sized vocabulary beside a tight RAM load
+    import gc
+    gc.collect()
     results = []
     jobs = []
     if a.baseline_exe: jobs.append(('baseline-default', a.baseline_exe, False))

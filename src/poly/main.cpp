@@ -897,6 +897,11 @@ int serve(Session& ss, const Options& o) {
         // VRAM [reserve_mib], the server's POST /v1/vram: the expert cache sized again between requests, to leave
         // that much VRAM to other programs; alone, back to what the engine started with
         if (line.rfind("VRAM", 0) == 0 && (line.size() == 4 || line[4] == ' ')) {
+            if (o.no_disk) {
+                std::printf("ERR VRAM: no-disk permanent expert placement cannot be resized\n");
+                std::fflush(stdout);
+                continue;
+            }
             if (writing()) {
                 std::printf("ERR VRAM: not while batch slots are writing\n");
                 std::fflush(stdout);
@@ -967,6 +972,9 @@ int serve(Session& ss, const Options& o) {
         }
 
         const strata::poly::Stats before = engine.stats();
+        strata::poly::Stats decode_before = before, cache_interval = before;
+        int64_t emitted = 0;
+        auto cache_at = Clock::now();
         int64_t resume = 0;
         Session::Result r;
         int32_t first = -1;   // the token BGEN's read picks
@@ -988,6 +996,25 @@ int serve(Session& ss, const Options& o) {
             r = ss.generate(
                 ids, pictures, pad, checkpoints, max_new, s, lines.stop,
                 [&](int32_t t) {
+                    if (o.no_disk) {
+                        const strata::poly::Stats current = engine.stats();
+                        if (emitted == 0) {
+                            decode_before = cache_interval = current;
+                            cache_at = Clock::now();
+                        } else if (emitted % 128 == 0) {
+                            const auto hits = current.gpu_experts - cache_interval.gpu_experts;
+                            const auto misses = current.cpu_experts - cache_interval.cpu_experts;
+                            std::fprintf(stderr, "strata-poly: expert-cache decode: tokens=%lld interval=128 "
+                                                 "GPU=%lld CPU=%lld hit=%.2f%% uploads=%lld speed=%.2f tok/s\n",
+                                         (long long) emitted, (long long) hits, (long long) misses,
+                                         100.0 * double(hits) / double(std::max<int64_t>(1, hits + misses)),
+                                         (long long) (current.swapped_experts - cache_interval.swapped_experts),
+                                         128000.0 / std::max(0.001, ms_since(cache_at)));
+                            cache_interval = current;
+                            cache_at = Clock::now();
+                        }
+                        ++emitted;
+                    }
                     first = t;
                     std::printf("T %d\n", (int) t);
                     std::fflush(stdout);
@@ -1022,8 +1049,14 @@ int serve(Session& ss, const Options& o) {
         //      <experts from VRAM> <experts> <RAM blobs> <file blobs> <file MB> <prompt tokens read> <offloaded>
         const strata::poly::Stats& now = engine.stats();
         // the cache's share of the experts looked up while answering: a prompt batch's go through VRAM either way
-        const long long hits = now.gpu_experts - before.gpu_experts;
-        const long long misses = now.cpu_experts - before.cpu_experts;
+        const auto& answer_before = o.no_disk ? (emitted ? decode_before : now) : before;
+        const long long hits = now.gpu_experts - answer_before.gpu_experts;
+        const long long misses = now.cpu_experts - answer_before.cpu_experts;
+        if (o.no_disk)
+            std::fprintf(stderr, "strata-poly: expert-cache answer: generated=%lld GPU=%lld CPU=%lld hit=%.2f%% "
+                                 "uploads=%lld; prompt work excluded\n", (long long) r.produced, hits, misses,
+                         100.0 * double(hits) / double(std::max<long long>(1, hits + misses)),
+                         (long long) (now.swapped_experts - answer_before.swapped_experts));
         std::printf("DONE %lld %lld %.1f %.1f %s %lld %lld %lld %lld %lld 0 0 0.0 %lld 0\n", (long long) r.produced, n,
                     r.prompt_ms, r.decode_ms, r.finish, (long long) r.guessed_right, (long long) r.guessed,
                     (long long) r.resume, hits, hits + misses, (long long) r.read);
@@ -1421,6 +1454,7 @@ int main(int argc, char** argv) {
                 if (id >= 0 && std::find(eos.begin(), eos.end(), (int32_t) id) == eos.end()) eos.push_back((int32_t) id);
             }
         Session ss(engine, eos, cache, lookup);
+        if (!follow.empty()) ss.follow = &follow; // explicit replay also applies to GEN in --serve tests
         int rc = 0;
         if (want_serve) {
             rc = serve(ss, o);
@@ -1436,7 +1470,6 @@ int main(int argc, char** argv) {
                 const std::string wrong = take_pictures(images, image_pad, engine.n_embd(), ids, pictures);
                 if (!wrong.empty()) throw std::runtime_error(wrong);
             }
-            if (!follow.empty()) ss.follow = &follow;
             rc = once(ss, ids, pictures, image_pad, max_new, s, top_probs);
         }
         engine.save_profile();
