@@ -399,6 +399,8 @@ Engine::~Engine() {
     for (int j = 0; j < n_swap_; ++j)
         if (swap_[(size_t) j].done) cudaEventDestroy(swap_[(size_t) j].done);
     for (void* g : graphs_) cudaGraphExecDestroy((cudaGraphExec_t) g);
+    for (const auto& entry : graph_templates_)
+        if (entry.second) cudaGraphDestroy((cudaGraph_t) entry.second);
     blas_destroy(blas_);
     if (swap_st_) cudaStreamDestroy(cs(swap_st_));
     if (up_) cudaStreamDestroy(cs(up_));
@@ -1388,9 +1390,19 @@ void Engine::dump_buffers(const char* when) const {
     size_t pass_live = 0;
     for (const auto& kv : passes_) if (kv.second) ++pass_live;
     std::fprintf(stderr, "strata-poly: buffers[%s] graphs[pos=%lld room_key=%d window=%d batch=%d]: execs=%zu "
-                 "(all created, freed only at exit); layer slots=%zu live=%zu; passes=%zu live=%zu; tail=%d\n",
+                 "(live owners); layer slots=%zu live=%zu; passes=%zu live=%zu; tail=%d\n",
                  when, (long long) pos_, room_key(1), opt_.window, opt_.batch, graphs_.size(), slots, live,
                  passes_.size(), pass_live, tail_ ? 1 : 0);
+    if (opt_.compact_graphs)
+        std::fprintf(stderr, "strata-poly: graphs-reuse[%s] templates=%zu updated=%llu replaced=%llu\n", when,
+                     graph_templates_.size(), (unsigned long long) graph_updates_, (unsigned long long) graph_replacements_);
+    size_t free = 0, total = 0;
+    if (cudaMemGetInfo(&free, &total) == cudaSuccess)
+        std::fprintf(stderr, "strata-poly: device-memory[%s] global_free=%zu global_total=%zu bytes\n", when, free, total);
+    for (const auto& entry : graph_cost_)
+        std::fprintf(stderr, "strata-poly: graphs-cost[%s] kind=%s count=%llu nodes=%llu device_delta=%lld bytes\n",
+                     when, entry.first.c_str(), (unsigned long long) entry.second.count,
+                     (unsigned long long) entry.second.nodes, (long long) entry.second.device_delta);
 }
 
 // Experts go to VRAM by use per byte when there are counts, the profile's and this run's, and otherwise the same
@@ -2014,6 +2026,12 @@ void Engine::load(const Options& o) {
     opt_ = o;
     if (opt_.compact_scratch && !supports_compact_scratch())
         throw std::runtime_error("--compact-scratch currently supports only DeepSeek4");
+    if (opt_.compact_graphs && !supports_compact_graphs())
+        throw std::runtime_error("--compact-graphs currently supports only DeepSeek4");
+#ifdef HIP_VERSION
+    if (opt_.compact_graphs)
+        throw std::runtime_error("--compact-graphs currently requires CUDA external graph events");
+#endif
     // --dump-buffers records from the first allocation, dense weights included.
     dumping_ = opt_.dump_buffers;
     allocs_.clear();
@@ -2154,6 +2172,7 @@ void Engine::load(const Options& o) {
     if (opt_.window == 0) opt_.window = recurrent_floats() == 0 || snaps_spread() ? 8 : 4;
     opt_.window = std::min({opt_.window, opt_.prompt_batch, opt_.max_context});
     alloc();
+    prepare_compact_graphs(); // real execution storage is charged before permanent experts take the remaining VRAM
     if (!opt_.profile.empty()) read_profile(opt_.profile, (int) layers_.size(), n_expert_, prior_);
     if (opt_.no_disk) load_resident_experts();
     else fill_expert_cache();
@@ -3156,26 +3175,198 @@ int Engine::room_key(int n) const {
 
 // Records what `work` hands to the stream, as a graph that is launched with one call from then on.
 template <class F>
-void* Engine::record(F&& work) {
-    cudaGraph_t g = nullptr;
-    ck(cudaStreamBeginCapture(cs(st_), cudaStreamCaptureModeThreadLocal), "cudaStreamBeginCapture");
-    recording_ = recorded_ = true;
-    try {
-        work();
-    } catch (...) {
-        recording_ = false;
-        if (cudaStreamEndCapture(cs(st_), &g) == cudaSuccess && g) cudaGraphDestroy(g);
-        cudaGetLastError();   // a capture the failure broke does not end cleanly: the work's exception says why
-        throw;
+void* Engine::record(F&& work, const char* kind, int layer, size_t key, int rows, void* reuse, void** source) {
+    size_t before = 0, after = 0, total = 0;
+    if (opt_.trace_graphs) {
+        ck(cudaStreamSynchronize(cs(st_)), "graph diagnostic fence before capture");
+        ck(cudaMemGetInfo(&before, &total), "graph diagnostic before capture");
     }
-    recording_ = false;
-    ck(cudaStreamEndCapture(cs(st_), &g), "cudaStreamEndCapture");
-    cudaGraphExec_t exec = nullptr;
+    struct Source {
+        cudaGraph_t value = nullptr;
+        bool retained = false;
+        ~Source() { if (value && !retained) cudaGraphDestroy(value); }
+    } graph;
+    cudaGraph_t& g = graph.value;
+    if (source && *source) {
+        g = (cudaGraph_t) *source;
+        graph.retained = true;
+    } else {
+        ck(cudaStreamBeginCapture(cs(st_), cudaStreamCaptureModeThreadLocal), "cudaStreamBeginCapture");
+        recording_ = recorded_ = true;
+        try {
+            work();
+        } catch (...) {
+            recording_ = false;
+            cudaStreamEndCapture(cs(st_), &g);
+            cudaGetLastError(); // report the work's exception, not the invalidated capture
+            throw;
+        }
+        recording_ = false;
+        ck(cudaStreamEndCapture(cs(st_), &g), "cudaStreamEndCapture");
+        if (source) { *source = g; graph.retained = true; }
+    }
+    size_t nodes = 0;
+    if (opt_.trace_graphs) ck(cudaGraphGetNodes(g, nullptr, &nodes), "graph diagnostic nodes");
+    cudaGraphExec_t exec = (cudaGraphExec_t) reuse;
+#ifndef HIP_VERSION
+    if (reuse) {
+        // Reuse a small set of executions; source templates preserve all launch parameters without
+        // instantiating every (attention bucket, window length, half) combination. run() fenced the
+        // previous call, and each layer/lane executes once in this call. Other lanes may still run.
+#if CUDART_VERSION >= 12000
+        cudaGraphExecUpdateResultInfo info{};
+        const cudaError_t updated = cudaGraphExecUpdate(exec, g, &info);
+#else
+        cudaGraphNode_t error_node = nullptr;
+        cudaGraphExecUpdateResult result{};
+        const cudaError_t updated = cudaGraphExecUpdate(exec, g, &error_node, &result);
+#endif
+        if (updated == cudaSuccess) {
+            ++graph_updates_;
+            if (opt_.trace_graphs)
+                std::fprintf(stderr, "strata-poly: graph-update kind=%s layer=%d key=%zu rows=%d pos=%lld nodes=%zu\n",
+                             kind, layer, key, rows, (long long) pos_, nodes);
+            return exec;
+        }
+        if (updated != cudaErrorGraphExecUpdateFailure) {
+            ck(updated, "cudaGraphExecUpdate");
+        }
+        cudaGetLastError(); // the handled update rejection must not look like a later kernel launch error
+        // CUDA may reject an update on a different driver/topology. Replace that owner's handle;
+        // never retain the obsolete execution or add a second owner for the same cache slot.
+        auto owner = std::find(graphs_.begin(), graphs_.end(), reuse);
+        if (owner == graphs_.end()) {
+            throw std::logic_error("graph resize has no owner");
+        }
+        ck(cudaStreamSynchronize(cs(st_)), "graph replacement fence");
+        cudaGraphExec_t replacement = nullptr;
+        const cudaError_t made = cudaGraphInstantiateWithFlags(&replacement, g, 0);
+        if (made != cudaSuccess) {
+            if (replacement) cudaGraphExecDestroy(replacement);
+            ck(made, "cudaGraphInstantiate replacement"); // old handle/cache slot still valid on failure
+        }
+        cudaGraphExecDestroy(exec);
+        exec = replacement;
+        *owner = exec;
+        ++graph_replacements_;
+        if (opt_.trace_graphs)
+            std::fprintf(stderr, "strata-poly: graph-replace kind=%s layer=%d key=%zu rows=%d pos=%lld nodes=%zu\n",
+                         kind, layer, key, rows, (long long) pos_, nodes);
+        return exec;
+    }
+#endif
     const cudaError_t made = cudaGraphInstantiateWithFlags(&exec, g, 0);
-    cudaGraphDestroy(g);
+    if (made != cudaSuccess && exec) cudaGraphExecDestroy(exec);
     ck(made, "cudaGraphInstantiate");
-    graphs_.push_back(exec);
+    try { graphs_.push_back(exec); }
+    catch (...) { cudaGraphExecDestroy(exec); throw; }
+    if (opt_.trace_graphs) {
+        ck(cudaStreamSynchronize(cs(st_)), "graph diagnostic fence after instantiate");
+        ck(cudaMemGetInfo(&after, &total), "graph diagnostic after instantiate");
+        auto& cost = graph_cost_[kind];
+        ++cost.count; cost.nodes += nodes; cost.device_delta += int64_t(before) - int64_t(after);
+        std::fprintf(stderr, "strata-poly: graph-create kind=%s layer=%d key=%zu rows=%d pos=%lld "
+                             "nodes=%zu execs=%zu free_before=%zu free_after=%zu delta=%lld bytes\n",
+                     kind, layer, key, rows, (long long) pos_, nodes, graphs_.size(), before, after,
+                     (long long) (int64_t(before) - int64_t(after)));
+    }
     return exec;
+}
+
+void Engine::compact_head(int il, int m, size_t rec, bool launch) {
+#ifndef HIP_VERSION
+    Layer& L = layers_[(size_t) il];
+    const size_t wn = (size_t) opt_.window, recs = 3 * wn + (size_t) opt_.batch + 1;
+    const size_t head = (size_t) head_key(il, m) * recs + rec;
+    // Whole / first half / second half, each with separate scalar and batched topology:
+    // at most six live executions a layer and sequence, independent of context buckets.
+    // step() uses the slots from 3*window onward, so these lanes cannot alias its heads.
+    const size_t lane = (rec < wn ? 0 : 1 + (rec - wn) % 2) * 2 + (m > 1);
+    if (L.heads.size() <= lane) L.heads.resize(lane + 1, nullptr);
+    void*& made = L.heads[lane];
+    if (!made || graph_form_.at(made) != head) {
+        void* old = made;
+        void*& source = graph_templates_[{bound_, il, head}];
+        made = record([&] {
+            if (il > lo_) layer_tail(layers_[(size_t) il - 1], il - 1, m);
+            layer_head(L, il, m);
+            // An ordinary captured event is a graph dependency, not notification to the host router.
+            ck(cudaEventRecordWithFlags((cudaEvent_t) ev_, cs(st_), cudaEventRecordExternal), "packed router");
+            moe_shared(L, il, m);
+        }, "packed", il, head, m, old, &source);
+        if (old && old != made) graph_form_.erase(old);
+        graph_form_[made] = head;
+    }
+    if (launch) ck(cudaGraphLaunch((cudaGraphExec_t) made, cs(st_)), "compact layer graph");
+    else ck(cudaGraphUpload((cudaGraphExec_t) made, cs(st_)), "prepare compact layer graph");
+#endif
+}
+
+// Instantiate the bounded executions without running kernels or touching conversation state. CUDA's own
+// allocations must exist when the expert planner reads free VRAM, rather than appear after READY.
+void Engine::prepare_compact_graphs() {
+#ifndef HIP_VERSION
+    if (!opt_.compact_graphs || !opt_.graphs || opt_.dump || split_) return;
+    for (int il = lo_; il < hi_; ++il)
+        if (!layers_[(size_t) il].fixed || !layers_[(size_t) il].moe) return;
+    ck(cudaStreamSynchronize(cs(st_)), "before preparing graphs");
+    size_t before = 0, after = 0, total = 0;
+    ck(cudaMemGetInfo(&before, &total), "before preparing graphs memory");
+    const int home = bound_;
+    const size_t wn = (size_t) opt_.window;
+    for (int s = 0; s < sequences(); ++s) {
+        if (s != bound_) { park_bound(); take_bound(s); }
+        const int64_t keep = pos_;
+        pos_ = opt_.max_context - opt_.window; // largest attention grid; smaller buckets update these executions
+        const auto prepare = [&](int m, int offset, size_t rec, int half) {
+            shift_rows(offset);
+            ev_ = ev_row_[half];
+            try {
+                for (int il = lo_; il < hi_; ++il) compact_head(il, m, rec, false);
+            } catch (...) { shift_rows(-offset); ev_ = ev_row_[0]; throw; }
+            shift_rows(-offset);
+            ev_ = ev_row_[0];
+        };
+        prepare(1, 0, 0, 0);
+        if (wn > 1) prepare((int) wn, 0, wn - 1, 0);
+        const auto halves = [&](int n) {
+            const int first = (n + 1) / 2;
+            prepare(first, 0, wn + 2 * (n - 1), 0);
+            prepare(n - first, first, wn + 2 * (n - 1) + 1, 1);
+        };
+        if (wn > 1) halves(2);
+        if (wn > 2) halves((int) wn);
+        // The last layer's post-expert node also has one form per full/half row offset.
+        Layer& last = layers_[(size_t) hi_ - 1];
+        last.tail.resize(3 * wn, nullptr);
+        const auto tail = [&](int m, int offset, size_t rec) {
+            shift_rows(offset);
+            try {
+                last.tail[rec] = record([&] { layer_tail(last, hi_ - 1, m); }, "tail", hi_ - 1, rec, m);
+                ck(cudaGraphUpload((cudaGraphExec_t) last.tail[rec], cs(st_)), "prepare last layer graph");
+            }
+            catch (...) { shift_rows(-offset); throw; }
+            shift_rows(-offset);
+        };
+        // Shared/tail caches are common to sequences: their pointers are row-based, not sequence-based.
+        if (s == 0) {
+            for (int n = 1; n <= (int) wn; ++n) tail(n, 0, n - 1);
+            for (int n = 2; n <= (int) wn; ++n) {
+                const int first = (n + 1) / 2;
+                tail(first, 0, wn + 2 * (n - 1));
+                tail(n - first, first, wn + 2 * (n - 1) + 1);
+            }
+        }
+        pos_ = keep;
+    }
+    if (bound_ != home) { park_bound(); take_bound(home); }
+    recorded_ = false;
+    ck(cudaStreamSynchronize(cs(st_)), "prepared graphs");
+    ck(cudaMemGetInfo(&after, &total), "after preparing graphs memory");
+    std::fprintf(stderr, "strata-poly: compact graphs prepared before expert placement: executions=%zu "
+                         "templates=%zu global_free_delta=%lld bytes (device-wide, not exclusive ownership)\n",
+                 graphs_.size(), graph_templates_.size(), (long long) (int64_t(before) - int64_t(after)));
+#endif
 }
 
 // n tokens from pos() through every layer.  The sequence is not longer for it: the caller says by how much.
@@ -3224,9 +3415,10 @@ void Engine::run(const int32_t* tokens, int n) {
     // leave no snapshots of the recurrent state, so their launches are others.
     bool replay = opt_.graphs && n <= opt_.window && (windowed_ || n == 1) && !opt_.dump;
     for (int t = 0; t < n && replay; ++t) replay = !image_at(pos_ + t);
-    const auto replayed = [&](std::vector<void*>& made, size_t key, auto&& work) {
+    const auto replayed = [&](std::vector<void*>& made, size_t key, auto&& work,
+                              const char* kind = "other", int layer = -1, int rows = 0) {
         if (made.size() <= key) made.resize(key + 1, nullptr);
-        if (!made[key]) made[key] = record(work);
+        if (!made[key]) made[key] = record(work, kind, layer, key, rows);
         ck(cudaGraphLaunch((cudaGraphExec_t) made[key], cs(st_)), "layer graph");
     };
     if (replay) {   // a pair a token: a window's tokens may go one by one, each from its own
@@ -3241,20 +3433,32 @@ void Engine::run(const int32_t* tokens, int n) {
     // call's tokens together are [0, window) by their number, and a half of a window comes after those, by the
     // window's tokens and which half it is.  Which tokens leave their state is the window's, so its halves' too.
     const size_t wn = (size_t) opt_.window, recs = 3 * wn + (size_t) opt_.batch + 1;   // step()'s rows after
+    bool packed = opt_.compact_graphs && replay && !split_;
+    for (int il = lo_; il < hi_ && packed; ++il)
+        packed = layers_[(size_t) il].fixed && layers_[(size_t) il].moe;
     const auto up = [&](int il, int m, size_t rec) {
         Layer& L = layers_[(size_t) il];
         const size_t head = (size_t) head_key(il, m) * recs + rec;
-        if (replay && L.fixed) replayed(L.heads, head, [&] { layer_head(L, il, m); });
+#ifndef HIP_VERSION
+        if (packed) {
+            // Previous tail -> current head -> router-ready event -> shared expert is one uninterrupted
+            // GPU interval. CPU experts still begin at the same router boundary, before shared finishes.
+            compact_head(il, m, rec, true);
+            return;
+        }
+#endif
+        if (replay && L.fixed) replayed(L.heads, head, [&] { layer_head(L, il, m); }, "head", il, m);
         else layer_head(L, il, m);
         if (!L.moe || batched(L, m)) return;
         ck(cudaEventRecord((cudaEvent_t) ev_, cs(st_)), "router");
-        if (replay) replayed(L.shared, rec, [&] { moe_shared(L, il, m); });
+        if (replay) replayed(L.shared, rec, [&] { moe_shared(L, il, m); }, "shared", il, m);
         else moe_shared(L, il, m);
     };
     const auto tail = [&](int il, int m, size_t rec) {
         Layer& L = layers_[(size_t) il];
+        if (packed && il + 1 < hi_) return; // replayed at the start of the next layer, after this layer's moe_add
         dbg("ffn", il, fo_, n_embd_);
-        if (replay && L.fixed) replayed(L.tail, rec, [&] { layer_tail(L, il, m); });
+        if (replay && L.fixed) replayed(L.tail, rec, [&] { layer_tail(L, il, m); }, "tail", il, m);
         else layer_tail(L, il, m);
     };
 

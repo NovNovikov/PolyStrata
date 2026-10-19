@@ -31,6 +31,7 @@ protected:
     void alloc_caches() override;
     void assign_scratch() override;
     bool supports_compact_scratch() const override { return true; }
+    bool supports_compact_graphs() const override { return true; }
     int widest() const override;
     int streams() const override;
     void layer_head(Layer& L, int il, int n) override;

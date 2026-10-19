@@ -21,7 +21,7 @@ struct Checkpoint {
 
 static void expect(bool ok, const char* what) { if (!ok) throw std::runtime_error(what); }
 
-static Trace exercise(Options o, Checkpoint& checkpoint) {
+static Trace exercise(Options o, Checkpoint& checkpoint, bool reference_layout, bool check_windows) {
     auto e = Engine::open(o);
     expect(e->cached_experts() == 0, "parity needs zero cached experts in both layouts");
     std::vector<int32_t> text(2 * o.prompt_batch + 400);
@@ -54,7 +54,8 @@ static Trace exercise(Options o, Checkpoint& checkpoint) {
         e->keep(std::min(2, guesses));
         e->eval(text.data() + n + 6, 1, true);
         take(e->logits());
-        std::fprintf(stderr, "parity compact=%d: boundary %d and window/keep complete\n", o.compact_scratch, n);
+        std::fprintf(stderr, "parity scratch=%d graph_layout=%d: boundary %d and window/keep complete\n",
+                     o.compact_scratch, o.compact_graphs, n);
     }
 
     e->reset();
@@ -67,7 +68,7 @@ static Trace exercise(Options o, Checkpoint& checkpoint) {
     std::vector<uint8_t> state(e->state_bytes()), rows(at * e->row_bytes());
     e->save_state(state.data());
     e->save_rows(0, at, rows.data());
-    if (!o.compact_scratch) checkpoint = {state, rows, at};
+    if (reference_layout) checkpoint = {state, rows, at};
     else {
         expect(checkpoint.pos == at && checkpoint.state == state, "serialized state bytes changed across layouts");
         expect(checkpoint.rows.size() == rows.size(), "serialized row size changed across layouts");
@@ -80,6 +81,19 @@ static Trace exercise(Options o, Checkpoint& checkpoint) {
     e->eval(text.data(), 1, true);
     take(e->logits());
     expect(trace[trace.size()-1] == trace[trace.size()-2], "state/row restore changed logits");
+
+    if (check_windows) {
+        // Every window length, in both whole and split execution. The first visits create its
+        // templates and are not used by the timing chooser; the next visits exercise replay.
+        // Compact graphs must update the same execution across different sizes and row offsets.
+        for (int guesses = 2; guesses < e->max_window(); ++guesses) {
+            for (int repeat = 0; repeat < 4; ++repeat) {
+                e->window(text.data() + prefix + 20, guesses);
+                for (int k = 0; k < guesses; ++k) take(e->logits_of(k));
+                e->keep(1);
+            }
+        }
+    }
 
     if (e->sequences() > 1) {
         e->copy_seq(0, 1);
@@ -96,21 +110,24 @@ static Trace exercise(Options o, Checkpoint& checkpoint) {
     e->reset(); read(33);
     e->eval(text.data() + 33, 1, true);
     take(e->logits());
-    std::fprintf(stderr, "parity compact=%d: checkpoint complete; step=%d, cancellation=%d\n",
-                 o.compact_scratch, e->sequences() > 1, cancel_n > e->max_rows());
+    std::fprintf(stderr, "parity scratch=%d graph_layout=%d: checkpoint complete; step=%d, cancellation=%d\n",
+                 o.compact_scratch, o.compact_graphs, e->sequences() > 1, cancel_n > e->max_rows());
+    if (check_windows) e->print_memory("parity");
     return trace;
 }
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: %s MODEL.gguf [BATCH=4096] [graphs|no-graphs] [CONTEXT=16384]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s MODEL.gguf [BATCH=4096] [graphs|no-graphs] [CONTEXT=16384] [graph-layout]\n", argv[0]);
         return 2;
     }
     try {
+        const bool graph_layout = argc > 5 && std::strcmp(argv[5], "graph-layout") == 0;
 #ifdef _WIN32
-        _putenv_s("STRATA_FREEZE_EXPERTS", "1");
+        _putenv_s("STRATA_FREEZE_EXPERTS", graph_layout ? "" : "1");
 #else
-        setenv("STRATA_FREEZE_EXPERTS", "1", 1);
+        if (graph_layout) unsetenv("STRATA_FREEZE_EXPERTS");
+        else setenv("STRATA_FREEZE_EXPERTS", "1", 1);
 #endif
         Options o;
         o.model = argv[1];
@@ -123,10 +140,15 @@ int main(int argc, char** argv) {
         o.window = std::min(8, o.prompt_batch);
         o.expert_swaps = 0; o.cpu_share = 0;
         o.vram_reserve_mib = 32768; // mmap mode: no permanent experts in either layout
+        // With no cached experts/swaps and cpu_share=0, placement is fixed without freezing pick_way().
+        // Its first five windows deterministically exercise whole/halves/whole/halves/whole in both engines.
+        o.compact_scratch = graph_layout;
+        o.dump_buffers = graph_layout;
         Checkpoint checkpoint;
-        const auto reference = exercise(o, checkpoint);
+        const auto reference = exercise(o, checkpoint, true, graph_layout);
         o.compact_scratch = true;
-        const auto compact = exercise(o, checkpoint);
+        o.compact_graphs = graph_layout;
+        const auto compact = exercise(o, checkpoint, false, graph_layout);
         expect(reference.size() == compact.size(), "trace length changed");
         size_t count = 0, different = 0;
         double max_abs = 0, sum_abs = 0;

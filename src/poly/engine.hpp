@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -78,6 +79,8 @@ struct Options {
                                   ///< to the slot of one the answer uses less; 0: the cache stays as it was loaded
     bool stay_near = true;        ///< with several NUMA nodes, keep the CPU threads on the one that holds the experts
     bool graphs = true;           ///< a token's fixed launches are recorded once, a CUDA graph a layer, and replayed
+    bool trace_graphs = false;   ///< fence and measure graph capture/instantiate; diagnostic, changes timings
+    bool compact_graphs = false; ///< DeepSeek4/CUDA: one graph per CPU-expert boundary, preserving launch order
     bool kv_grow = true;          ///< the attention caches get VRAM as the sequence grows, where the card can map it
                                   ///< so; false: for the whole context at load, as the expert cache gets the rest
     KvFmt kv_format = KvFmt::kFp16;   ///< the K and V caches' format; fp16 by default (byte-identical path)
@@ -366,6 +369,7 @@ protected:
     /// The scratch of the architecture's own kernels, a fbuf() each.  Called twice: the first time only counts.
     virtual void assign_scratch() = 0;
     virtual bool supports_compact_scratch() const { return false; }
+    virtual bool supports_compact_graphs() const { return false; }
     /// The widest input lin() gets, beside the model's width and the FFNs'.
     virtual int widest() const = 0;
     /// The copies of a token's embedding a layer's input starts from.
@@ -492,7 +496,10 @@ protected:
     bool batched(const Layer& L, int n) const;
     void moe_add(int n);
     template <class F>
-    void* record(F&& work);
+    void* record(F&& work, const char* kind = "other", int layer = -1, size_t key = 0, int rows = 0,
+                 void* reuse = nullptr, void** source = nullptr);
+    void compact_head(int il, int rows, size_t rec, bool launch);
+    void prepare_compact_graphs();
     void moe_rows(Layer& L, int il, int n);
     void stage(const Layer& L, const int32_t* experts, int m, void* stream, bool alone = false);
     void mind_memory();
@@ -583,7 +590,12 @@ protected:
     void* ev_row_[8] = {}; ///< one for each token a window can have
     std::vector<void*> dev_allocs_, host_allocs_;
     std::map<void*, size_t> dev_sizes_, host_sizes_;  ///< live cudaMalloc / cudaMallocHost requests, not cumulative
-    std::vector<void*> graphs_;   ///< every recorded graph, to destroy
+    std::vector<void*> graphs_;   ///< live graph owners; replacing an execution reuses its entry
+    std::map<void*, size_t> graph_form_; ///< compact execution's current template, across bind()
+    std::map<std::tuple<int, int, size_t>, void*> graph_templates_; ///< bound sequence, layer, full form -> source graph
+    uint64_t graph_updates_ = 0, graph_replacements_ = 0;
+    struct GraphCost { uint64_t count = 0, nodes = 0; int64_t device_delta = 0; };
+    std::map<std::string, GraphCost> graph_cost_;
     std::map<std::vector<int>, void*> passes_;   ///< a call's layers recorded as one (run()): by its tokens and
                                                  ///< every layer's head_key()
     void* tail_ = nullptr;        ///< one token's launches from the last layer to the logits, recorded

@@ -1237,6 +1237,8 @@ void usage() {
                  "                         131072 for Qwen3.6, Ornith and Tiel, all of it for the others; 0 = all)\n"
                  "  --no-graphs            launch a token's kernels one by one (default: a layer's are recorded once\n"
                  "                         as a CUDA graph and replayed)\n"
+                 "  --compact-graphs       DeepSeek4/CUDA: combine GPU intervals and reuse graphs across attention sizes\n"
+                 "  --trace-graphs         synchronize and trace graph creation (diagnostic; affects timings)\n"
                  "  --kv-whole             give the attention caches VRAM for the whole context at load (default: as\n"
                  "                         the conversation grows, the expert cache having the rest until then)\n"
                  "  --kv fmt               the K and V attention caches' format: fp16 (default, unchanged) or q8_0\n"
@@ -1350,6 +1352,8 @@ int main(int argc, char** argv) {
         else if (a == "--ram-limit-mib") o.ram_limit_mib = std::atoll(val());
         else if (a == "--any-node") o.stay_near = false;
         else if (a == "--no-graphs") o.graphs = false;
+        else if (a == "--trace-graphs") o.trace_graphs = true;
+        else if (a == "--compact-graphs") o.compact_graphs = true;
         else if (a == "--kv-whole") o.kv_grow = false;
         else if (a == "--kv") {
             const std::string fmt = val();
