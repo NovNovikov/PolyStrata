@@ -1,0 +1,14 @@
+no-disk-1 loading
+Traceback (most recent call last):
+  File "L:\AI_pictures_generate\PolyStrata\tools\bench_poly_no_disk.py", line 228, in <module>
+    if __name__ == '__main__': main()
+                               ~~~~^^
+  File "L:\AI_pictures_generate\PolyStrata\tools\bench_poly_no_disk.py", line 222, in main
+    results.append(run(a, label, exe, ids, resident))
+                   ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "L:\AI_pictures_generate\PolyStrata\tools\bench_poly_no_disk.py", line 83, in run
+    while not line().startswith('READY '):
+              ~~~~^^
+  File "L:\AI_pictures_generate\PolyStrata\tools\bench_poly_no_disk.py", line 79, in line
+    raise RuntimeError(f'{label}: engine exited ({p.wait(timeout=10)}); see {home / "engine.stderr"}')
+RuntimeError: no-disk-1: engine exited (1); see L:\AI_pictures_generate\PolyStrata\bench\results\2026-10-19-poly-windows-ram-admission\before\no-disk-1\engine.stderr

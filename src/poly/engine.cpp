@@ -1955,8 +1955,9 @@ void Engine::load(const Options& o) {
     if (opt_.no_disk) {
         opt_.kv_grow = false;
         resident_ = std::make_unique<ResidentMemory>();
-        resident_ram_start_ = ram_available();
-        if (!resident_ram_start_) throw std::runtime_error("no-disk: available RAM is unknown; refusing to guess");
+#ifndef _WIN32
+        if (!ram_available()) throw std::runtime_error("no-disk: available RAM is unknown; refusing to guess");
+#endif
     }
     asked_reserve_mib_ = o.vram_reserve_mib;
     if (opt_.max_context < 16) throw std::runtime_error("the context must be at least 16 tokens");

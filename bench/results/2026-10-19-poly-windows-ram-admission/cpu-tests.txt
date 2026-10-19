@@ -1,0 +1,7 @@
+Test project L:/AI_pictures_generate/PolyStrata/build-poly-cuda12
+    Start 6: poly_no_disk_test
+1/1 Test #6: poly_no_disk_test ................   Passed    0.02 sec
+
+100% tests passed out of 1
+
+Total Test time (real) =   0.03 sec

@@ -114,22 +114,23 @@ void Engine::load_resident_experts() {
 #ifdef _WIN32
         MEMORYSTATUSEX status{}; status.dwLength = sizeof status;
         if (GlobalMemoryStatusEx(&status)) available = status.ullAvailPhys;
+        constexpr bool attempt_lock = true;
 #else
+        constexpr bool attempt_lock = false;
         if (FILE* f = std::fopen("/proc/meminfo", "r")) {
             char line[128]; unsigned long long kb = 0;
             while (std::fgets(line, sizeof line, f)) if (std::sscanf(line, "MemAvailable: %llu kB", &kb) == 1) break;
             std::fclose(f); available = kb << 10;
         }
 #endif
-        uint64_t ram = available > future_rows ? available - future_rows : 0;
-        if (opt_.ram_limit_mib) {
-            const uint64_t limit = (uint64_t) opt_.ram_limit_mib << 20;
-            const uint64_t held = resident_->bytes() + service_host_bytes_ + future_rows;
-            if (held > limit) throw std::runtime_error("no-disk: host weights and buffers need " +
-                std::to_string(held) + " RAM bytes before experts; --ram-limit-mib provides " + std::to_string(limit));
-            ram = std::min(ram, limit > held ? limit - held : 0);
-        }
-        return ram;
+        const uint64_t limit = (uint64_t) opt_.ram_limit_mib << 20;
+        const uint64_t held = resident_add(resident_->bytes(), service_host_bytes_);
+        std::fprintf(stderr, "strata-poly: no-disk RAM: policy=%s, available_now=%llu MiB, "
+                             "held=%llu MiB, future_rows=%llu MiB, explicit_limit=%llu MiB (0=none)\n",
+                     attempt_lock ? "allocate-and-lock" : "available-physical",
+                     (unsigned long long) (available >> 20), (unsigned long long) (held >> 20),
+                     (unsigned long long) (future_rows >> 20), (unsigned long long) (limit >> 20));
+        return resident_ram_budget(available, held, future_rows, limit, attempt_lock);
     };
     ResidentPlan plan;
     uint8_t* host = nullptr;
@@ -140,10 +141,11 @@ void Engine::load_resident_experts() {
         const uint64_t ram = ram_budget();
         try { plan = plan_resident(experts, ram, vram); }
         catch (const std::runtime_error&) { print_memory("placement-refused"); throw; }
+        const std::string ram_text = ram == UINT64_MAX ? "allocation/lock" : std::to_string(ram >> 20) + " MiB";
         std::fprintf(stderr, "strata-poly: no-disk plan: attempt=%d, %zu experts in RAM (%llu MiB), %zu permanent in VRAM "
-                         "(%llu MiB); available budgets RAM=%llu MiB VRAM=%llu MiB; staging=%zu MiB\n",
+                         "(%llu MiB); expert budgets RAM=%s VRAM=%llu MiB; staging=%zu MiB\n",
                  attempt, experts.size() - plan.card_count, (unsigned long long) (plan.ram >> 20), plan.card_count,
-                 (unsigned long long) (plan.vram >> 20), (unsigned long long) (ram >> 20),
+                 (unsigned long long) (plan.vram >> 20), ram_text.c_str(),
                  (unsigned long long) (vram >> 20), stage_bytes_ >> 20);
         host = (uint8_t*) resident_->allocate((size_t) plan.ram, "routed experts");
         sample_vram("after-ram-arena");

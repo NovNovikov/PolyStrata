@@ -21,6 +21,20 @@ inline uint64_t resident_add(uint64_t a, uint64_t b) {
     if (b > UINT64_MAX - a) throw std::runtime_error("no-disk: byte count overflow");
     return a + b;
 }
+// On Windows an available-physical snapshot excludes pages the OS can reclaim from other processes.
+// Try the actual allocation and full lock instead; only an explicit host limit is a hard RAM budget.
+// Other platforms retain the existing available-memory admission check. UINT64_MAX means no explicit cap.
+inline uint64_t resident_ram_budget(uint64_t available, uint64_t held, uint64_t future_rows,
+                                    uint64_t limit, bool attempt_lock) {
+    uint64_t ram = attempt_lock ? UINT64_MAX : (available > future_rows ? available - future_rows : 0);
+    if (limit) {
+        const uint64_t used = resident_add(held, future_rows);
+        if (used > limit) throw std::runtime_error("no-disk: host weights and buffers need " +
+            std::to_string(used) + " RAM bytes before experts; --ram-limit-mib provides " + std::to_string(limit));
+        ram = std::min(ram, limit - used);
+    }
+    return ram;
+}
 inline ResidentPlan plan_resident(const std::vector<ResidentExpert>& experts, uint64_t ram, uint64_t vram) {
     ResidentPlan p;
     p.on_card.assign(experts.size(), false);
@@ -47,7 +61,7 @@ inline ResidentPlan plan_resident(const std::vector<ResidentExpert>& experts, ui
     }
     if (p.ram > ram)
         throw std::runtime_error("no-disk: model does not fit: experts need " + std::to_string(p.ram) +
-            " RAM bytes after placing " + std::to_string(p.vram) + " in VRAM; available RAM " +
+            " RAM bytes after placing " + std::to_string(p.vram) + " in VRAM; RAM budget " +
             std::to_string(ram) + ", available expert VRAM " + std::to_string(vram));
     return p;
 }

@@ -1,0 +1,6 @@
+resident release probe: three reallocations, ownership, byte counts and working-set restore passed
+resident probe: impossible allocation reports Windows error and releases cleanly
+resident probe: every page verified resident and locked via QueryWorkingSetEx
+resident probe: requested=1024 MiB locked=1024 MiB in 0.25 s
+resident probe: every page verified resident and locked via QueryWorkingSetEx
+resident probe: requested=1024 MiB locked=1024 MiB in 0.20 s

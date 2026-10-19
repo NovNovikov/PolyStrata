@@ -3,7 +3,32 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#ifdef _WIN32
+#include <psapi.h>
+#endif
 namespace {
+#ifdef _WIN32
+void verify_locked(void* p, size_t n) {
+    SYSTEM_INFO info{};
+    GetSystemInfo(&info);
+    const size_t page = info.dwPageSize;
+    std::vector<PSAPI_WORKING_SET_EX_INFORMATION> pages(4096);
+    for (size_t offset = 0; offset < n;) {
+        size_t count = 0;
+        while (count < pages.size() && offset < n) {
+            pages[count++] = {};
+            pages[count - 1].VirtualAddress = (unsigned char*) p + offset;
+            offset += page;
+        }
+        if (!QueryWorkingSetEx(GetCurrentProcess(), pages.data(), (DWORD) (count * sizeof(pages[0]))))
+            throw std::runtime_error("resident probe: QueryWorkingSetEx failed");
+        for (size_t i = 0; i < count; ++i)
+            if (!pages[i].VirtualAttributes.Valid || !pages[i].VirtualAttributes.Locked)
+                throw std::runtime_error("resident probe: a page is not resident and locked");
+    }
+    std::puts("resident probe: every page verified resident and locked via QueryWorkingSetEx");
+}
+#endif
 void release_probe() {
     strata::poly::ResidentMemory memory;
     auto* keep = (unsigned char*) memory.allocate(4096, "replan keeper");
@@ -40,10 +65,27 @@ int main(int argc, char** argv) {
     if (runs < 1 || runs > 64) return 2;
     try {
       release_probe();
+#ifdef _WIN32
+      // An impossible address-space request must report the actual Windows allocation error, then clean up.
+      bool refused = false;
+      try {
+          strata::poly::ResidentMemory memory;
+          memory.allocate(SIZE_MAX, "impossible allocation probe");
+      } catch (const std::runtime_error& e) {
+          const std::string message = e.what();
+          refused = message.find("VirtualAlloc failed") != std::string::npos &&
+                    message.find("(error ") != std::string::npos;
+      }
+      if (!refused) throw std::runtime_error("resident probe: missing Windows allocation error");
+      std::puts("resident probe: impossible allocation reports Windows error and releases cleanly");
+#endif
       for (int run = 0; run < runs; ++run) {
         const auto t = std::chrono::steady_clock::now();
         strata::poly::ResidentMemory memory;
-        memory.allocate((size_t) mib << 20, "probe");
+        void* p = memory.allocate((size_t) mib << 20, "probe");
+#ifdef _WIN32
+        verify_locked(p, (size_t) mib << 20);
+#endif
         std::printf("resident probe: requested=%llu MiB locked=%llu MiB in %.2f s\n", mib,
                     (unsigned long long) (memory.bytes() >> 20),
                     std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count());

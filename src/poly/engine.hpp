@@ -52,7 +52,7 @@ struct Options {
     int no_disk_vram_margin_mib = 512; ///< extra headroom for loading, separate from the runtime reserve
     bool rows_vram = false;      ///< reserve intermediate read rows in VRAM
     int read_chunk_tokens = 0;   ///< prompt tokens in one read() pass at most; 0: context / RAM limit
-    int64_t ram_limit_mib = 0;   ///< no-disk RAM allocations at most; 0: current available RAM
+    int64_t ram_limit_mib = 0;   ///< no-disk host cap; 0: allocation/lock on Windows, available RAM elsewhere
     bool dump = false;            ///< print a checksum of every stage, for comparing against llama.cpp
     bool dump_buffers = false;    ///< print every VRAM/RAM allocation and scratch slice with its size and call site
     bool compact_scratch = false; ///< DeepSeek4: share scratch between phases with disjoint lifetimes
@@ -539,7 +539,6 @@ protected:
     std::unique_ptr<ResidentMemory> resident_;
     std::unique_ptr<ResidentDma> expert_dma_;
     size_t resident_host_bytes_ = 0, service_host_bytes_ = 0;
-    uint64_t resident_ram_start_ = 0;
     std::unique_ptr<Shards> dg_;      ///< Options::draft_model, while the draft block is read from it
     const Shards* block_ = nullptr;   ///< the file the draft block is in: gg_ or dg_
     std::shared_ptr<Workers> workers_;   ///< on several cards, one for all of them: they take turns

@@ -56,6 +56,11 @@ public:
         if (!n) return nullptr;
 #ifdef _WIN32
         void* p = VirtualAlloc(nullptr, n, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        if (!p) {
+            const DWORD error = GetLastError();
+            throw std::runtime_error("no-disk: VirtualAlloc failed for " + std::to_string(n) +
+                " RAM bytes for " + what + " (error " + std::to_string(error) + ")");
+        }
 #else
         void* p = mmap(nullptr, n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (p == MAP_FAILED) p = nullptr;

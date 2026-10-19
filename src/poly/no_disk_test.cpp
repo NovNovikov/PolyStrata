@@ -30,6 +30,24 @@ int main() {
         check(ranges.size() == 1 && ranges[0].first == offset / 4096 * 4096 && ranges[0].second == 4096);
     }
     std::vector<ResidentExpert> e{{0,0,10,12,1}, {0,1,10,12,30}, {1,0,10,12,10}};
+    // A Windows physical-memory snapshot is diagnostic, including when zero/unknown. Allocation and lock decide.
+    check(resident_ram_budget(0, 100, 20, 0, true) == UINT64_MAX);
+    check(resident_ram_budget(5, 100, 20, 0, true) == UINT64_MAX);
+    check(plan_resident(e, resident_ram_budget(5, 100, 20, 0, true), 12).ram == 20);
+    // An explicit cap still includes existing allocations and future host rows, even if snapshot RAM is tiny.
+    check(resident_ram_budget(5, 100, 20, 140, true) == 20);
+    check(plan_resident(e, resident_ram_budget(5, 100, 20, 140, true), 12).ram == 20);
+    check(fails([&] { plan_resident(e, resident_ram_budget(1000, 100, 20, 139, true), 12); }));
+    check(resident_ram_budget(1000, 100, 20, 120, true) == 0);
+    check(fails([] { resident_ram_budget(1000, 100, 20, 119, true); }));
+    check(fails([] { resident_ram_budget(1000, UINT64_MAX, 1, UINT64_MAX, true); }));
+    // Preserve other platforms' snapshot admission and avoid underflow when future rows exceed available RAM.
+    check(resident_ram_budget(25, 100, 20, 0, false) == 5);
+    check(resident_ram_budget(5, 100, 20, 0, false) == 0);
+    check(resident_ram_budget(0, 100, 0, 0, false) == 0);
+    check(resident_ram_budget(1000, 100, 20, 140, false) == 20);
+    check(resident_ram_budget(25, 100, 20, 140, false) == 5);
+    check(fails([&] { plan_resident(e, resident_ram_budget(25, 100, 20, 0, false), 12); }));
     // The card fills first: with room for all three, nothing stays in RAM even though RAM would hold them.
     auto p = plan_resident(e, 30, 1000);
     check(p.card_count == 3 && p.ram == 0 && p.vram == 36);

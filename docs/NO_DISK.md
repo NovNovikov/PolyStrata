@@ -45,7 +45,7 @@ attempt to read their payload fails instead of silently falling back to disk.
 | Option | Meaning |
 | --- | --- |
 | `--no-disk` | Require all weights to fit in locked RAM and fixed VRAM; close model files after loading |
-| `--ram-limit-mib N` | Upper bound for resident host weights and known host buffers; 0 uses available RAM |
+| `--ram-limit-mib N` | Upper bound for resident host weights and known host buffers; 0 leaves allocation/locking to Windows, or uses available RAM on other platforms |
 | `--rows-vram` | Allocate intermediate read rows in VRAM for the maximum read pass, at load |
 | `--read-chunk N` | Limit tokens in a layer-by-layer read pass independently of the context; 0 uses existing limits |
 | `--vram-reserve-mib N` | Keep this VRAM free, with the existing automatic reserve when omitted |
@@ -72,10 +72,15 @@ GPU experts; total allocated VRAM need not fall by that amount. `--dump-buffers`
 physical coverage and reused bytes separately when offsets overlap. See
 [the measurement record](../bench/results/2026-10-19-poly-compact-scratch/README.md) for validation and timings.
 
-RAM is sampled after the loader's existing allocations. The OS and other programs have already been deducted
-from that available figure. Without `--rows-vram`, the plan subtracts the maximum host
-read-row buffer that may be allocated later. A RAM limit additionally subtracts the host weights and buffers
-already allocated and those future read rows. It is not a limit on all process metadata, DLLs or chat caches.
+On Windows, current available RAM is diagnostic rather than a hard admission limit: the OS can reclaim pages
+from other processes when allocating and locking the model. The loader attempts `VirtualAlloc` and full
+`VirtualLock` even when the requested weights exceed that snapshot, or the snapshot is unavailable. Loading
+still fails if allocation or full locking fails; pageable weights are not accepted as a fallback.
+On other platforms, available RAM after the loader's existing allocations remains a hard planning budget;
+without `--rows-vram`, it subtracts the maximum host read-row buffer that may be allocated later.
+On all platforms an explicit RAM limit subtracts the host weights and buffers already allocated and those
+future read rows. It is not a limit on all process metadata, DLLs or chat caches. Diagnostics distinguish
+`available_now`, the explicit limit (0 means none), and the allocation/lock policy.
 
 Free VRAM is sampled after dense weights, full-context KV, scratch, staging and optional VRAM read rows exist.
 The expert budget is `max(0, free - reserve - loading_headroom)`. The extra 512 MiB is a starting allowance,
