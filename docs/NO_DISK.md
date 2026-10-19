@@ -53,16 +53,20 @@ attempt to read their payload fails instead of silently falling back to disk.
 | `--stage-mib N` | VRAM through which RAM experts pass; at most one layer's experts |
 | `--compact-scratch` | DeepSeek4 only: reuse scratch between attention and MoE phases; off by default |
 
-`--compact-scratch` changes workspace addresses, not kernels, precision, batch size or the number of experts
-computed. Attention preparation and its result share memory at different times; output projection keeps its
+`--compact-scratch` preserves precision, batch size and the number of experts computed. Attention preparation
+and its result share memory at different times; output projection keeps its
 permutation input and output separate. The attention workspace also shares space with the later batched MoE
 workspace. Hyper-connection weights stay outside both regions because the layer tail still reads them.
-The same layout works without MMQ, with no MoE workspace to borrow. Every use follows the previous phase's
-last read on the compute stream, including graph capture/replay. Expert staging/cache capacity is unchanged.
+The same layout works without MMQ, with no MoE workspace to borrow. Compressor kernels read projected rows
+of the current call directly from the existing temporary buffers, then update a short per-layer history ring.
+The ring holds the overlap plus the speculative window, rather than the whole prompt batch. Softmax, weighted
+sum, normalization and RoPE keep their arithmetic order; full-context compressed KV is unchanged. Every reuse
+follows the previous phase's last read on the compute stream, including graph capture/replay. Expert
+staging/cache capacity is unchanged.
 
 With this DeepSeek V4 Flash Q3_K_M model on Windows/RTX 4090, context 131072 and read chunk 32768,
-the measured `other` allocations fell from 5164.24 to 3747.36 MiB at prompt batch 4096, and from 1415.54 to
-1015.54 MiB at batch 1024. These are allocation-only comparisons with full-context KV and no permanent
+the measured `other` allocations fell from 5164.24 to 2589.63 MiB at prompt batch 4096, and from 1415.54 to
+727.81 MiB at batch 1024. These are allocation-only comparisons with full-context KV and no permanent
 experts, not a throughput result. In no-disk mode the loader can spend the freed budget on more permanent
 GPU experts; total allocated VRAM need not fall by that amount. `--dump-buffers` reports logical slice bytes,
 physical coverage and reused bytes separately when offsets overlap. See

@@ -276,6 +276,10 @@ void dsv4_rope(const float* x, float* y, int dim, int heads, int off, int n_rot,
 /// ape[p % ratio].  width values a row.
 void dsv4_state(const float* kv, const float* score, const float* ape, float* ring_kv, float* ring_score, int ring,
                 int width, int ratio, int64_t pos, int rows, void* stream, const long long* at = nullptr);
+/// As state, but only the final min(rows, ring) rows: never race multiple current
+/// rows onto the same history slot. Called AFTER squeeze_current consumes history.
+void dsv4_state_tail(const float* kv, const float* score, const float* ape, float* ring_kv, float* ring_score, int ring,
+                     int width, int ratio, int64_t pos, int rows, void* stream, const long long* at = nullptr);
 /// For each of the `rows` tokens from position pos that ends a block of ratio positions, the block's compressed row
 /// into `cache` (fp16, dim values a block, at the block's index): value d is the sum over the block's rows of
 /// softmax(score) * kv, RMS-normed with `norm` (dim weights), its last n_rot values turned by the block's first
@@ -285,6 +289,13 @@ void dsv4_state(const float* kv, const float* score, const float* ape, float* ri
 void dsv4_squeeze(const float* ring_kv, const float* ring_score, int ring, int dim, int ratio, bool overlap,
                   const float* norm, float eps, const Rope& r, int n_rot, int64_t pos, int rows, uint16_t* cache,
                   void* stream, const long long* at = nullptr);
+/// Same arithmetic, reading positions from the current call directly from kv/score
+/// (score + ape), and earlier positions from the history ring. Call positions must
+/// be contiguous; with at, their first position is at[0]. The ring is not modified.
+void dsv4_squeeze_current(const float* kv, const float* score, const float* ape, const float* ring_kv,
+                          const float* ring_score, int ring, int dim, int ratio, bool overlap,
+                          const float* norm, float eps, const Rope& r, int n_rot, int64_t pos, int rows,
+                          uint16_t* cache, void* stream, const long long* at = nullptr);
 /// The indexer's scores of the tokens from position pos: score[b] = scale * sum_h w[h] * relu(q[h] . key[b]) for
 /// the compressed rows b < (pos + t + 1) / ratio.  q: n_head * dim a token; w: n_head; keys: fp16, dim a row.  A
 /// token's scores start score_stride apart.  dim must be 128.  Throws std::invalid_argument, and

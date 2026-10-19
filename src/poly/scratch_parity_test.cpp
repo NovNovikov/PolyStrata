@@ -14,10 +14,14 @@
 
 using namespace strata::poly;
 using Trace = std::vector<std::vector<float>>;
+struct Checkpoint {
+    std::vector<uint8_t> state, rows;
+    int64_t pos = 0;
+};
 
 static void expect(bool ok, const char* what) { if (!ok) throw std::runtime_error(what); }
 
-static Trace exercise(Options o) {
+static Trace exercise(Options o, Checkpoint& checkpoint) {
     auto e = Engine::open(o);
     expect(e->cached_experts() == 0, "parity needs zero cached experts in both layouts");
     std::vector<int32_t> text(2 * o.prompt_batch + 400);
@@ -44,7 +48,7 @@ static Trace exercise(Options o) {
             e->eval(text.data() + n + 1 + k, 1, true);
             take(e->logits());
         }
-        const int guesses = std::min(4, e->max_window());
+        const int guesses = e->max_window();
         e->window(text.data() + n + 4, guesses);
         for (int k = 0; k < guesses; ++k) take(e->logits_of(k));
         e->keep(std::min(2, guesses));
@@ -63,18 +67,26 @@ static Trace exercise(Options o) {
     std::vector<uint8_t> state(e->state_bytes()), rows(at * e->row_bytes());
     e->save_state(state.data());
     e->save_rows(0, at, rows.data());
+    if (!o.compact_scratch) checkpoint = {state, rows, at};
+    else {
+        expect(checkpoint.pos == at && checkpoint.state == state, "serialized state bytes changed across layouts");
+        expect(checkpoint.rows.size() == rows.size(), "serialized row size changed across layouts");
+    }
     e->eval(text.data(), 1, true);
     take(e->logits());
-    e->load_rows(rows.data(), 0, at, 0, at);
-    e->load_state(state.data(), at);
+    // The compact engine imports the ORIGINAL layout's checkpoint, not its own.
+    e->load_rows(checkpoint.rows.data(), 0, at, 0, at);
+    e->load_state(checkpoint.state.data(), at);
     e->eval(text.data(), 1, true);
     take(e->logits());
     expect(trace[trace.size()-1] == trace[trace.size()-2], "state/row restore changed logits");
 
-    e->copy_seq(0, 1);
-    const int seqs[] = {0, 1};
-    e->step(seqs, text.data() + 1, 2);
-    take(e->logits_of(0)); take(e->logits_of(1));
+    if (e->sequences() > 1) {
+        e->copy_seq(0, 1);
+        const int seqs[] = {0, 1};
+        e->step(seqs, text.data() + 1, 2);
+        take(e->logits_of(0)); take(e->logits_of(1));
+    }
     e->bind(0);
     // Cancellation followed by a new prefill must not retain reused scratch.
     const std::function<bool(int, int)> cancel = [](int, int) { return false; };
@@ -84,7 +96,8 @@ static Trace exercise(Options o) {
     e->reset(); read(33);
     e->eval(text.data() + 33, 1, true);
     take(e->logits());
-    std::fprintf(stderr, "parity compact=%d: partial batch, restore, step and cancellation complete\n", o.compact_scratch);
+    std::fprintf(stderr, "parity compact=%d: checkpoint complete; step=%d, cancellation=%d\n",
+                 o.compact_scratch, e->sequences() > 1, cancel_n > e->max_rows());
     return trace;
 }
 
@@ -106,13 +119,14 @@ int main(int argc, char** argv) {
         o.max_context = argc > 4 ? std::atoi(argv[4]) : 16384;
         o.read_chunk_tokens = std::max(128, 2 * o.prompt_batch);
         o.threads = 12; o.stage_mib = 2048; o.stage_ahead = 32;
-        o.rows_vram = true; o.batch = 1; o.draft = false;
+        o.rows_vram = true; o.batch = o.prompt_batch > 1 ? 1 : 0; o.draft = false;
         o.window = std::min(8, o.prompt_batch);
         o.expert_swaps = 0; o.cpu_share = 0;
         o.vram_reserve_mib = 32768; // mmap mode: no permanent experts in either layout
-        const auto reference = exercise(o);
+        Checkpoint checkpoint;
+        const auto reference = exercise(o, checkpoint);
         o.compact_scratch = true;
-        const auto compact = exercise(o);
+        const auto compact = exercise(o, checkpoint);
         expect(reference.size() == compact.size(), "trace length changed");
         size_t count = 0, different = 0;
         double max_abs = 0, sum_abs = 0;

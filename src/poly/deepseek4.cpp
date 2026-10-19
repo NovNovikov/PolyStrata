@@ -225,7 +225,9 @@ void DeepSeek4::alloc_caches() {
         if (!B.ratio) continue;
         // a call's rows and the ones before it that its first block reads: the block's own, and with the overlap
         // the block before
-        B.ring = rows_ + (B.ratio == 4 ? 2 : 1) * B.ratio;
+        // Current-batch rows can be read directly from ckv_/cscore_. Only history
+        // plus the speculative window must persist independently for every layer.
+        B.ring = (opt_.compact_scratch ? opt_.window : rows_) + (B.ratio == 4 ? 2 : 1) * B.ratio;
         for (Squeeze* S : {&B.comp, &B.idx}) {
             if (!S->dim) continue;
             S->kv = (float*) seq_alloc((size_t) B.ring * S->width * sizeof(float), "the compressor's rows");
@@ -292,6 +294,15 @@ void DeepSeek4::assign_scratch() {
 void DeepSeek4::squeeze(Block& B, Squeeze& S, int64_t pos, int n) {
     const long long* at = recording_ ? at_ : nullptr;
     pair(S.wkv, S.wgate, ckv_, cscore_, n);
+    if (opt_.compact_scratch) {
+        // Read old history before updating it. Fresh rows come from the shared
+        // batch temporaries; ape is added with the same float addition as state().
+        dsv4_squeeze_current(ckv_, cscore_, fp(S.ape), S.kv, S.score, B.ring, S.dim, B.ratio, S.width != S.dim,
+                             fp(S.norm), rms_eps_, rope_comp_, n_rot_, pos, n,
+                             &S == &B.comp ? B.rows : B.keys, st_, at);
+        dsv4_state_tail(ckv_, cscore_, fp(S.ape), S.kv, S.score, B.ring, S.width, B.ratio, pos, n, st_, at);
+        return;
+    }
     dsv4_state(ckv_, cscore_, fp(S.ape), S.kv, S.score, B.ring, S.width, B.ratio, pos, n, st_, at);
     dsv4_squeeze(S.kv, S.score, B.ring, S.dim, B.ratio, S.width != S.dim, fp(S.norm), rms_eps_, rope_comp_, n_rot_,
                  pos, n, &S == &B.comp ? B.rows : B.keys, st_, at);

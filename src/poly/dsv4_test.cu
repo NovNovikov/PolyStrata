@@ -3,7 +3,7 @@
 // It checks the kernels do what their comments say; llama.cpp is the reference for what that should be
 // (tools: a model's tokens against llama.cpp's).
 //
-// usage: poly_dsv4_test   (exit 0: every kernel within float rounding of the host)
+// usage: poly_dsv4_test [REPORT_FILE] (exit 0: every kernel within float rounding of the host)
 #include "strata/poly/kernels.hpp"
 
 #include <cuda_fp16.h>
@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <numeric>
 #include <random>
 #include <vector>
@@ -164,6 +165,74 @@ int test_squeeze(bool overlap, int ratio, int dim) {
     return bad;
 }
 
+// Compare compressed fp16 outputs AND the persistent float history bit for bit.
+// Small guarded rings cover full batches, partial blocks, wraparound, at[] and
+// speculative rollback; the reference retains the original full-batch rings.
+int test_squeeze_current(bool overlap, int ratio, int dim) {
+    const int width = overlap ? 2 * dim : dim, guard = 64;
+    const int large = 4096 + (overlap ? 2 : 1) * ratio;
+    const int small = 8 + (overlap ? 2 : 1) * ratio;
+    const int keep = (overlap ? 2 : 1) * ratio - 1, capacity = 6000;
+    constexpr float fence = -12345.25f;
+    const auto kv = random((size_t) capacity * width), sc = random(kv.size());
+    const auto ape = random((size_t) ratio * width), norm = random(dim, .5f);
+    float *x = dev(kv), *s = dev(sc), *a = dev(ape), *w = dev(norm);
+    float *old_k = dev(std::vector<float>((size_t) large * width)),
+          *old_s = dev(std::vector<float>((size_t) large * width));
+    float *new_k_base = dev(std::vector<float>((size_t) small * width + 2 * guard, fence)),
+          *new_s_base = dev(std::vector<float>((size_t) small * width + 2 * guard, fence));
+    float *new_k = new_k_base + guard, *new_s = new_s_base + guard;
+    const size_t cache_size = (capacity / ratio + 1) * (size_t) dim;
+    constexpr uint16_t half_fence = 0xb00f;
+    auto* old_c = dev(std::vector<uint16_t>(cache_size, half_fence));
+    auto* new_c_base = dev(std::vector<uint16_t>(cache_size + 2 * guard, half_fence));
+    auto* new_c = new_c_base + guard;
+    auto* at_dev = dev(std::vector<long long>(8192));
+    Rope r;
+    r.theta_scale = std::pow(160000.f, -2.f / 64);
+    int64_t pos = 0;
+    int bad = 0, frame = 0;
+    for (int n : {1, 7, 3, 128, 129, 33, 4096, 8, 3, 1, 128}) {
+        if (frame == 8) pos -= 5; // keep only three of the preceding eight guesses
+        const int input = (int) pos + (frame >= 8 ? 257 : 0); // new values after rollback
+        std::vector<long long> at((size_t) n * 2);
+        for (int t = 0; t < n; ++t) at[2 * t] = pos + t;
+        cudaMemcpy(at_dev, at.data(), at.size() * sizeof(long long), cudaMemcpyHostToDevice);
+        const long long* positions = frame % 2 ? at_dev : nullptr;
+        dsv4_state(x + (size_t) input * width, s + (size_t) input * width, a, old_k, old_s, large,
+                    width, ratio, pos, n, nullptr, positions);
+        dsv4_squeeze(old_k, old_s, large, dim, ratio, overlap, w, 1e-6f, r, 64, pos, n, old_c,
+                      nullptr, positions);
+        dsv4_squeeze_current(x + (size_t) input * width, s + (size_t) input * width, a, new_k, new_s, small,
+                              dim, ratio, overlap, w, 1e-6f, r, 64, pos, n, new_c, nullptr, positions);
+        dsv4_state_tail(x + (size_t) input * width, s + (size_t) input * width, a, new_k, new_s, small,
+                         width, ratio, pos, n, nullptr, positions);
+        pos += n;
+        const size_t visible = (size_t) (pos / ratio) * dim;
+        bad += host(old_c, visible) != host(new_c, visible);
+        const auto ok = host(old_k, (size_t) large * width), os = host(old_s, (size_t) large * width);
+        const auto nk = host(new_k_base, (size_t) small * width + 2 * guard),
+                   ns = host(new_s_base, (size_t) small * width + 2 * guard);
+        for (int64_t p = std::max<int64_t>(0, pos - keep); p < pos; ++p) {
+            bad += std::memcmp(ok.data() + (p % large) * width, nk.data() + guard + (p % small) * width,
+                               width * sizeof(float)) != 0;
+            bad += std::memcmp(os.data() + (p % large) * width, ns.data() + guard + (p % small) * width,
+                               width * sizeof(float)) != 0;
+        }
+        for (int j = 0; j < guard; ++j)
+            bad += nk[j] != fence || ns[j] != fence || nk[nk.size()-1-j] != fence || ns[ns.size()-1-j] != fence;
+        const auto cache = host(new_c_base, cache_size + 2 * guard);
+        for (int j = 0; j < guard; ++j)
+            bad += cache[j] != half_fence || cache[cache.size()-1-j] != half_fence;
+        ++frame;
+    }
+    std::printf("compact squeeze ratio=%d dim=%d overlap=%d: %d frames, exact outputs/history and GPU guards: %s\n",
+                ratio, dim, overlap, frame, bad ? "FAIL" : "PASS");
+    for (void* p : {(void*) x, (void*) s, (void*) a, (void*) w, (void*) old_k, (void*) old_s,
+                    (void*) new_k_base, (void*) new_s_base, (void*) old_c, (void*) new_c_base, (void*) at_dev}) cudaFree(p);
+    return bad ? 1 : 0;
+}
+
 // rows from GROUP_ROWS (32) take the batch kernel; 12 heads leave its second group of 8 short
 int test_attend(bool with_sel, int ratio, int rows, int heads, int window) {
     const int dim = 512, top = 6;
@@ -270,11 +339,19 @@ int test_index() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    // An explicit file also keeps the target's results when Windows sanitizer
+    // launchers do not forward the child process's stdout pipe.
+    if (argc > 1 && !std::freopen(argv[1], "w", stdout)) return 2;
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    std::printf("DeepSeek kernel test started\n");
     int bad = test_rope();
     bad += test_squeeze(true, 4, 512);
     bad += test_squeeze(true, 4, 128);
     bad += test_squeeze(false, 128, 512);
+    bad += test_squeeze_current(true, 4, 512);
+    bad += test_squeeze_current(true, 4, 128);
+    bad += test_squeeze_current(false, 128, 512);
     bad += test_attend(false, 128, 5, 8, 16);
     bad += test_attend(true, 4, 5, 8, 16);
     bad += test_attend(false, 4, 5, 8, 16);

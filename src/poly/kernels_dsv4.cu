@@ -137,11 +137,15 @@ __global__ void rope_kernel(const float* __restrict__ x, float* y, int dim, int 
 }
 
 // A thread a value of a token's row.
+template <bool Tail>
 __global__ void state_kernel(const float* __restrict__ kv, const float* __restrict__ score,
                              const float* __restrict__ ape, float* __restrict__ ring_kv, float* __restrict__ ring_score,
                              int ring, int width, int ratio, long long pos, const long long* at) {
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= width) return;
+    if constexpr (Tail) {
+        if (blockIdx.y + (unsigned) ring < gridDim.y) return;
+    }
     const long long p = position(at, pos, 1, blockIdx.y);
     const size_t src = size_t(blockIdx.y) * width + i, dst = size_t(p % ring) * width + i;
     ring_kv[dst] = kv[src];
@@ -153,17 +157,21 @@ __global__ void state_kernel(const float* __restrict__ kv, const float* __restri
 // first; the weights are the softmax's, then the sum of weight times value in that order, as ggml's soft_max, mul
 // and sum_rows give it.  Then the row is RMS-normed with its weights, turned by the block's first position on its
 // last n_rot values, and stored as fp16 at the block's index.
+template <bool Current>
 __global__ void squeeze_kernel(const float* __restrict__ ring_kv, const float* __restrict__ ring_score, int ring,
                                int dim, int ratio, bool overlap, const float* __restrict__ norm, float eps, Rope r,
-                               int n_rot, long long pos, const long long* at, uint16_t* __restrict__ cache) {
+                                int n_rot, long long pos, const long long* at, uint16_t* __restrict__ cache,
+                                const float* __restrict__ current_kv, const float* __restrict__ current_score,
+                                const float* __restrict__ ape) {
     __shared__ float part[32], vals[1024];
     const long long p = position(at, pos, 1, blockIdx.x);
     if ((p + 1) % ratio != 0) return;
     const int d = threadIdx.x;
     const long long start = p + 1 - ratio;
     const int width = overlap ? 2 * dim : dim, n = overlap ? 2 * ratio : ratio;
+    const long long begin = Current ? position(at, pos, 1, 0) : 0;
     // the j-th value: a ring row and a column, or nothing for a row before the sequence
-    auto src = [&](int j, size_t& idx) {
+    auto src = [&](int j, size_t& idx, bool& fresh, size_t& ai) {
         long long row;
         int col = d;
         if (!overlap) {
@@ -175,24 +183,33 @@ __global__ void squeeze_kernel(const float* __restrict__ ring_kv, const float* _
             col = dim + d;
         }
         if (row < 0) return false;
-        idx = size_t(row % ring) * width + col;
+        fresh = Current && row >= begin;
+        idx = size_t(fresh ? row - begin : row % ring) * width + col;
+        ai = fresh ? size_t(row % ratio) * width + col : 0;
         return true;
+    };
+    const auto score_at = [&](size_t idx, bool fresh, size_t ai) {
+        if constexpr (Current) {
+            if (fresh) return current_score[idx] + ape[ai];
+        }
+        return ring_score[idx];
     };
     float mx = -INFINITY;
     for (int j = 0; j < n; ++j) {
-        size_t idx;
-        if (src(j, idx)) mx = fmaxf(mx, ring_score[idx]);
+        size_t idx, ai; bool fresh;
+        if (src(j, idx, fresh, ai)) mx = fmaxf(mx, score_at(idx, fresh, ai));
     }
     float sum = 0.0f;
     for (int j = 0; j < n; ++j) {
-        size_t idx;
-        if (src(j, idx)) sum += expf(ring_score[idx] - mx);
+        size_t idx, ai; bool fresh;
+        if (src(j, idx, fresh, ai)) sum += expf(score_at(idx, fresh, ai) - mx);
     }
     const float inv = 1.0f / sum;
     float acc = 0.0f;
     for (int j = 0; j < n; ++j) {
-        size_t idx;
-        if (src(j, idx)) acc += expf(ring_score[idx] - mx) * inv * ring_kv[idx];
+        size_t idx, ai; bool fresh;
+        if (src(j, idx, fresh, ai))
+            acc += expf(score_at(idx, fresh, ai) - mx) * inv * (fresh ? current_kv[idx] : ring_kv[idx]);
     }
     const float scale = 1.0f / sqrtf(block_sum(acc * acc, part) / float(dim) + eps);
     vals[d] = acc * scale * norm[d];
@@ -518,9 +535,17 @@ void dsv4_rope(const float* x, float* y, int dim, int heads, int off, int n_rot,
 void dsv4_state(const float* kv, const float* score, const float* ape, float* ring_kv, float* ring_score, int ring,
                 int width, int ratio, int64_t pos, int rows, void* stream, const long long* at) {
     if (rows <= 0) return;
-    state_kernel<<<dim3(grid(width, 256), rows), 256, 0, cs(stream)>>>(kv, score, ape, ring_kv, ring_score, ring, width,
+    state_kernel<false><<<dim3(grid(width, 256), rows), 256, 0, cs(stream)>>>(kv, score, ape, ring_kv, ring_score, ring, width,
                                                                        ratio, (long long) pos, at);
     ck("dsv4_state");
+}
+
+void dsv4_state_tail(const float* kv, const float* score, const float* ape, float* ring_kv, float* ring_score, int ring,
+                     int width, int ratio, int64_t pos, int rows, void* stream, const long long* at) {
+    if (rows <= 0) return;
+    state_kernel<true><<<dim3(grid(width, 256), rows), 256, 0, cs(stream)>>>(kv, score, ape, ring_kv, ring_score, ring,
+                                                                        width, ratio, (long long) pos, at);
+    ck("dsv4_state_tail");
 }
 
 void dsv4_squeeze(const float* ring_kv, const float* ring_score, int ring, int dim, int ratio, bool overlap,
@@ -529,9 +554,21 @@ void dsv4_squeeze(const float* ring_kv, const float* ring_score, int ring, int d
     if (rows <= 0) return;
     if (dim % WARP || dim > 1024 || n_rot % 2 || n_rot > dim)
         throw std::invalid_argument("dsv4_squeeze: a row of 32 to 1024 values, in 32s");
-    squeeze_kernel<<<rows, dim, 0, cs(stream)>>>(ring_kv, ring_score, ring, dim, ratio, overlap, norm, eps, r, n_rot,
-                                                 (long long) pos, at, cache);
+    squeeze_kernel<false><<<rows, dim, 0, cs(stream)>>>(ring_kv, ring_score, ring, dim, ratio, overlap, norm, eps, r, n_rot,
+                                                       (long long) pos, at, cache, nullptr, nullptr, nullptr);
     ck("dsv4_squeeze");
+}
+
+void dsv4_squeeze_current(const float* kv, const float* score, const float* ape, const float* ring_kv,
+                          const float* ring_score, int ring, int dim, int ratio, bool overlap,
+                          const float* norm, float eps, const Rope& r, int n_rot, int64_t pos, int rows,
+                          uint16_t* cache, void* stream, const long long* at) {
+    if (rows <= 0) return;
+    if (dim % WARP || dim > 1024 || n_rot % 2 || n_rot > dim || !kv || !score || !ape)
+        throw std::invalid_argument("dsv4_squeeze_current: invalid row or current inputs");
+    squeeze_kernel<true><<<rows, dim, 0, cs(stream)>>>(ring_kv, ring_score, ring, dim, ratio, overlap, norm, eps, r, n_rot,
+                                                      (long long) pos, at, cache, kv, score, ape);
+    ck("dsv4_squeeze_current");
 }
 
 void dsv4_idx_score(const float* q, const float* w, const uint16_t* keys, float* score, int score_stride, int dim,
