@@ -215,6 +215,29 @@ So of 22177.49 MiB of device memory at chunk 4096, the part that grows with the 
 attention caches (215 -> 860) and the read rows (256 -> 2048); the architecture scratch arena grows
 by 256 MiB (one slice) because of the chunk, and the compressor rows and rings do not grow at all.
 
+## Phase 2, buffer 1: the read rows (`--rows-vram`) - correctness-neutral, 1.57x prefill
+
+`p2-norows-ctx131072-chunk32768/` is the reference point with `--rows-vram` removed, nothing else
+changed (`--dump-buffers` on). Both load, both answer with the same eight reference ids, so the read
+rows are not needed for a correct answer; they are a prefill-speed buffer, and their 2048.00 MiB take
+VRAM that the placement would otherwise give to experts.
+
+| | with `--rows-vram` | without | |
+| --- | --- | --- | --- |
+| rows (VRAM) | 2048.00 MiB | 0.00 MiB | chunk 32768 |
+| experts permanent in VRAM | 297 (3248.01 MiB) | 508 (5555.31 MiB) | +211 experts |
+| experts in RAM | 10711 (117344 MiB) | 10500 (116056 MiB) | |
+| device total | 21926.63 MiB | 22185.92 MiB | |
+| prefill, 10000 tokens | 19644.2 ms, **509.06 t/s** | 30891.1 ms, **323.72 t/s** | rows 1.572x |
+| decode | 16.88 t/s | 18.97 t/s | +12% with more experts resident |
+| expert hit rate | 0.2198 | 0.2973 | |
+| load | 236.69 s | 204.13 s | |
+| generated ids | reference | reference | unchanged |
+
+So the trade is: 2048 MiB of VRAM buys 1.57x prefill when held as read rows, or about 211 resident
+experts (hit rate 0.220 -> 0.297, decode +12%) when given to the placement. Both configurations are
+correct; neither is a default change, and this is one measurement on one machine.
+
 ## What is not established yet
 
 - Whether each buffer is needed, overstated, or mergeable by lifetime: not measured here. The spec's
