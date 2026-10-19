@@ -34,7 +34,7 @@ attempt to read their payload fails instead of silently falling back to disk.
 | `--stage-mib N` | VRAM through which RAM experts pass; at most one layer's experts |
 
 RAM is sampled after the loader's existing allocations. The OS and other programs have already been deducted
-from that available figure. The plan subtracts 1 GiB of headroom and, without `--rows-vram`, the maximum host
+from that available figure. Without `--rows-vram`, the plan subtracts the maximum host
 read-row buffer that may be allocated later. A RAM limit additionally subtracts the host weights and buffers
 already allocated and those future read rows. It is not a limit on all process metadata, DLLs or chat caches.
 

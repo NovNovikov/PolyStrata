@@ -108,7 +108,6 @@ void Engine::load_resident_experts() {
     const uint64_t vram = free > headroom ? free - headroom : 0;
     // Future host read rows are counted now; no 1 GiB file-staging buffers or swap buffers exist in this mode.
     const uint64_t future_rows = opt_.rows_vram ? 0 : (uint64_t) read_rows_ * streams() * n_embd_ * sizeof(float);
-    const uint64_t margin = (uint64_t(1) << 30) + future_rows;
     uint64_t available = 0;
 #ifdef _WIN32
     MEMORYSTATUSEX status{}; status.dwLength = sizeof status;
@@ -120,7 +119,7 @@ void Engine::load_resident_experts() {
         std::fclose(f); available = kb << 10;
     }
 #endif
-    uint64_t ram = available > margin ? available - margin : 0;
+    uint64_t ram = available > future_rows ? available - future_rows : 0;
     if (opt_.ram_limit_mib) {
         const uint64_t limit = (uint64_t) opt_.ram_limit_mib << 20;
         const uint64_t held = resident_->bytes() + service_host_bytes_ + future_rows;
