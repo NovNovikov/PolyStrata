@@ -235,26 +235,26 @@ void DeepSeek4::alloc_caches() {
     }
     score_stride_ = opt_.max_context / 4 + 1;
     score_rows_ = (int) std::clamp<size_t>(kScoreBytes / (score_stride_ * sizeof(float)), 1, (size_t) rows_);
-    if (!sel_) sel_ = (int32_t*) dmalloc((size_t) rows_ * idx_top_k_ * sizeof(int32_t), "scratch");
+    if (!sel_) sel_ = (int32_t*) dmalloc((size_t) rows_ * idx_top_k_ * sizeof(int32_t), "sel_ (indexer picks)");
 }
 
 // Per-token buffers hold rows_ tokens, row after row.
 void DeepSeek4::assign_scratch() {
     const size_t n = (size_t) rows_, heads = n * n_head_ * head_dim_;
-    mix_ = fbuf(n * (kHc * (2 + kHc) + 1));
-    hcw_ = fbuf(n * (kHc + kHc * kHc));
-    t1_ = fbuf(n * q_rank_);
-    qr_ = fbuf(n * q_rank_);
-    q_ = fbuf(heads);   // the queries, and after the attention its output in groups (out_proj())
-    kv_ = fbuf(n * head_dim_);
-    att_ = fbuf(heads);
-    oa_ = fbuf(n * o_groups_ * o_rank_);
-    ob_ = fbuf(n * o_groups_ * o_rank_);
-    ckv_ = fbuf(n * 2 * head_dim_);
-    cscore_ = fbuf(n * 2 * head_dim_);
-    iq_ = fbuf(n * idx_heads_ * idx_dim_);
-    iw_ = fbuf(n * idx_heads_);
-    score_ = fbuf((size_t) score_rows_ * score_stride_);
+    mix_ = fbuf(n * (kHc * (2 + kHc) + 1), "mix_ (hyper-connection mix)");
+    hcw_ = fbuf(n * (kHc + kHc * kHc), "hcw_ (hyper-connection weights)");
+    t1_ = fbuf(n * q_rank_, "t1_ (q lora)");
+    qr_ = fbuf(n * q_rank_, "qr_ (q lora normed)");
+    q_ = fbuf(heads, "q_ (queries, then attention output)");   // after the attention its output in groups
+    kv_ = fbuf(n * head_dim_, "kv_ (the key/value row)");
+    att_ = fbuf(heads, "att_ (attention output)");
+    oa_ = fbuf(n * o_groups_ * o_rank_, "oa_ (output lora a)");
+    ob_ = fbuf(n * o_groups_ * o_rank_, "ob_ (output lora b)");
+    ckv_ = fbuf(n * 2 * head_dim_, "ckv_ (compressor kv rows)");
+    cscore_ = fbuf(n * 2 * head_dim_, "cscore_ (compressor scores)");
+    iq_ = fbuf(n * idx_heads_ * idx_dim_, "iq_ (indexer queries)");
+    iw_ = fbuf(n * idx_heads_, "iw_ (indexer weights)");
+    score_ = fbuf((size_t) score_rows_ * score_stride_, "score_ (indexer scores)");
 }
 
 // A compressor's rows for n tokens from position `pos`, and the compressed row of each block they finish: normed,

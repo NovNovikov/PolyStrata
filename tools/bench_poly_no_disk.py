@@ -31,6 +31,7 @@ def run(a, label, exe, ids, resident=False):
            '--no-draft']
     if a.read_chunk:
         cmd += ['--read-chunk', str(a.read_chunk)]
+    cmd += list(a.engine_arg)
     if a.profile:
         cmd += ['--expert-profile', str(profile)]
     if a.teacher_forced:
@@ -188,6 +189,8 @@ def main():
     ap.add_argument('--rows-vram', action='store_true')
     ap.add_argument('--no-disk-runs', type=int, default=2)
     ap.add_argument('--skip-default', action='store_true')
+    ap.add_argument('--engine-arg', action='append', default=[],
+                    help='extra argument for the engine command, repeated as needed')
     a = ap.parse_args()
     if not 16 <= a.tokens < a.context: ap.error('tokens must be at least 16 and below context')
     if a.read_chunk < 0 or a.load_margin_mib < 0: ap.error('read chunk and load margin cannot be negative')

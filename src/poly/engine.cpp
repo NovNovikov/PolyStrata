@@ -405,7 +405,7 @@ Engine::~Engine() {
     if (st_) cudaStreamDestroy(cs(st_));
 }
 
-void* Engine::dmalloc(size_t bytes, const char* what) {
+void* Engine::dmalloc(size_t bytes, const char* what, const char* file, int line) {
     if (opt_.no_disk) {
         size_t free = 0, total = 0;
         ck(cudaMemGetInfo(&free, &total), "no-disk: allocation budget");
@@ -427,10 +427,11 @@ void* Engine::dmalloc(size_t bytes, const char* what) {
     }
     dev_allocs_.push_back(p);
     dev_sizes_[p] = std::max<size_t>(bytes, 256);
+    if (dumping_) allocs_.push_back(AllocRec{what, file, line, dev_sizes_[p], 0, bytes, AllocRec::kDev, 0});
     return p;
 }
 
-void* Engine::hmalloc(size_t bytes, const char* what) {
+void* Engine::hmalloc(size_t bytes, const char* what, const char* file, int line) {
     void* p = nullptr;
     const std::string why = std::string(what) + " (" + std::to_string(bytes) + " bytes)";
     // A container at its memory limit refused pinned memory with "invalid argument" five times in five minutes
@@ -447,6 +448,7 @@ void* Engine::hmalloc(size_t bytes, const char* what) {
     host_allocs_.push_back(p);
     host_sizes_[p] = std::max<size_t>(bytes, 256);
     if (opt_.no_disk) service_host_bytes_ += host_sizes_[p];
+    if (dumping_) allocs_.push_back(AllocRec{what, file, line, host_sizes_[p], 0, bytes, AllocRec::kHost, 0});
     return p;
 }
 
@@ -624,6 +626,13 @@ void* Engine::kv_alloc(size_t bytes, int per) {
     void* p = nullptr;
     if (!vmm_ || !opt_.kv_grow) {
         p = dmalloc(all, "the attention cache");
+        // dmalloc() has just recorded it: this is the same allocation, not a second one.
+        if (dumping_ && !allocs_.empty()) {
+            AllocRec& r = allocs_.back();
+            r.name = "the attention cache (KV)";
+            r.kind = AllocRec::kKv;
+            r.per = per;
+        }
     } else {
         Kv k;
         k.bytes = bytes;
@@ -636,10 +645,11 @@ void* Engine::kv_alloc(size_t bytes, int per) {
     return p;
 }
 
-void* Engine::seq_alloc(size_t bytes, const char* what) {
+void* Engine::seq_alloc(size_t bytes, const char* what, const char* file, int line) {
     if (again_ != SIZE_MAX) return bufs_.at(again_++).p;
-    void* p = dmalloc(bytes, what);
+    void* p = dmalloc(bytes, what, file, line);
     bufs_.push_back({p, bytes, 0});
+    if (dumping_ && !allocs_.empty()) allocs_.back().kind = AllocRec::kSeq;
     return p;
 }
 
@@ -866,9 +876,15 @@ void Engine::shrink_cache(size_t bytes) {
     staged_il_ = -1;
 }
 
-float* Engine::fbuf(size_t n) {
+float* Engine::fbuf(size_t n, const char* name, const char* file, int line) {
     float* p = scratch_ ? scratch_ + scratch_at_ : nullptr;
+    const size_t at = scratch_at_;
     scratch_at_ += (n + 63) & ~size_t(63);
+    // The first pass has no arena yet and only counts, so only the second one has slices to report.
+    if (dumping_ && scratch_)
+        allocs_.push_back(AllocRec{name ? name : "(unnamed fbuf)", file, line,
+                                   ((n + 63) & ~size_t(63)) * sizeof(float), at * sizeof(float), n,
+                                   AllocRec::kScratch, 0});
     return p;
 }
 
@@ -1274,7 +1290,73 @@ void Engine::print_memory(const char* when) const {
                              "(includes CUDA libraries and other processes)\n",
                      when, device_, mib(total - free), mib(total), mib(free));
     else (void) cudaGetLastError();   // diagnostics must not replace the original allocation refusal
+    if (opt_.dump_buffers) dump_buffers(when);
     if (next_) next_->print_memory(when);
+}
+
+// --dump-buffers: every allocation and every fbuf() slice of the architecture's scratch, by size, with its call
+// site.  The sums are printed beside the numbers print_memory() derives from the allocator's own records, so an
+// unlisted byte shows up as a difference instead of passing unnoticed.  Nothing is recorded unless the flag is
+// set, and the flag changes no allocation.
+void Engine::dump_buffers(const char* when) const {
+    const auto mib = [](size_t n) { return double(n) / double(1u << 20); };
+    struct Group {
+        const char* name;
+        AllocRec::Kind kind;
+        size_t count = 0, bytes = 0, lo = SIZE_MAX, hi = 0;
+    };
+    std::vector<Group> groups;
+    size_t scratch = 0, dev = 0, host = 0, kv = 0, seq = 0, unnamed = 0, end = 0;
+    for (const AllocRec& r : allocs_) {
+        if (r.kind == AllocRec::kScratch) {
+            scratch += r.bytes;
+            end = std::max(end, r.off + r.bytes);
+            if (!std::strcmp(r.name, "(unnamed fbuf)")) ++unnamed;
+            continue;
+        }
+        switch (r.kind) {
+            case AllocRec::kDev: dev += r.bytes; break;
+            case AllocRec::kSeq: seq += r.bytes; break;
+            case AllocRec::kKv: kv += r.bytes; break;
+            case AllocRec::kHost: host += r.bytes; break;
+            default: break;
+        }
+        const auto it = std::find_if(groups.begin(), groups.end(), [&](const Group& g) {
+            return g.kind == r.kind && !std::strcmp(g.name, r.name);
+        });
+        Group& g = it == groups.end()
+            ? (groups.push_back(Group{r.name, r.kind}), groups.back())
+            : *it;
+        ++g.count;
+        g.bytes += r.bytes;
+        g.lo = std::min(g.lo, r.bytes);
+        g.hi = std::max(g.hi, r.bytes);
+    }
+    std::sort(groups.begin(), groups.end(), [](const Group& a, const Group& b) { return a.bytes > b.bytes; });
+    const char* kinds[] = {"device", "pinned", "scratch", "sequence", "attention cache"};
+    std::fprintf(stderr, "strata-poly: buffers[%s] card=%d: device=%.2f MiB (plain=%.2f, sequence=%.2f, "
+                 "attention caches=%.2f), pinned=%.2f MiB, scratch slices=%.2f MiB in %.2f MiB\n",
+                 when, device_, mib(dev + seq + kv), mib(dev), mib(seq), mib(kv), mib(host), mib(scratch),
+                 mib(end));
+    for (const Group& g : groups)
+        std::fprintf(stderr, "strata-poly: buffers[%s] %-34s %-15s %5zu x %9.3f MiB = %10.3f MiB%s\n", when,
+                     g.name, kinds[g.kind], g.count, mib(g.lo), mib(g.bytes),
+                     g.lo == g.hi ? "" : "  (the entry sizes differ with the layer)");
+    for (const AllocRec& r : allocs_)
+        if (r.kind == AllocRec::kScratch)
+            std::fprintf(stderr, "strata-poly: buffers[%s] scratch %-30s offset=%9zu bytes=%10zu (%7.3f MiB) "
+                         "count=%zu %s:%d\n", when, r.name, r.off, r.bytes, mib(r.bytes), r.n64, r.file, r.line);
+    size_t dsz = 0;
+    for (const auto& a : dev_sizes_) dsz += a.second;
+    size_t hsz = 0;
+    for (const auto& a : host_sizes_) hsz += a.second;
+    size_t kmap = 0;
+    for (const Kv& k : kv_) kmap += k.mapped;
+    for (const Seq& q : seqs_) for (const Kv& k : q.kv) kmap += k.mapped;
+    std::fprintf(stderr, "strata-poly: buffers[%s] check: scratch slices %.2f of %.2f MiB (%.2f alignment and "
+                 "tail), unnamed slices %zu; allocator records device=%.2f, pinned=%.2f MiB; mapped KV (VMM, not "
+                 "in device_sizes_)=%.2f of the %.2f requested; arena mapped=%.2f MiB\n", when, mib(scratch),
+                 mib(end), mib(end - scratch), unnamed, mib(dsz), mib(hsz), mib(kmap), mib(kv), mib(arena_.mapped));
 }
 
 // Experts go to VRAM by use per byte when there are counts, the profile's and this run's, and otherwise the same
@@ -1851,6 +1933,9 @@ void Engine::follow(int written) {
 
 void Engine::load(const Options& o) {
     opt_ = o;
+    // --dump-buffers records from the first allocation, dense weights included.
+    dumping_ = opt_.dump_buffers;
+    allocs_.clear();
     if (opt_.ram_limit_mib < 0 || (uint64_t) opt_.ram_limit_mib > SIZE_MAX >> 20)
         throw std::runtime_error("--ram-limit-mib must be a nonnegative byte budget");
     if (opt_.no_disk) {
@@ -2072,23 +2157,24 @@ void Engine::shared_scratch() {
     const size_t n = (size_t) rows_, e = n * n_embd_;
     const size_t ff = n * std::max({n_ff_, n_ff_shexp_, 2 * n_ff_exp_});
     // the draft block works in it too (draft_input()); read() keeps two calls' rows in it
-    r_ = fbuf(std::max(streams(), draft_ ? 3 : 1) * (size_t) (read_rows_ > rows_ ? 2 : 1) * rows_ * n_embd_);
-    cur_ = fbuf(e);
-    xn_ = fbuf(e);
-    ao_ = fbuf(e);
-    fo_ = fbuf(e);
-    g_ = fbuf(ff);   // a routed expert's gate and up rows come out of one launch, back to back
-    u_ = fbuf(ff);
-    h_ = fbuf(ff);
-    d_ = fbuf((size_t) kSumRows * n_embd_);   // the routed experts of a few tokens, until they are added up
-    rl_ = fbuf(n * n_expert_);
-    logits_ = fbuf((size_t) n_vocab_);
-    if (rows_ >= kStageRows && bf16_max_ > 0) wf_ = fbuf(bf16_max_);   // a BF16 matrix as floats, for lin()
+    r_ = fbuf(std::max(streams(), draft_ ? 3 : 1) * (size_t) (read_rows_ > rows_ ? 2 : 1) * rows_ * n_embd_,
+              "r_ (layer input rows)");
+    cur_ = fbuf(e, "cur_");
+    xn_ = fbuf(e, "xn_ (normed input)");
+    ao_ = fbuf(e, "ao_ (attention output)");
+    fo_ = fbuf(e, "fo_ (layer output)");
+    g_ = fbuf(ff, "g_ (expert gate rows)");   // a routed expert's gate and up rows come out of one launch
+    u_ = fbuf(ff, "u_ (expert up rows)");
+    h_ = fbuf(ff, "h_ (expert hidden rows)");
+    d_ = fbuf((size_t) kSumRows * n_embd_, "d_ (MoE sums in progress)");
+    rl_ = fbuf(n * n_expert_, "rl_ (router logits)");
+    logits_ = fbuf((size_t) n_vocab_, "logits_");
+    if (rows_ >= kStageRows && bf16_max_ > 0) wf_ = fbuf(bf16_max_, "wf_ (BF16 matrix as floats)");
     if (mmq_) {
         const size_t rr = n * n_used_;
-        gu_ = fbuf(rr * 2 * n_ff_exp_);
-        hx_ = fbuf(rr * n_ff_exp_);
-        dx_ = fbuf(rr * n_embd_);
+        gu_ = fbuf(rr * 2 * n_ff_exp_, "gu_ (expert gate/up rows)");
+        hx_ = fbuf(rr * n_ff_exp_, "hx_ (expert activation rows)");
+        dx_ = fbuf(rr * n_embd_, "dx_ (expert down rows)");
     }
 }
 
@@ -2116,9 +2202,9 @@ void Engine::alloc() {
     // window(): the state after tokens of it, for keep(), and every token's logits
     snap_places_ = snaps_spread() ? std::min(opt_.window - 1, kSnapPlaces) : opt_.window - 1;
     if (snap_places_ > 0)
-        snap_ = (float*) dmalloc(size_t(snap_places_) * rec_n_ * sizeof(float), "the recurrent state");
+        snap_ = (float*) dmalloc(size_t(snap_places_) * rec_n_ * sizeof(float), "snap_ (window states)");
     const size_t logit_rows = (size_t) std::max(opt_.window, opt_.batch + 1);   // window()'s, step()'s
-    wlogits_ = (float*) dmalloc(logit_rows * n_vocab_ * sizeof(float), "scratch");
+    wlogits_ = (float*) dmalloc(logit_rows * n_vocab_ * sizeof(float), "wlogits_ (window()/step() logits)");
     h_wlogits_ = (float*) hmalloc(logit_rows * n_vocab_ * sizeof(float), "pinned memory");
     alloc_caches();
     cover(1);   // a short conversation's rows, before the expert cache is sized
@@ -2157,18 +2243,18 @@ void Engine::alloc() {
 
     shared_scratch();   // the first pass only counts
     assign_scratch();
-    scratch_ = (float*) dmalloc(scratch_at_ * sizeof(float), "scratch");
+    scratch_ = (float*) dmalloc(scratch_at_ * sizeof(float), "scratch_ (arch scratch arena)");
     scratch_at_ = 0;
     shared_scratch();
     assign_scratch();
 
     const int q_max = std::max({n_embd_, n_ff_, n_ff_exp_, n_ff_shexp_, widest(), 256});
-    xq_ = dmalloc(n * kernels::native_q8_1_bytes(n_embd_), "scratch");
-    q8_ = dmalloc(n * kernels::native_q8_1_bytes((q_max + 255) / 256 * 256), "scratch");
+    xq_ = dmalloc(n * kernels::native_q8_1_bytes(n_embd_), "xq_ (quantized activations)");
+    q8_ = dmalloc(n * kernels::native_q8_1_bytes((q_max + 255) / 256 * 256), "q8_ (quantized weights)");
 
     h_r_ = (float*) hmalloc(n * streams() * n_embd_ * sizeof(float), "pinned memory");
     const size_t at_rows = (size_t) std::max(opt_.window, opt_.batch + 1);   // window()'s tokens, step()'s
-    at_ = (long long*) dmalloc(at_rows * 2 * sizeof(long long), "scratch");
+    at_ = (long long*) dmalloc(at_rows * 2 * sizeof(long long), "at_ (recorded positions)");
     h_at_ = (long long*) hmalloc(at_rows * 2 * sizeof(long long), "pinned memory");
     h_rl_ = (float*) hmalloc(n * n_expert_ * sizeof(float), "pinned memory");
     h_x_ = (float*) hmalloc(n * n_embd_ * sizeof(float), "pinned memory");
@@ -2178,16 +2264,16 @@ void Engine::alloc() {
     if (mmq_) {
         const size_t rr = n * n_used_,
                      tab = (3 * rr + 3 * (size_t) n_expert_ + 3 + kClasses * ((size_t) n_expert_ + 1)) * sizeof(int32_t);
-        mq_ = dmalloc(Mmq::q8_bytes((int64_t) rr, n_embd_), "scratch");
-        mq2_ = dmalloc(Mmq::q8_bytes((int64_t) rr, n_ff_exp_), "scratch");
-        mqx_ = dmalloc(Mmq::q8_bytes(rows_, q_max), "scratch");
-        d_ids_ = (int32_t*) dmalloc(rr * sizeof(int32_t), "scratch");
-        d_wts_ = (float*) dmalloc(rr * sizeof(float), "scratch");
-        h_ids_ = (int32_t*) hmalloc(rr * sizeof(int32_t), "pinned memory");
-        d_slots_ = (void**) dmalloc((size_t) n_layer_ * n_expert_ * sizeof(void*), "scratch");
-        tab_ = (int32_t*) dmalloc(tab, "scratch");
-        h_tab_ = (int32_t*) hmalloc(tab, "pinned memory");
-        iota_ = (int32_t*) dmalloc(rr * sizeof(int32_t), "scratch");
+        mq_ = dmalloc(Mmq::q8_bytes((int64_t) rr, n_embd_), "mq_ (MMQ rows of x)");
+        mq2_ = dmalloc(Mmq::q8_bytes((int64_t) rr, n_ff_exp_), "mq2_ (MMQ rows of the expert output)");
+        mqx_ = dmalloc(Mmq::q8_bytes(rows_, q_max), "mqx_ (MMQ rows of q8_tile)");
+        d_ids_ = (int32_t*) dmalloc(rr * sizeof(int32_t), "d_ids_ (row -> expert)");
+        d_wts_ = (float*) dmalloc(rr * sizeof(float), "d_wts_ (row -> weight)");
+        h_ids_ = (int32_t*) hmalloc(rr * sizeof(int32_t), "h_ids_ (row -> expert)");
+        d_slots_ = (void**) dmalloc((size_t) n_layer_ * n_expert_ * sizeof(void*), "d_slots_ (expert slots)");
+        tab_ = (int32_t*) dmalloc(tab, "tab_ (MoE tile tables)");
+        h_tab_ = (int32_t*) hmalloc(tab, "h_tab_ (MoE tile tables)");
+        iota_ = (int32_t*) dmalloc(rr * sizeof(int32_t), "iota_ (row indices)");
         std::vector<int32_t> ramp(rr);
         std::iota(ramp.begin(), ramp.end(), 0);
         ck(cudaMemcpy(iota_, ramp.data(), rr * sizeof(int32_t), cudaMemcpyHostToDevice), "scratch");

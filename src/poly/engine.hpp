@@ -54,6 +54,7 @@ struct Options {
     int read_chunk_tokens = 0;   ///< prompt tokens in one read() pass at most; 0: context / RAM limit
     int64_t ram_limit_mib = 0;   ///< no-disk RAM allocations at most; 0: current available RAM
     bool dump = false;            ///< print a checksum of every stage, for comparing against llama.cpp
+    bool dump_buffers = false;    ///< print every VRAM/RAM allocation and scratch slice with its size and call site
     // A prompt batch.  More tokens a call and a larger staging buffer read a prompt faster, and both take VRAM
     // that the expert cache, and so decoding, does without.
     int prompt_batch = 1024;      ///< prompt tokens one eval() takes; the scratch is about 1.4 MiB of VRAM a token
@@ -485,11 +486,14 @@ protected:
     void follow_loop();
     void embed(int32_t token, float* dst) const;
     void dbg(const char* name, int il, const float* dev, int n);
-    float* fbuf(size_t n);
+    float* fbuf(size_t n, const char* name = nullptr, const char* file = __builtin_FILE(),
+                int line = __builtin_LINE());
     int room(int n) const;
     int room_key(int n) const;
-    void* dmalloc(size_t bytes, const char* what);
-    void* hmalloc(size_t bytes, const char* what);
+    void* dmalloc(size_t bytes, const char* what, const char* file = __builtin_FILE(),
+                  int line = __builtin_LINE());
+    void* hmalloc(size_t bytes, const char* what, const char* file = __builtin_FILE(),
+                  int line = __builtin_LINE());
     void hfree(void* p, const char* what);
     /// A write into VRAM, on st_.  Every one of them goes through these two or is an async call on a stream of
     /// its own: see the note on h2d() in engine.cpp.
@@ -499,7 +503,8 @@ protected:
     /// and VRAM for the rows the sequence has reached (cover()).
     void* kv_alloc(size_t bytes, int per);
     /// A buffer of the sequence's own that does not grow with it, such as a window layer's ring of rows.
-    void* seq_alloc(size_t bytes, const char* what);
+    void* seq_alloc(size_t bytes, const char* what, const char* file = __builtin_FILE(),
+                    int line = __builtin_LINE());
     /// VRAM in every attention cache for the rows below `end`, before a call writes them.
     void cover(int64_t end);
 
@@ -651,6 +656,24 @@ protected:
     size_t full_bytes_ = 0;
     float* scratch_ = nullptr;
     size_t scratch_at_ = 0;
+
+    /// --dump-buffers: one record for every allocation, and for every fbuf() slice of the architecture's scratch.
+    /// Names come from the call site; a slice's offset is inside scratch_.  The sums are checked against the
+    /// totals print_memory() reports, so a byte cannot hide.
+    struct AllocRec {
+        enum Kind { kDev, kHost, kScratch, kSeq, kKv };
+        const char* name = "";
+        const char* file = "";
+        int line = 0;
+        size_t bytes = 0;    ///< as requested; fbuf()'s is aligned to 64 floats
+        size_t off = 0;      ///< inside scratch_, in bytes (kScratch only)
+        size_t n64 = 0;      ///< fbuf()'s argument, before alignment
+        Kind kind = kDev;
+        int per = 0;         ///< kKv: rows per entry; kScratch: the count before alignment
+    };
+    std::vector<AllocRec> allocs_;
+    bool dumping_ = false;   ///< set with opt_.dump_buffers: record as the allocators run
+    void dump_buffers(const char* when) const;
     float* state_ = nullptr;     ///< every recurrent layer's state; with a draft block, hn_'s first row
     size_t state_n_ = 0, rec_n_ = 0;   ///< all of it, and the recurrent layers' part
     // The draft block reads the model's output for the token before each of its tokens.  Row 0 is the output of
