@@ -41,11 +41,13 @@ no-disk: model does not fit: experts need 122779140096 RAM bytes after placing 3
           available RAM 117931556864, available expert VRAM 3678404608
 ```
 
-`engine_allocated=18678.61 MiB` is exactly the spec's table: dense 7758.37 + experts (permanent
-3221.68 at this point) + KV 860 + staging 2848 + rows 2048 + other 5164.24 = 18678.61. The refusal
-is a RAM budget refusal, not a VRAM one: with the dense weights, the staging window and the read rows
-already placed, the 11008 experts do not fit in the RAM that is free at that moment (112467 MiB), and
-only ~3.4 GiB can be placed in VRAM.
+`engine_allocated=18678.61 MiB` is exactly the spec's table: dense 7758.37 + KV 860 + staging 2848 +
+rows 2048 + other 5164.24 = 18678.61, with **no experts in that sum** - the refusal happens before any
+expert is placed. When the same parameters do place experts (`ref-ctx131072-chunk32768/`, 297 experts,
+3248.01 MiB) the total is 21926.62 MiB, which is what that run reports. The refusal is a RAM budget
+refusal, not a VRAM one: with the dense weights, the staging window and the read rows already placed,
+the 11008 experts do not fit in the RAM that is free at that moment (112467 MiB), and only ~3.4 GiB
+can be placed in VRAM.
 
 ### `dump2-ctx32768-chunk4096/` - a no-disk run that loads, at chunk 4096
 
@@ -107,8 +109,8 @@ Device (`DEVICE`), largest first - MiB, as printed:
 | 3294.681 | scratch_ (arch scratch arena) | `seq_alloc`/`assign_scratch` | one slice per intermediate, chunk- and layer-sized |
 | 2848.000 | the expert staging buffer | `dmalloc` in the no-disk setup | `--stage-mib` |
 | 256.000 | the read rows (`--rows-vram`) | `dmalloc` in the no-disk setup | `--rows-vram`, chunk 4096 |
-| 215.000 | the attention cache (KV) | `kv_alloc`, `per > 0` | 62 allocations, 0.250 MiB each here |
-| 177.375 | the attention cache (sequence) | `kv_alloc`, `per = 0` | 43 x 4.125 MiB, raw ring per layer |
+| 215.000 | the attention cache (KV) | `kv_alloc`, `per > 0` | 62 allocations; the sizes differ per layer (0.250 MiB is the smallest, not every one) |
+| 177.375 | the attention cache (sequence) | `seq_alloc`, one raw ring per layer | 43 slices; sizes differ per layer (4.125 MiB is the smallest) |
 | 108.018 | mq_ (MMQ rows of x) | `dmalloc` at assign_scratch | batch x n_embd |
 | 54.018 | mq2_ (MMQ rows of the expert output) | `dmalloc` at assign_scratch | batch x |
 | 36.018 | mqx_ (MMQ rows of q8_tile) | `dmalloc` at assign_scratch | batch x |
@@ -125,7 +127,7 @@ Sequence state, in `other`:
 
 | MiB | buffer | allocation site | what the size follows |
 | --- | --- | --- | --- |
-| 1171.641 | the compressor's rows (124 allocations, 4.008 MiB each) | `seq_alloc` in `deepseek4.cpp` | the attention compressors of 43 layers |
+| 1171.641 | the compressor's rows (124 allocations; sizes differ per layer, 4.008 MiB is the smallest) | `seq_alloc` in `deepseek4.cpp` | the attention compressors of 43 layers; `B.ring = rows_ + overlap` rows (deepseek4.cpp:227) |
 | 177.375 | the raw attention rings (43 x 4.125 MiB) | `kv_alloc` with `per = 0` | window + 4096 rows x 512 values, f16 |
 
 Pinned: 392.82 MiB in 7 allocations (`h_guess_`, `h_tab_`, `h_ids_`, the shell buffers, the queries).
@@ -204,8 +206,8 @@ Comparing the two points (batch 4096 in both, so anything equal is batch- or mod
 | the read rows (`--rows-vram`) | 256.000 | 2048.000 | `--rows-vram` (chunk) |
 | the dense weights | 7758.371 | 7758.371 | model |
 | the expert staging buffer | 2848.000 | 2848.000 | `--stage-mib` |
-| the compressor's rows (124 slices) | 1171.641 | 1171.641 | model, not context |
-| the raw attention rings (43 slices) | 177.375 | 177.375 | window + 4096 rows, not context |
+| the compressor's rows (124 slices) | 1171.641 | 1171.641 | `rows_` + overlap; not context (but not batch-free either) |
+| the raw attention rings (43 slices) | 177.375 | 177.375 | `min(max_context, window_ + rows_)`; the context cap is not reached at either point |
 | scratch arena | 3294.681 | 3550.575 | batch, except one slice: r_ 256 -> 512 |
 | r_ (layer input rows) | 256.000 | 512.000 | the read chunk's rows in flight |
 | gu_, dx_ (384), hx_ (192), q_, att_ (512), q8_ (36), mq_ (108) | same | same | batch and model |
@@ -215,7 +217,7 @@ So of 22177.49 MiB of device memory at chunk 4096, the part that grows with the 
 attention caches (215 -> 860) and the read rows (256 -> 2048); the architecture scratch arena grows
 by 256 MiB (one slice) because of the chunk, and the compressor rows and rings do not grow at all.
 
-## Phase 2, buffer 1: the read rows (`--rows-vram`) - correctness-neutral, 1.57x prefill
+## Phase 2, buffer 1: the read rows (`--rows-vram`) - correctness-neutral, 2048 MiB of VRAM
 
 `p2-norows-ctx131072-chunk32768/` is the reference point with `--rows-vram` removed, nothing else
 changed (`--dump-buffers` on). Both load, both answer with the same eight reference ids, so the read
@@ -228,15 +230,25 @@ VRAM that the placement would otherwise give to experts.
 | experts permanent in VRAM | 297 (3248.01 MiB) | 508 (5555.31 MiB) | +211 experts |
 | experts in RAM | 10711 (117344 MiB) | 10500 (116056 MiB) | |
 | device total | 21926.63 MiB | 22185.92 MiB | |
-| prefill, 10000 tokens | 19644.2 ms, **509.06 t/s** | 30891.1 ms, **323.72 t/s** | rows 1.572x |
+| prefill, 10000 tokens | 19644.2 ms, **509.06 t/s** | 30891.1 ms, **323.72 t/s** | two changes at once, see below |
+| effective chunk (the diagnostic's own line) | 32768 | **8192** | host rows are capped at kReadBytes |
 | decode | 16.88 t/s | 18.97 t/s | +12% with more experts resident |
 | expert hit rate | 0.2198 | 0.2973 | |
 | load | 236.69 s | 204.13 s | |
 | generated ids | reference | reference | unchanged |
 
-So the trade is: 2048 MiB of VRAM buys 1.57x prefill when held as read rows, or about 211 resident
-experts (hit rate 0.220 -> 0.297, decode +12%) when given to the placement. Both configurations are
-correct; neither is a default change, and this is one measurement on one machine.
+This comparison changes two things at once, and the numbers above do **not** isolate the buffer:
+without `--rows-vram` the diagnostic itself reports `chunk=8192` (the rows are `kReadBytes / (streams *
+n_embd * 4)` = 8192 rows, so 10000 tokens are processed in two read passes instead of one at 32768).
+Both figures are real for the two configurations as given, but the 509.06 -> 323.72 difference is
+partly the shorter chunk, not only the placement of the rows. To separate them the chunk has to be
+held equal (for example `--rows-vram` with `--read-chunk 8192`, against no rows at the same chunk);
+that run has not been made. What the pair does show is that neither configuration is needed for a
+correct answer: both produce the same eight reference ids.
+
+What is measured and free of this confound: the 2048.00 MiB of VRAM that the read rows hold, and the
+fact that the placement gives them to experts instead (297 -> 508 permanent, 3248.01 -> 5555.31 MiB,
+hit rate 0.220 -> 0.297, decode +12%).
 
 ## Phase 2, buffer 2: the expert staging window, 2848 vs 1488 MiB
 
@@ -259,20 +271,33 @@ placement, and `other` does not move (5164.24 MiB at both), so staging is not pa
 So the trade is 1360.00 MiB of VRAM for 33% of prefill, or for about 135 resident experts. As with the
 read rows, both configurations answer identically.
 
-## Phase 2: what grows with the batch inside `other`, and what does not
+## Phase 2: the batch in `other` - what the two dump points do and do not show
 
-Measured, from the same dump at two scales (batch 4096 in both, see the comparison table above):
+Correction to what this section said first: both dump points had **batch 4096**, so they show what
+depends on the context and the chunk, and they do **not** measure the batch. Read from the code, the
+batch is in these sizes too:
 
-- the only batch-dependent part of `other` is the architecture scratch arena, and its size is
-  `rows_ = min(prompt_batch, max_context)` (`engine.cpp:2187`), so every slice in it is linear in the
-  batch - there is no quadratic slice;
-- not batch-dependent: the compressor rows (1171.641 MiB, 124 slices) and the raw attention rings
-  (177.375 MiB, 43 slices) are per-sequence state of this architecture and are identical at both
-  scales; the MMQ/decoder buffers are 260.50 MiB at both; `score_` is capped by a constant
-  (`kScoreBytes`; `score_stride_ = max_context / 4 + 1` and `score_rows_` is clamped to fit,
-  `deepseek4.cpp:236-237`), so it is <= ~128 MiB whatever the batch is;
-- therefore `other` grows linearly with the batch at a measured ~0.84 MiB per prompt-batch token
-  (arena 3294.681 MiB at batch 4096, ctx 32768 - 3225.665 MiB of it without the per-sequence state).
+- the arena is sized by `rows_ = min(prompt_batch, max_context)` (`engine.cpp:2187`), and its
+  per-token slices are linear in the batch; but not every slice is: `d_`, `logits_`, `wf_` and the
+  tables are constants;
+- the compressor rows are `B.ring = rows_ + (ratio == 4 ? 2 : 1) * ratio` rows per block
+  (`deepseek4.cpp:227`), so they do grow with the batch;
+- the raw attention rings are `min(max_context, window_ + rows_)` rows per layer
+  (`deepseek4.cpp:219`), so they grow with the batch until the context caps them;
+- the MMQ/decoder buffers (`mq_`, `mq2_`, `mqx_`, `q8_`, `xq_`) are sized on the number of rows as
+  well.
+  So the statement that these are "not batch-dependent" was wrong, and `other` is not "the arena
+  alone".
+- only `score_` is bounded independently of the batch: `score_stride_ = max_context / 4 + 1` and
+  `score_rows_` is clamped so that the buffer fits a constant (`kScoreBytes`,
+  `deepseek4.cpp:236-237`), so it is <= ~128 MiB.
+
+What the two dump points do establish is the context/chunk picture: at batch 4096 the compressor rows
+(1171.641 MiB) and the rings (177.375 MiB) are the same at ctx 32768/chunk 4096 and at
+ctx 131072/chunk 32768 (the rings because `window_ + rows_` is below both contexts, the compressors
+because they do not follow the context at all), while the attention caches grow 215.00 -> 860.00 MiB.
+A batch series (for example 1024 against 4096, same chunk) has not been run and is needed before
+anything is said about the batch.
 
 Cost of the arena per prompt-batch token, from the dumped sizes divided by the batch (measured bytes,
 one sequence, batch 4096, chunk 4096, context 32768):
@@ -291,7 +316,7 @@ one sequence, batch 4096, chunk 4096, context 32768):
 | 32 | `iq_` |
 | ~75 | `score_` (capped), `sel_`, `iw_`, `ckv_`, `cscore_`, `kv_`, `tab_`, `mix_`, `hcw_`, `rl_`, the row-index buffers |
 
-### The one removable buffer found so far: `att_`
+### `att_`: a candidate with a real obstacle, not a proven saving
 
 Code reading (`deepseek4.cpp:242-258`, `engine.cpp:2160-2178`): `q_` and `att_` are both
 `fbuf(rows_ * n_head_ * head_dim_)` - the same size, 512.00 MiB each at batch 4096 - and the comment on
@@ -305,13 +330,32 @@ Code reading (`deepseek4.cpp:242-258`, `engine.cpp:2160-2178`): `q_` and `att_` 
 294:  permute_groups(att_, q_, in, ...);       // att_ -> q_
 ```
 
-`att_` is a second 128 KiB-per-token buffer whose only purpose is that the attention does not write
-over the queries it has finished reading, and then the result is copied into `q_` anyway. A head's
-query row is read before its output row is written, so the output can go in place; `att_` would then
-be gone: -512.00 MiB of VRAM at batch 4096, -2 GiB at batch 16384.
+`att_` is a second buffer of the same size as `q_`. The obvious idea - let the attention write over
+the queries it has already read and drop `att_` - does not survive the next step: `permute_groups()`
+reaches `permute_kernel` (`kernels_dsv4.cu:495-503`), which is `y[b] = x[a]` over two arrays declared
+`__restrict__`, so it is undefined behaviour if `x` and `y` are the same buffer, and an in-place
+permutation can overwrite elements that have not been read yet. Removing `att_` therefore needs the
+permutation reworked (or the attention output written straight into the grouped layout that
+`permute_groups` produces), not just two pointers merged. The saving it would give - 128 KiB per
+prompt-batch token, 512.00 MiB at batch 4096 - is a candidate, not a measured result.
 
-Not verified yet: that the in-place form is numerically identical (needs a canary run and the eight
-reference ids), and no run at batch 16384 was made (this machine's RAM does not allow it).
+A second, safer path for the same 512 MiB: overlap `att_` with a slice that is dead while the
+attention runs and is used later in the same layer step - the expert scratch `gu_` (96 KiB/token),
+`dx_` (96) and `hx_` (48) belong to the MoE phase, which comes after the attention. That does not
+touch the permutation at all, and it is the variant to test first. Neither path has been implemented
+or measured; both need a canary run and the eight reference ids.
+
+## Caveat on the test harness: the adaptive expert cache was frozen
+
+`tools/bench_poly_no_disk.py` sets `STRATA_FREEZE_EXPERTS=1` unless `--adaptive-experts` is passed
+(line 45), and every run here was without it. The dumps show what that means:
+`expert placement: permanent=297, staging_cache=0/255 slots (0.00 MiB used inside existing staging);
+uploads=0` - the staging window holds no decode cache at all in these runs. Therefore the staging
+result above (half the window, -1360 MiB, prefill -33%, more experts resident) is a measurement of the
+frozen-cache mode only. In the adaptive mode the staging window *is* the decode expert cache, so
+halving it would halve that capacity (`0/255` -> `0/133` slots), and nothing here measures that cost.
+A series with `--adaptive-experts`, warmup and >= 512 generated tokens is required before any
+statement about the staging trade in the shipped path.
 
 ## Caveat on the test harness: the decode numbers above are not speed results
 
@@ -330,10 +374,16 @@ kept here.
 
 ## What is not established yet
 
-- Whether each buffer is needed, overstated, or mergeable by lifetime: two are measured here (the read
-  rows, the staging window) and one is shown removable by reading the code (`att_`, not yet changed).
-  The rest of the arena, the compressor rows and the MMQ buffers have no verdict yet; the spec's
-  Phase 2 wants one at a time, each checked against the same eight ids above.
+- Whether each buffer is needed, overstated, or mergeable by lifetime: one is measured (the read rows,
+  correctness-neutral, with the chunk confound noted) plus the staging window in the frozen-cache mode
+  only; `att_` is a candidate with a real obstacle. The rest of the arena, the compressor rows and the
+  MMQ buffers have no verdict yet; the spec's Phase 2 wants one at a time, each checked against the
+  same eight ids above.
+- A batch series (1024 against 4096 at the same chunk, `other` sliced by the dump): not run, so the
+  batch dependence of the compressor rows, the rings and the MMQ buffers is read from the formulas
+  (`deepseek4.cpp:219`, `:227`, `engine.cpp:2187`) and not measured.
+- A series with `--adaptive-experts`, warmup and >= 512 generated tokens: not run, so the staging
+  result is not a statement about the shipped decode path.
 - The per-token table above is arithmetic on dumped sizes, not a proof of each slice's formula; only
   `q_ == att_` and the arena's `n = rows_` are taken from the code.
 - Decode speed after warmup over >= 512 tokens: the harness still generates 8 tokens.
