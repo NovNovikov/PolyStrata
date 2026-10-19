@@ -160,6 +160,28 @@ registered inside the resident weights (`no-disk DMA verified` in the control ru
 | 1.000 | iw_ (indexer weights) | |
 | 127.984 | score_ (indexer scores) | |
 
+## Reference point - the spec's configuration, loading (`ref-ctx131072-chunk32768/`)
+
+The same configuration as `series1-control`, run when the machine had 121321 MiB of RAM free. It
+loads: 297 experts in VRAM (3248.01 MiB), 10711 in RAM (117344 MiB), locked 118363 MiB, RSS 119171.55
+MiB, 4021.80 MiB of RAM still free after loading.
+
+```text
+no-disk plan: attempt=1, 10688 experts in RAM (117091 MiB), 320 permanent in VRAM (3501 MiB); available budgets RAM=119264 MiB VRAM=3508 MiB
+no-disk plan: attempt=2, 10711 experts in RAM (117344 MiB), 297 permanent in VRAM (3248 MiB); available budgets RAM=119734 MiB VRAM=3250 MiB
+no-disk ready: 11008 experts total, 10711 in locked RAM, 297 direct in VRAM; locked=118363 MiB, read=135653146972 bytes, model files closed; VRAM free=692 MiB, host buffers=392 MiB
+memory[load] card=0 context=131072 sequences=1: KV=860.00 MiB VRAM (full-context=860.00 MiB), rows=2048.00 MiB VRAM (chunk=32768, batch=4096)
+memory[load] card=0 VRAM allocations total=21926.63 MiB: dense=7758.37, experts=3248.01, KV=860.00, staging=2848.00, rows=2048.00, other=5164.24
+buffers[load] card=0: device=21926.63 MiB (plain=19717.61, sequence=1349.02, attention caches=860.00), pinned=392.82 MiB, scratch slices=3550.58 MiB in 3550.58 MiB
+buffers[load] check: scratch slices 3550.58 of 3550.58 MiB (0.00 alignment and tail), unnamed slices 0; allocator records device=21926.63, pinned=392.82 MiB; mapped KV (VMM, not in device_sizes_)=0.00 of the 860.00 requested; arena mapped=0.00 MiB
+```
+
+Prompt 10000 tokens: 19644.2 ms, **509.06 t/s**, one read pass (chunk 32768 >= the prompt); decode
+16.88 t/s; load 236.69 s; expert hit rate 0.2198; `model_file_open_after_load=false`,
+`process_read_bytes=52453` (stdin only); generated ids
+`[126889, 77070, 32901, 1229, 79, 38571, 603, 19093]` again, so the reference answers are unchanged.
+This is the base all later measurements are compared against.
+
 ## Second scale point - chunk 32768 at context 131072 (`dump3-ctx131072-chunk32768/`)
 
 The same dump on `series1-control`'s parameters, run again with `--dump-buffers`; the placement still
