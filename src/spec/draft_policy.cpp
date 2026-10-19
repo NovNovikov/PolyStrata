@@ -77,8 +77,11 @@ DraftPolicy::Pick DraftPolicy::choose(int t_mtp, int lookup_k, int match) const 
         // retrying 8 says nothing about a stale estimate for 7. Probe the least recently measured
         // available size; observe() makes it fresh, so several stale sizes cannot starve one another.
         int probe = 0;
+        // Leave cold-start exploration to the existing rule below. Filling every size with three
+        // early samples trains on cache misses and delays the first answer; this is a refresh of
+        // old costs, not an exhaustive startup calibration.
         for (int t = 2; t <= t_full; ++t)
-            if ((cost_n_[t] < kProbes || stale(t)) && (!probe || last_[t] < last_[probe])) probe = t;
+            if (rounds_ - last_[t] > kStaleRounds && (!probe || last_[t] < last_[probe])) probe = t;
         if (probe) return {true, probe};
     }
     if (best_t > 0 && best > base * (1.0 + margin_)) {

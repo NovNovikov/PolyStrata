@@ -115,6 +115,17 @@ int main() {
         check(probes > 0 && confident, "chain: stale re-probes retain the MTP confidence gate");
     }
     {
+        DraftPolicy legacy(8), refresh(8, 0.03, true);
+        bool same = true;
+        for (int i = 0; i < 250; ++i) {
+            const auto a = legacy.choose(1, 7, 64), b = refresh.choose(1, 7, 64);
+            same &= a.t == b.t && a.lookup == b.lookup;
+            legacy.observe(a.lookup, a.t, a.t - 1, 64, cost(a.t));
+            refresh.observe(b.lookup, b.t, b.t - 1, 64, cost(b.t));
+        }
+        check(same, "refresh: cold-start choices remain identical before costs age out");
+    }
+    {
         // A wide first-use stall must not lock the policy into 3 forever. The full proposal is 8,
         // but the actual optimum is 7: probing only 8 cannot discover it.
         const double early[9] = {0, 60, 73, 84, 200, 220, 240, 500, 260};
