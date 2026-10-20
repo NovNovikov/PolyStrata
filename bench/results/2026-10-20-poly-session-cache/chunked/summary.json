@@ -1,0 +1,56 @@
+{
+  "exe_sha256": "2623ffafb7b6bb53e1033afb58597addf84eb3e6c0c54f503b19d6f0f3e74cf7",
+  "config_sha256": "2f51ccb290de4768f89bd3d8af5b1ea229761a7eb6a69532606cb5320c889ea9",
+  "work": "L:\\Temp\\opencode\\bench-chunked",
+  "anchors": [
+    2048,
+    4096,
+    6144,
+    8192
+  ],
+  "stages": [
+    "initial",
+    "restart"
+  ],
+  "session_sha256": "5aa29b8144a68d38c959cf9cd1ea930ef54b39f68fdb9822a9bf5f81734be3c2",
+  "roundtrip_sha256": "5aa29b8144a68d38c959cf9cd1ea930ef54b39f68fdb9822a9bf5f81734be3c2",
+  "session_bytes": 179415468,
+  "cache": {
+    "initial": {
+      "max_used_slots": 255,
+      "capacity": 255,
+      "max_used_mib": 2837.7,
+      "verified_counts": [
+        255,
+        254,
+        255,
+        254,
+        254
+      ]
+    },
+    "restart": {
+      "max_used_slots": 255,
+      "capacity": 255,
+      "max_used_mib": 2837.7,
+      "verified_counts": [
+        255,
+        252
+      ]
+    }
+  },
+  "automatic_sessions": [
+    {
+      "name": "1467a28ecb2c32b2-9999.bin",
+      "bytes": 158255907
+    },
+    {
+      "name": "406d49a55a715589-10511.bin",
+      "bytes": 179415468
+    },
+    {
+      "name": "87781200800a520c-10575.bin",
+      "bytes": 179856555
+    }
+  ],
+  "success": true
+}

@@ -256,11 +256,35 @@ public:
         Slot& s = cur();
         if (!complete()) return SOut::empty;
         const int64_t end = len(s), from = saved(s);
-        if (from < end) {   // the rows the engine still holds alone: the save and the slot both take them
-            const BlobPtr fresh = blob((size_t) (end - from) * e_.row_bytes());
-            if (!fresh) return SOut::memory;   // the host could not hold the rows' copy: the server's memory kind
-            e_.save_rows(from, end - from, fresh->p.get());
-            s.rows.push_back({fresh, from, end - from, end - from});
+        std::vector<SessionFile::StreamRows> tail_rows;
+        if (from < end) {   // the rows the engine still holds alone
+            if (o_.session_dir.empty()) {
+                // the host is where a conversation's rows live: it takes a copy, and the save and the slot
+                // both have it
+                const BlobPtr fresh = blob((size_t) (end - from) * e_.row_bytes());
+                if (!fresh) return SOut::memory;   // the host could not hold the rows' copy: the server's memory kind
+                e_.save_rows(from, end - from, fresh->p.get());
+                s.rows.push_back({fresh, from, end - from, end - from});
+            } else {
+                // the file is where the rows live: they go to it in chunks, straight from the engine, and the
+                // host takes no copy of them
+                const size_t rb = e_.row_bytes();
+                const int64_t chunk = rb ? (int64_t) std::max<size_t>(1, ((size_t) 4 << 20) / rb) : end - from;
+                for (int64_t first = from; first < end; ) {
+                    const int64_t count = std::min(chunk, end - first);
+                    SessionFile::SessionPart tail;
+                    tail.bytes = (uint64_t) count * rb;
+                    // A capture is indivisible; splitting it would change the engine's layer strides.
+                    tail.align = tail.bytes;
+                    tail.fill = [this, first, count, rb](void* dst, size_t off, size_t n) {
+                        if (off != 0 || n != (size_t) count * rb) return false;
+                        e_.save_rows(first, count, (uint8_t*) dst);
+                        return true;
+                    };
+                    tail_rows.push_back({first, count, count, tail});
+                    first += count;
+                }
+            }
         }
         if (s.marks.back().pos != end) {   // the state of the conversation's end, a checkpoint of the engine's now
             const BlobPtr hold = blob(e_.state_bytes());
@@ -276,6 +300,7 @@ public:
         rows.reserve(s.rows.size());
         for (const Rows& r : s.rows)
             rows.push_back({r.first, r.count, r.keep, SessionFile::part_of(r.blob->p.get(), r.blob->bytes)});
+        for (const SessionFile::StreamRows& r : tail_rows) rows.push_back(r);
         SessionFile::WStat st;
         const bool ok = SessionFile::write_stream(dir, name, s.prompt, e_.state_bytes(), e_.row_bytes(), s.seq,
                                                   parts, rows, &st, emit);

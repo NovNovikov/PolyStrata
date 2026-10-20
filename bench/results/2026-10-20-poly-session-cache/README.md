@@ -197,7 +197,30 @@ restart 396.2 ms, and the bench's own check that the restored session's bytes an
 passes. The file the engine writes is the same one as before (652 459 431 bytes at the 89999-token scale,
 the same as the run above).
 
-## What is not done
+## The last two things: one pass over the file, and the save that takes no copy
+
+**The file is read once now.** The reader that takes the checkpoints stops where they end: where the
+rows' records begin is where the file stands, and the rows are read from there. The file's format did
+not change for it. The reader takes the checkpoints' bytes (about 30 MiB) and the rows' bytes (622 MiB),
+not the rows twice.
+
+**The server's `SAVE` takes no copy of the rows.** It wrote the rows the engine still held as one blob
+(the whole conversation, 4.3 GiB at the 89999-token scale) and then wrote that blob to the file. Now
+they go to the file in chunks of 4 MiB, straight from the engine, the way the park writes them, and the
+host keeps no copy. Without a session dir the host is where a conversation's rows live, and that path
+is unchanged: the host takes its copy there.
+
+The same synthetic scenario (10511 tokens), after both:
+
+| | before | after |
+|---|---:|---:|
+| the `SAVE`d file | 179 411 481 B | 179 415 468 B (the same rows, in chunks) |
+| SAVE | 381.3 ms | **311.7 ms** |
+| RESTORE | 312.5 ms | 312.5 ms |
+| the host copy the save takes | the whole conversation | **one chunk (4 MiB)** |
+
+The bench's own check is in this run: the session file's bytes and the token ids after the restore are
+the same (`CHECKPOINT_CACHE_INTEGRATION_PASSED`).
 
 - **The save is still synchronous.** The request still waits for the write of the branch it parks.
   The Manual LLAMA_CPP fork answers this with a background writer that takes the snapshot and writes

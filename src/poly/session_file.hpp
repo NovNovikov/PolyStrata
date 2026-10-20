@@ -610,6 +610,13 @@ public:
                 break;
             }
         }
+        if (marks_only) {
+            // The rows are not wanted now: the file is not walked into them, and where they begin is where the
+            // file stands.  The rows' bytes are then read once, when the conversation takes the engine.
+            head.rows_at = (uint64_t) std::ftell(f);
+            std::fclose(f);
+            return ok;
+        }
         for (uint64_t i = 0; ok && i < open.n_rows; ++i) {
             Raw raw;
             ok = read_raw(f, open.version, true, raw);
@@ -626,11 +633,6 @@ public:
             head.max_record = std::max(head.max_record, raw.bytes);
             head.rows_last = (int64_t) (raw.first + raw.keep);
             if (!i) head.rows_at = (uint64_t) std::ftell(f) - raw.header;   // where the rows' records start
-            if (marks_only) {   // the rows are not wanted now: the file is stepped over them
-                ok = skip_payload(f, open.version, raw.bytes, raw.packed);
-                if (!ok) break;
-                continue;
-            }
             packed.assign((size_t) raw.packed, 0);
             if (raw.packed && std::fread(packed.data(), 1, (size_t) raw.packed, f) != (size_t) raw.packed) {
                 ok = false;
