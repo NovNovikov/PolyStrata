@@ -1,0 +1,40 @@
+{
+  "timestamp": "2026-10-20T02:25:58.2127190+02:00",
+  "reason": "User explicitly requested cleanup of assistant-created temporary artifacts",
+  "preserved": "Benchmark reports, protocol traces, numeric outputs, summary hashes, expert profiles and active run",
+  "files": [
+    {
+      "path": "L:\\Temp\\opencode\\stage-split-control-one-clean-20261020\\explicit.session",
+      "bytes": 603114484
+    },
+    {
+      "path": "L:\\Temp\\opencode\\stage-split-control-one-clean-20261020\\roundtrip.session",
+      "bytes": 603114484
+    },
+    {
+      "path": "L:\\Temp\\opencode\\stage-split-control-one-clean-20261020\\sessions\\603a1a62bf220111-7047.bin",
+      "bytes": 690225380
+    },
+    {
+      "path": "L:\\Temp\\opencode\\stage-split-control-one-clean-20261020\\sessions\\406d49a55a715589-10511.bin",
+      "bytes": 603114484
+    },
+    {
+      "path": "L:\\Temp\\opencode\\stage-split-plus512-one-20261020\\explicit.session",
+      "bytes": 603114484
+    },
+    {
+      "path": "L:\\Temp\\opencode\\stage-split-plus512-one-20261020\\roundtrip.session",
+      "bytes": 603114484
+    },
+    {
+      "path": "L:\\Temp\\opencode\\stage-split-plus512-one-20261020\\sessions\\603a1a62bf220111-7047.bin",
+      "bytes": 690225380
+    },
+    {
+      "path": "L:\\Temp\\opencode\\stage-split-plus512-one-20261020\\sessions\\406d49a55a715589-10511.bin",
+      "bytes": 603114484
+    }
+  ],
+  "total_bytes": 4999137664.0
+}
