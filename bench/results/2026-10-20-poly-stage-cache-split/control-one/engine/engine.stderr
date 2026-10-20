@@ -1,0 +1,33 @@
+strata-poly: compact graphs prepared before expert placement: executions=44 templates=43 global_free_delta=14680064 bytes (device-wide, not exclusive ownership)
+strata-poly: no-disk VRAM[before-plan]: free=6824.00 MiB (7155482624 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=16098.28 MiB
+strata-poly: no-disk RAM: policy=allocate-and-lock, available_now=117491 MiB, held=1408 MiB, future_rows=0 MiB, explicit_limit=0 MiB (0=none)
+strata-poly: no-disk plan: attempt=1, 10431 experts in RAM (114284 MiB), 577 permanent in VRAM (6309 MiB); expert budgets RAM=allocation/lock VRAM=6312 MiB; staging=2848 MiB
+strata-poly: no-disk VRAM[after-ram-arena]: free=6824.00 MiB (7155482624 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=16098.28 MiB
+strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=2848 MiB, limit=2850 MiB; original resident RAM, no host staging copy
+strata-poly: no-disk VRAM[after-registration]: free=6824.00 MiB (7155482624 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=16098.28 MiB
+strata-poly: no-disk VRAM[after-expert-allocation]: free=514.00 MiB (538968064 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+6310.00 MiB, used_since_plan=+6310.00 MiB, engine_allocated=22407.58 MiB
+strata-poly: no-disk VRAM[after-expert-zero]: free=442.98 MiB (464498688 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+71.02 MiB, used_since_plan=+6381.02 MiB, engine_allocated=22407.58 MiB
+strata-poly: no-disk loaded experts of layer 0
+strata-poly: no-disk loaded experts of layer 1
+strata-poly: no-disk loaded experts of layer 2
+strata-poly: no-disk loaded experts of layer 3
+strata-poly: no-disk loaded experts of layer 4
+strata-poly: no-disk loaded experts of layer 5
+strata-poly: no-disk loaded experts of layer 6
+strata-poly: no-disk loaded experts of layer 7
+strata-poly: no-disk loaded experts of layer 8
+strata-poly: no-disk loaded experts of layer 9
+strata-poly: no-disk loaded experts of layer 10
+strata-poly: no-disk loaded experts of layer 11
+strata-poly: no-disk loaded experts of layer 12
+strata-poly: no-disk loaded experts of layer 13
+strata-poly: no-disk loaded experts of layer 14
+strata-poly: no-disk loaded experts of layer 15
+strata-poly: no-disk loaded experts of layer 16
+strata-poly: no-disk loaded experts of layer 17
+strata-poly: no-disk loaded experts of layer 18
+strata-poly: no-disk loaded experts of layer 19
+strata-poly: no-disk loaded experts of layer 20
+strata-poly: no-disk loaded experts of layer 21
+strata-poly: no-disk loaded experts of layer 22
+strata-poly: no-disk loaded experts of layer 23

@@ -1,0 +1,122 @@
+{
+  "control-one-clean": {
+    "binary": "9b0089e349bf0bdcb9c846991f19a4d5755a607bd4c6a1e28242daaebd3a487a",
+    "success": true,
+    "checks": {
+      "engine": {
+        "minimum_cuda_free_mib": 267.34375,
+        "reserve_mib": 256,
+        "reserve_satisfied": true,
+        "cache_capacity": 255,
+        "cache_used": 255,
+        "verified_payloads": 255,
+        "last_ten_graph_counts": [
+          45,
+          45,
+          45,
+          45,
+          45,
+          45,
+          45,
+          45,
+          45,
+          45
+        ],
+        "last_ten_local_spread_mib": 0.0,
+        "plateau": true
+      }
+    },
+    "warm_median": 22.552096713472906,
+    "warm_hit": 0.5452196382428941,
+    "warm_range": [
+      14.525165425495123,
+      23.979902557856274
+    ],
+    "phases": [
+      {
+        "label": "long-10k",
+        "decode_tps": 22.894060089067302,
+        "hit_rate": 0.5239308848738603,
+        "prompt_ms": 19406.9
+      },
+      {
+        "label": "interior-4k",
+        "decode_tps": 21.612431165887042,
+        "hit_rate": 0.5151397927759827,
+        "prompt_ms": 14866.4
+      },
+      {
+        "label": "B-switch",
+        "decode_tps": 19.322782480677215,
+        "hit_rate": 0.4085148271194783,
+        "prompt_ms": 19631.8
+      },
+      {
+        "label": "A-explicit-restore",
+        "decode_tps": 18.425901553040273,
+        "hit_rate": 0.3218284729912637,
+        "prompt_ms": 2352.6
+      }
+    ]
+  },
+  "plus512-one": {
+    "binary": "9b0089e349bf0bdcb9c846991f19a4d5755a607bd4c6a1e28242daaebd3a487a",
+    "success": true,
+    "checks": {
+      "engine": {
+        "minimum_cuda_free_mib": 316.22265625,
+        "reserve_mib": 256,
+        "reserve_satisfied": true,
+        "cache_capacity": 301,
+        "cache_used": 301,
+        "verified_payloads": 301,
+        "last_ten_graph_counts": [
+          45,
+          45,
+          45,
+          45,
+          45,
+          45,
+          45,
+          45,
+          45,
+          45
+        ],
+        "last_ten_local_spread_mib": 0.0,
+        "plateau": true
+      }
+    },
+    "warm_median": 23.521077509390604,
+    "warm_hit": 0.5651224314015012,
+    "warm_range": [
+      18.956490341216824,
+      24.199124222171005
+    ],
+    "phases": [
+      {
+        "label": "long-10k",
+        "decode_tps": 22.862920905926465,
+        "hit_rate": 0.5305981583458487,
+        "prompt_ms": 19625.3
+      },
+      {
+        "label": "interior-4k",
+        "decode_tps": 22.983232584916525,
+        "hit_rate": 0.5282543727908494,
+        "prompt_ms": 14932.6
+      },
+      {
+        "label": "B-switch",
+        "decode_tps": 18.709351706114692,
+        "hit_rate": 0.3976867232681186,
+        "prompt_ms": 20245.2
+      },
+      {
+        "label": "A-explicit-restore",
+        "decode_tps": 18.79643166154489,
+        "hit_rate": 0.3287806078503753,
+        "prompt_ms": 2624.7
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+PASS: CMakeFiles\strata-poly.dir\src\poly\main.cpp.obj deps=8 engine.hpp tracked
+PASS: CMakeFiles\strata-poly.dir\src\poly\engine.cpp.obj deps=20 engine.hpp tracked
+FAIL: CMakeFiles\strata-poly.dir\src\poly\no_disk.cpp.obj missing recorded engine.hpp dependency
+FAIL: CMakeFiles\strata-poly.dir\src\poly\glm5next.cpp.obj missing recorded engine.hpp dependency
+FAIL: CMakeFiles\strata-poly.dir\src\poly\qwen35.cpp.obj missing recorded engine.hpp dependency
+FAIL: CMakeFiles\strata-poly.dir\src\poly\gemma4.cpp.obj missing recorded engine.hpp dependency
+FAIL: CMakeFiles\strata-poly.dir\src\poly\deepseek4.cpp.obj missing recorded engine.hpp dependency
+FAIL: CMakeFiles\strata-poly.dir\src\poly\lfm2moe.cpp.obj missing recorded engine.hpp dependency
+FAIL: CMakeFiles\strata-poly.dir\src\poly\cpu_experts.cpp.obj missing recorded engine.hpp dependency
+7 inconsistent object(s); do not benchmark this executable
