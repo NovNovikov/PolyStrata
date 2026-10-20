@@ -1,0 +1,126 @@
+strata-poly: compact graphs prepared before expert placement: executions=280 templates=258 global_free_delta=119537664 bytes (device-wide, not exclusive ownership)
+strata-poly: no-disk VRAM[before-plan]: free=6718.00 MiB (7044333568 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=16104.00 MiB
+strata-poly: no-disk RAM: policy=allocate-and-lock, available_now=118883 MiB, held=1411 MiB, future_rows=0 MiB, explicit_limit=0 MiB (0=none)
+strata-poly: no-disk plan: attempt=1, 10441 experts in RAM (114392 MiB), 567 permanent in VRAM (6201 MiB); expert budgets RAM=allocation/lock VRAM=6206 MiB; staging=2848 MiB
+strata-poly: no-disk VRAM[after-ram-arena]: free=6718.00 MiB (7044333568 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=16104.00 MiB
+strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=2848 MiB, limit=2850 MiB; original resident RAM, no host staging copy
+strata-poly: no-disk VRAM[after-registration]: free=6718.00 MiB (7044333568 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=16104.00 MiB
+strata-poly: no-disk VRAM[after-expert-allocation]: free=516.00 MiB (541065216 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+6202.00 MiB, used_since_plan=+6202.00 MiB, engine_allocated=22305.27 MiB
+strata-poly: no-disk VRAM[after-expert-zero]: free=411.42 MiB (431407104 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+104.58 MiB, used_since_plan=+6306.58 MiB, engine_allocated=22305.27 MiB
+strata-poly: no-disk loaded experts of layer 0
+strata-poly: no-disk loaded experts of layer 1
+strata-poly: no-disk loaded experts of layer 2
+strata-poly: no-disk loaded experts of layer 3
+strata-poly: no-disk loaded experts of layer 4
+strata-poly: no-disk loaded experts of layer 5
+strata-poly: no-disk loaded experts of layer 6
+strata-poly: no-disk loaded experts of layer 7
+strata-poly: no-disk loaded experts of layer 8
+strata-poly: no-disk loaded experts of layer 9
+strata-poly: no-disk loaded experts of layer 10
+strata-poly: no-disk loaded experts of layer 11
+strata-poly: no-disk loaded experts of layer 12
+strata-poly: no-disk loaded experts of layer 13
+strata-poly: no-disk loaded experts of layer 14
+strata-poly: no-disk loaded experts of layer 15
+strata-poly: no-disk loaded experts of layer 16
+strata-poly: no-disk loaded experts of layer 17
+strata-poly: no-disk loaded experts of layer 18
+strata-poly: no-disk loaded experts of layer 19
+strata-poly: no-disk loaded experts of layer 20
+strata-poly: no-disk loaded experts of layer 21
+strata-poly: no-disk loaded experts of layer 22
+strata-poly: no-disk loaded experts of layer 23
+strata-poly: no-disk loaded experts of layer 24
+strata-poly: no-disk loaded experts of layer 25
+strata-poly: no-disk loaded experts of layer 26
+strata-poly: no-disk loaded experts of layer 27
+strata-poly: no-disk loaded experts of layer 28
+strata-poly: no-disk loaded experts of layer 29
+strata-poly: no-disk loaded experts of layer 30
+strata-poly: no-disk loaded experts of layer 31
+strata-poly: no-disk loaded experts of layer 32
+strata-poly: no-disk loaded experts of layer 33
+strata-poly: no-disk loaded experts of layer 34
+strata-poly: no-disk loaded experts of layer 35
+strata-poly: no-disk loaded experts of layer 36
+strata-poly: no-disk loaded experts of layer 37
+strata-poly: no-disk loaded experts of layer 38
+strata-poly: no-disk loaded experts of layer 39
+strata-poly: no-disk loaded experts of layer 40
+strata-poly: no-disk loaded experts of layer 41
+strata-poly: no-disk loaded experts of layer 42
+strata-poly: no-disk VRAM[after-expert-copy]: free=477.41 MiB (500596736 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=-65.98 MiB, used_since_plan=+6240.59 MiB, engine_allocated=22305.27 MiB
+strata-poly: no-disk VRAM[after-file-close]: free=477.41 MiB (500596736 bytes), reserve=256 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+6240.59 MiB, engine_allocated=22305.27 MiB
+strata-poly: no-disk ready: 11008 experts total, 10441 in locked RAM, 567 direct in VRAM; locked=115411 MiB, read=135653146972 bytes, model files closed; VRAM free=477 MiB, host buffers=392 MiB
+strata-poly: no-disk decode cache borrows staging: 255 slots of 11668800 bytes, 64 uploads in flight; no additional weight allocation; permanent slots protected
+strata-poly: no-disk RAM free after load: 5619 MiB
+strata-poly: memory[load] card=0 context=131072 sequences=1: KV=860.00 MiB VRAM (full-context=860.00 MiB), rows=2048.00 MiB VRAM (chunk=32768, batch=4096), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[load] card=0 VRAM allocations total=22305.27 MiB: dense=7758.37, experts=6201.27, KV=860.00, staging=2848.00, rows=2048.00, other=2589.63; reserve=256 MiB
+strata-poly: memory[load] expert placement: permanent=567, staging_cache=0/255 slots (0.00 MiB used inside existing staging); uploads=0
+strata-poly: memory[load] card=0 RAM weights+buffers total=115803.88 MiB: resident_weights=115411.06, pinned_buffers=392.82 (includes h_res_); CUDA/HIP-registered window=2848.00 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=116374.91 MiB, system RAM free=5619.09 MiB
+strata-poly: memory[load] card=0 whole device used=24086.09 / 24563.50 MiB, free=477.41 MiB (includes CUDA libraries and other processes)
+strata-poly: loaded in 205.8 s; 567 of 11008 routed experts in VRAM (6.1 GiB), 12 CPU threads
+strata-poly: expert-cache decode: tokens=128 interval=128 GPU=16877 CPU=20017 hit=45.74% uploads=320 speed=24.99 tok/s
+strata-poly: expert-cache decode: tokens=256 interval=128 GPU=17674 CPU=18446 hit=48.93% uploads=24 speed=23.94 tok/s
+strata-poly: expert-cache decode: tokens=384 interval=128 GPU=18224 CPU=17638 hit=50.82% uploads=16 speed=25.67 tok/s
+strata-poly: expert-cache answer: generated=512 GPU=70948 CPU=73532 hit=49.11% uploads=368; prompt work excluded
+strata-poly: staging cache verified: 255 GPU payloads match original RAM; zero tails OK
+strata-poly: memory[request] card=0 context=131072 sequences=1: KV=860.00 MiB VRAM (full-context=860.00 MiB), rows=2048.00 MiB VRAM (chunk=32768, batch=4096), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[request] card=0 VRAM allocations total=22305.27 MiB: dense=7758.37, experts=6201.27, KV=860.00, staging=2848.00, rows=2048.00, other=2589.63; reserve=256 MiB
+strata-poly: memory[request] expert placement: permanent=567, staging_cache=255/255 slots (2837.70 MiB used inside existing staging); uploads=368
+strata-poly: memory[request] card=0 RAM weights+buffers total=115803.88 MiB: resident_weights=115411.06, pinned_buffers=392.82 (includes h_res_); CUDA/HIP-registered window=11.12 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=116655.81 MiB, system RAM free=5614.92 MiB
+strata-poly: memory[request] card=0 whole device used=24099.50 / 24563.50 MiB, free=464.00 MiB (includes CUDA libraries and other processes)
+strata-poly: session saved done: 10511 tokens, 6 marks, 603114484 bytes to explicit.session
+strata-poly: conversation cache: parked=1 bytes=603072256 evictions=0
+strata-poly: session saved 603114484 bytes to L:\Temp\opencode\bench-old\explicit.session in 589.8 ms
+strata-poly: no-disk staging returned to prefill: 255 cached RAM copies discarded; permanent GPU experts and RAM weights retained
+strata-poly: expert-cache answer: generated=64 GPU=4296 CPU=11958 hit=26.43% uploads=258; prompt work excluded
+strata-poly: staging cache verified: 255 GPU payloads match original RAM; zero tails OK
+strata-poly: memory[request] card=0 context=131072 sequences=1: KV=860.00 MiB VRAM (full-context=860.00 MiB), rows=2048.00 MiB VRAM (chunk=32768, batch=4096), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[request] card=0 VRAM allocations total=22305.27 MiB: dense=7758.37, experts=6201.27, KV=860.00, staging=2848.00, rows=2048.00, other=2589.63; reserve=256 MiB
+strata-poly: memory[request] expert placement: permanent=567, staging_cache=255/255 slots (2837.70 MiB used inside existing staging); uploads=626
+strata-poly: memory[request] card=0 RAM weights+buffers total=115803.88 MiB: resident_weights=115411.06, pinned_buffers=392.82 (includes h_res_); CUDA/HIP-registered window=11.12 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=117177.36 MiB, system RAM free=4850.30 MiB
+strata-poly: memory[request] card=0 whole device used=24099.50 / 24563.50 MiB, free=464.00 MiB (includes CUDA libraries and other processes)
+strata-poly: session file 87781200800a520c-10575.bin: 606145812 bytes
+strata-poly: conversation cache: parked 10575 tokens in 960.9 ms; parked=1 bytes=0 evictions=0
+strata-poly: no-disk staging returned to prefill: 255 cached RAM copies discarded; permanent GPU experts and RAM weights retained
+strata-poly: expert-cache answer: generated=64 GPU=7911 CPU=9375 hit=45.77% uploads=255; prompt work excluded
+strata-poly: staging cache verified: 255 GPU payloads match original RAM; zero tails OK
+strata-poly: memory[request] card=0 context=131072 sequences=1: KV=860.00 MiB VRAM (full-context=860.00 MiB), rows=2048.00 MiB VRAM (chunk=32768, batch=4096), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[request] card=0 VRAM allocations total=22305.27 MiB: dense=7758.37, experts=6201.27, KV=860.00, staging=2848.00, rows=2048.00, other=2589.63; reserve=256 MiB
+strata-poly: memory[request] expert placement: permanent=567, staging_cache=255/255 slots (2837.70 MiB used inside existing staging); uploads=881
+strata-poly: memory[request] card=0 RAM weights+buffers total=115803.88 MiB: resident_weights=115411.06, pinned_buffers=392.82 (includes h_res_); CUDA/HIP-registered window=697.62 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=116686.07 MiB, system RAM free=5422.74 MiB
+strata-poly: memory[request] card=0 whole device used=24099.50 / 24563.50 MiB, free=464.00 MiB (includes CUDA libraries and other processes)
+strata-poly: session file 1467a28ecb2c32b2-9999.bin: 561322500 bytes
+strata-poly: conversation cache: parked 9999 tokens in 508.4 ms; parked=2 bytes=606103296 evictions=0
+strata-poly: conversation cache: restored 4096 tokens in 513.4 ms; parked=1 bytes=0 evictions=0
+strata-poly: session file 87781200800a520c-10575.bin: 606145812 bytes
+strata-poly: conversation cache: parked 10575 tokens in 1313.5 ms; parked=2 bytes=0 evictions=0
+strata-poly: no-disk staging returned to prefill: 255 cached RAM copies discarded; permanent GPU experts and RAM weights retained
+strata-poly: expert-cache decode: tokens=128 interval=128 GPU=15030 CPU=17994 hit=45.51% uploads=295 speed=31.35 tok/s
+strata-poly: expert-cache decode: tokens=256 interval=128 GPU=16754 CPU=16270 hit=50.73% uploads=63 speed=31.23 tok/s
+strata-poly: expert-cache decode: tokens=384 interval=128 GPU=17733 CPU=15291 hit=53.70% uploads=17 speed=30.23 tok/s
+strata-poly: expert-cache answer: generated=512 GPU=67363 CPU=64475 hit=51.10% uploads=388; prompt work excluded
+strata-poly: staging cache verified: 255 GPU payloads match original RAM; zero tails OK
+strata-poly: memory[request] card=0 context=131072 sequences=1: KV=860.00 MiB VRAM (full-context=860.00 MiB), rows=2048.00 MiB VRAM (chunk=32768, batch=4096), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[request] card=0 VRAM allocations total=22305.27 MiB: dense=7758.37, experts=6201.27, KV=860.00, staging=2848.00, rows=2048.00, other=2589.63; reserve=256 MiB
+strata-poly: memory[request] expert placement: permanent=567, staging_cache=255/255 slots (2837.70 MiB used inside existing staging); uploads=1269
+strata-poly: memory[request] card=0 RAM weights+buffers total=115803.88 MiB: resident_weights=115411.06, pinned_buffers=392.82 (includes h_res_); CUDA/HIP-registered window=11.12 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=117164.14 MiB, system RAM free=5080.81 MiB
+strata-poly: memory[request] card=0 whole device used=24120.25 / 24563.50 MiB, free=443.25 MiB (includes CUDA libraries and other processes)
+strata-poly: session restored 10511 tokens of 603114484 bytes, 6 marks, the engine at 10511
+strata-poly: session restored 10511 tokens, 603114484 bytes from L:\Temp\opencode\bench-old\explicit.session in 369.9 ms
+strata-poly: session saved done: 10511 tokens, 6 marks, 603114484 bytes to roundtrip.session
+strata-poly: conversation cache: parked=3 bytes=603072256 evictions=0
+strata-poly: session saved 603114484 bytes to L:\Temp\opencode\bench-old\roundtrip.session in 408.9 ms
+strata-poly: session file 406d49a55a715589-10511.bin: 603114484 bytes
+strata-poly: conversation cache: parked 10511 tokens in 1273.9 ms; parked=3 bytes=606103296 evictions=0
+strata-poly: conversation cache: restored 10575 tokens in 1284.0 ms; parked=2 bytes=0 evictions=0
+strata-poly: expert-cache answer: generated=64 GPU=5257 CPU=10997 hit=32.34% uploads=9; prompt work excluded
+strata-poly: staging cache verified: 254 GPU payloads match original RAM; zero tails OK
+strata-poly: memory[request] card=0 context=131072 sequences=1: KV=860.00 MiB VRAM (full-context=860.00 MiB), rows=2048.00 MiB VRAM (chunk=32768, batch=4096), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[request] card=0 VRAM allocations total=22305.27 MiB: dense=7758.37, experts=6201.27, KV=860.00, staging=2848.00, rows=2048.00, other=2589.63; reserve=256 MiB
+strata-poly: memory[request] expert placement: permanent=567, staging_cache=254/255 slots (2826.57 MiB used inside existing staging); uploads=1278
+strata-poly: memory[request] card=0 RAM weights+buffers total=115803.88 MiB: resident_weights=115411.06, pinned_buffers=392.82 (includes h_res_); CUDA/HIP-registered window=11.12 MiB (part of resident_weights, peak=2848.00 MiB); whole process RSS=117111.03 MiB, system RAM free=4983.43 MiB
+strata-poly: memory[request] card=0 whole device used=24099.50 / 24563.50 MiB, free=464.00 MiB (includes CUDA libraries and other processes)
+strata-poly: 25182 of 48200 prompt tokens were not read again (52.2%); 2 conversations parked in 0 MiB, 0 pushed out; 464 MiB of VRAM free at the end
