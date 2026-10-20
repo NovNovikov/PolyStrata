@@ -708,8 +708,7 @@ private:
                 if (!z) { add_literal(p + i, n - i); break; }
                 const size_t lit = (size_t) (z - (p + i));
                 if (lit) add_literal(p + i, lit);
-                size_t run = 1;
-                while (z + run < p + n && z[run] == 0) ++run;
+                const size_t run = zero_run(p + i + lit, n - i - lit);
                 add_zeros(run);
                 i += lit + run;
             }
@@ -718,7 +717,25 @@ private:
         // The last of a payload's bytes.
         void finish() { flush_lit(); }
 
-private:
+    private:
+        // The length of the run of zeros at `p`, at most `n` bytes: eight bytes at a time, so a payload that is
+        // mostly zeros is counted a word at a time.  A byte at a time would cost a cycle per byte, and a
+        // payload of a real conversation is mostly zeros.
+        static size_t zero_run(const uint8_t* p, size_t n) {
+            size_t at = 0;
+            while (at + 8 <= n) {
+                uint64_t w;
+                std::memcpy(&w, p + at, 8);
+                if (w) {
+                    for (size_t k = 0; k < 8; ++k)
+                        if (p[at + k]) return at + k;
+                }
+                at += 8;
+            }
+            while (at < n && p[at] == 0) ++at;
+            return at;
+        }
+
         static constexpr size_t kMinRun = 16;   // a shorter run of zeros stays literal: a count costs 8 bytes
         static constexpr size_t kMaxLit = (size_t) 1 << 16;
 
