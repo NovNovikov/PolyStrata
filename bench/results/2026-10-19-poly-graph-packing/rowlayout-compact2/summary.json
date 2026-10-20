@@ -1,0 +1,53 @@
+{
+  "binary_sha256": "449bc83040c5966e8ab8dd64ac6cbb753f2e96988bc5193c098cac7f89f49a43",
+  "config_sha256": "eb0cde6a44416d6d87ac9ba1843558fcfe565478b37ed69b38122ef75a3a50f0",
+  "source_profile_sha256": "b06d1fcd08c83787b79f3528d2da54577e3d557151b6aa1608865199070ec6ed",
+  "trace": false,
+  "cycles": 32,
+  "sessions": true,
+  "restart": true,
+  "success": true,
+  "source_sha256": {
+    "src/poly/engine.cpp": "11985e22649a04c9ebb5b93077beca39c56499819dfebe7bef281511f74e5252",
+    "src/poly/engine.hpp": "5d6eef530149dac658893dd0dd8828a834464827604faeb5c2ea972147dbfe1c",
+    "src/poly/deepseek4.hpp": "ecfbdb0e8272a91d7d1200d152ab682d099eb871e44dfc550d48a503846ce829",
+    "src/poly/main.cpp": "37c57451ec9c6a92598b89da4827744edec779535160081d1d0d9d8f1e410791",
+    "include/strata/spec/draft_policy.hpp": "b1fa1b2a66d0b52c99b598d5ae0b4f25de18c0a6b995a67219e06140e028d325",
+    "src/spec/draft_policy.cpp": "5379a5c35752da7c4ea1c77df8c028906c67349d0d8a117e27283f23e8c4521f",
+    "tools/bench_poly_graph_memory.py": "4c9466b784cd03de12abda7c4d1c378c5542edaeff2d7ee32f936aa732cf968f"
+  },
+  "session_sha256": "5fa127e33607021db209c3c7c8db7ffc78305878e3ecd7a20fb4f8bd263d9802",
+  "checks": {
+    "engine": {
+      "minimum_cuda_free_mib": 354.01171875,
+      "reserve_mib": 256,
+      "reserve_satisfied": true,
+      "cache_capacity": 255,
+      "cache_used": 255,
+      "verified_payloads": 255,
+      "last_ten_graph_counts": [
+        661,
+        661,
+        661,
+        661,
+        661,
+        661,
+        661,
+        661,
+        661,
+        661
+      ],
+      "last_ten_local_spread_mib": 0.0,
+      "plateau": true
+    },
+    "restart": {
+      "minimum_cuda_free_mib": 389.13671875,
+      "reserve_mib": 256,
+      "reserve_satisfied": true,
+      "cache_capacity": 255,
+      "cache_used": 253,
+      "verified_payloads": 253
+    }
+  },
+  "functional_success": true
+}
