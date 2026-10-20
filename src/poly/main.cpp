@@ -1035,6 +1035,7 @@ int serve(Session& ss, const Options& o) {
         }
 
         const strata::poly::Stats before = engine.stats();
+        const bool trace_decode_costs = std::getenv("STRATA_TRACE_DECODE_COSTS") != nullptr;
         strata::poly::Stats decode_before = before, cache_interval = before;
         int64_t emitted = 0;
         auto cache_at = Clock::now();
@@ -1082,7 +1083,7 @@ int serve(Session& ss, const Options& o) {
 #ifdef STRATA_POLY_CUDA_PROFILER
                     if (first < 0) capture.start();
 #endif
-                    if (o.no_disk) {
+                    if (o.no_disk || trace_decode_costs) {
                         const strata::poly::Stats current = engine.stats();
                         if (emitted == 0) {
                             decode_before = cache_interval = current;
@@ -1141,15 +1142,20 @@ int serve(Session& ss, const Options& o) {
         const auto& answer_before = o.no_disk ? (emitted ? decode_before : now) : before;
         const long long hits = now.gpu_experts - answer_before.gpu_experts;
         const long long misses = now.cpu_experts - answer_before.cpu_experts;
-        if (std::getenv("STRATA_TRACE_DECODE_COSTS"))
+        if (trace_decode_costs) {
+            const auto& traced_before = emitted ? decode_before : now;
             // Existing accumulated host timers; CPU work can overlap GPU work. These are
             // not additive pieces of decode_ms, and prompt work is excluded by the snapshot.
             std::fprintf(stderr, "strata-poly: decode-costs generated=%lld accounted_tokens=%lld wall_ms=%.3f "
-                                 "cpu_expert_ms=%.3f route_wait_ms=%.3f uploads=%lld drafts_offered=%lld drafts_accepted=%lld\n",
-                         (long long) r.produced, (long long) (now.tokens - answer_before.tokens), r.decode_ms,
-                         now.cpu_ms - answer_before.cpu_ms, now.route_wait_ms - answer_before.route_wait_ms,
-                         (long long) (now.swapped_experts - answer_before.swapped_experts),
-                         (long long) r.guessed, (long long) r.guessed_right);
+                                 "cpu_expert_ms=%.3f route_wait_ms=%.3f uploads=%lld drafts_offered=%lld drafts_accepted=%lld "
+                                 "gpu_experts=%lld cpu_experts=%lld\n",
+                         (long long) r.produced, (long long) (now.tokens - traced_before.tokens), r.decode_ms,
+                         now.cpu_ms - traced_before.cpu_ms, now.route_wait_ms - traced_before.route_wait_ms,
+                         (long long) (now.swapped_experts - traced_before.swapped_experts),
+                         (long long) r.guessed, (long long) r.guessed_right,
+                         (long long) (now.gpu_experts - traced_before.gpu_experts),
+                         (long long) (now.cpu_experts - traced_before.cpu_experts));
+        }
         if (o.no_disk)
             std::fprintf(stderr, "strata-poly: expert-cache answer: generated=%lld GPU=%lld CPU=%lld hit=%.2f%% "
                                  "uploads=%lld; prompt work excluded\n", (long long) r.produced, hits, misses,
