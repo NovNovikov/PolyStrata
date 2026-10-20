@@ -557,7 +557,8 @@ public:
     // payload's packed bytes in a buffer it takes over; it returns false to stop the read.  A version 2 file's
     // payloads come as they are.
     template<class Visit>
-    static bool read_packed(const std::filesystem::path& path, Head& head, Visit&& visit) {
+    static bool read_packed(const std::filesystem::path& path, Head& head, Visit&& visit,
+                            bool marks_only = false) {
         FILE* f = nullptr;
 #if defined(_WIN32)
         _wfopen_s(&f, path.c_str(), L"rb");
@@ -616,6 +617,11 @@ public:
             head.payload += raw.bytes;
             head.max_record = std::max(head.max_record, raw.bytes);
             head.rows_last = (int64_t) (raw.first + raw.keep);
+            if (marks_only) {   // the rows are not wanted now: the file is stepped over them
+                ok = skip_payload(f, open.version, raw.bytes, raw.packed);
+                if (!ok) break;
+                continue;
+            }
             packed.assign((size_t) raw.packed, 0);
             if (raw.packed && std::fread(packed.data(), 1, (size_t) raw.packed, f) != (size_t) raw.packed) {
                 ok = false;

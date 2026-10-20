@@ -549,6 +549,7 @@ private:
         bool held = false;              ///< the engine sits at this conversation's last token
         std::string disk;               // the session file that holds the blobs; empty: they are here
         std::vector<int64_t> disk_marks;  // where that file's checkpoints are, while its blobs are in it
+        bool materialized = false;      ///< the file's checkpoints are in the host, its rows are still in the file
         size_t disk_bytes = 0;
     };
     struct Held {
@@ -784,21 +785,34 @@ private:
     // incoming conversation's file would not come in; the engine and the leaving conversation stand as they were.
     bool enter(size_t i, int64_t need) {
         const Clock::time_point t0 = Clock::now();
-        if (!slots_[i].disk.empty() && !materialize(i)) {   // resume() normally has this brought over already
+        if (!slots_[i].materialized && !slots_[i].disk.empty() && !materialize(i)) {
             slots_[i] = Slot{};
             return false;
         }
         e_.reset();   // the leaving conversation's state, ahead positions and the row-pool lower bound go first
-        const Slot& in = slots_[i];
         int64_t have = 0;
-        for (size_t k = 0; k < in.rows.size() && k < cur().rows.size() && in.rows[k].blob == cur().rows[k].blob; ++k) {
-            have = in.rows[k].first + std::min(in.rows[k].keep, cur().rows[k].keep);
-            if (in.rows[k].keep != cur().rows[k].keep) break;
+        for (size_t k = 0; k < slots_[i].rows.size() && k < cur().rows.size() &&
+                           slots_[i].rows[k].blob == cur().rows[k].blob; ++k) {
+            have = slots_[i].rows[k].first + std::min(slots_[i].rows[k].keep, cur().rows[k].keep);
+            if (slots_[i].rows[k].keep != cur().rows[k].keep) break;
         }
         if (cur().seq.empty() || !park(i)) slots_[cur_] = Slot{};
-        for (const Rows& r : in.rows) {
-            const int64_t a = std::max(r.first, have), b = std::min(r.first + r.keep, need);
-            if (a < b) e_.load_rows(r.blob->p.get(), r.first, r.count, a, b - a);
+        if (!slots_[i].disk.empty()) {
+            // the rows come from the file, one record at a time: the leaving conversation was parked before
+            // this, so the engine's rows are still the leaving one's where the park read them
+            if (!load_rows_from_file(i, need)) {
+                slots_[i] = Slot{};
+                return false;
+            }
+            slots_[i].disk.clear();
+            slots_[i].disk_marks.clear();
+            slots_[i].disk_bytes = 0;
+            slots_[i].materialized = false;
+        } else {
+            for (const Rows& r : slots_[i].rows) {
+                const int64_t a = std::max(r.first, have), b = std::min(r.first + r.keep, need);
+                if (a < b) e_.load_rows(r.blob->p.get(), r.first, r.count, a, b - a);
+            }
         }
         cur_ = i;
         slots_[i].held = true;
@@ -872,30 +886,56 @@ private:
         }
     }
 
-    // A conversation whose blobs are in its session file reads them back.  False: the file is gone or not this
-    // engine's any more (the model or its row size changed; the file goes, and the caller forgets the
-    // conversation), or the host could not take its payloads at once (the file stays where it is).  The slot is
-    // filled before anything of it is placed: a half materialize leaves the caller the file, not half a slot.
+    // A conversation whose rows are in its session file reads them back.  The checkpoints' states come into the
+    // host now (the host needs them to know where the conversation can be come back to); the rows stay in the
+    // file until the conversation takes the engine, which reads them one record at a time: the host never holds
+    // the whole conversation.  False: the file is gone or not this engine's any more (the model or its row size
+    // changed; the file goes, and the caller forgets the conversation), or the host could not take the states.
     bool materialize(size_t i) {
         Slot& s = slots_[i];
-        std::vector<int32_t> seq;
-        int64_t prompt = 0;
-        uint64_t sb = 0, rb = 0;
+        SessionFile::Head head;
         std::vector<Checkpoint> marks;
-        std::vector<Rows> rows;
         bool no_ram = false;
-        if (!load_blobs(o_.session_dir / s.disk, seq, prompt, sb, rb, marks, rows, no_ram) || seq.empty() ||
-            sb != e_.state_bytes() || rb != e_.row_bytes()) {
+        const bool ok = SessionFile::read_packed(
+            o_.session_dir / s.disk, head,
+            [&](const SessionFile::Record& r, std::vector<uint8_t>&& packed, uint32_t version) {
+                if (r.kind != SessionFile::Record::kMark) return true;   // the rows come when the engine takes it
+                const BlobPtr b = blob(r.raw);
+                if (!b) {
+                    no_ram = true;
+                    return false;
+                }
+                if (!SessionFile::unpack(version, packed.data(), packed.size(), b->p.get(), r.raw)) return false;
+                marks.push_back({r.pos, b});
+                return true;
+            },
+            true);
+        if (!ok || no_ram || head.seq.empty() || head.sb != e_.state_bytes() || head.rb != e_.row_bytes()) {
             std::error_code ec;
             std::filesystem::remove(o_.session_dir / s.disk, ec);
             return false;
         }
         s.marks = std::move(marks);
-        s.rows = std::move(rows);
-        s.disk.clear();
-        s.disk_marks.clear();
-        s.disk_bytes = 0;
+        s.materialized = true;   // the rows are still in the file: enter() reads them
         return true;
+    }
+
+    // The rows of a parked conversation, from its file, one record at a time: the host holds one record, not
+    // the whole conversation.  False: the file is gone or does not hold what the engine asked for.
+    bool load_rows_from_file(size_t i, int64_t need) {
+        Slot& s = slots_[i];
+        const std::filesystem::path path = o_.session_dir / s.disk;
+        SessionFile::Head head;
+        return SessionFile::read_packed(
+            path, head, [&](const SessionFile::Record& r, std::vector<uint8_t>&& packed, uint32_t version) {
+                if (r.kind != SessionFile::Record::kRows) return true;
+                const int64_t a = r.first, b = std::min(r.first + r.keep, need);
+                if (a >= b) return true;   // the rows past the place the engine comes back to are not wanted
+                std::vector<uint8_t> tmp((size_t) r.raw);
+                if (!SessionFile::unpack(version, packed.data(), packed.size(), tmp.data(), r.raw)) return false;
+                e_.load_rows(tmp.data(), r.first, r.count, a, b - a);
+                return true;
+            });
     }
 
     // The session files take session_max_mib at most; the least recently used goes, the current one and `keep`

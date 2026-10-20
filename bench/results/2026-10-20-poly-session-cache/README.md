@@ -149,7 +149,32 @@ The other two levers, for the record:
   writer runs: the whole 4.38 GB of a 90601-token branch. That is why the disk path streams the
   engine's tail straight into the file instead.
 
-## The restore that streams
+## The park's read, which is the path a client's next prompt takes
+
+The `parked`/`restored` lines in the log are the conversation cache's own path, and it is the one a chat
+uses: the conversation is written to the session store after a generation, and the next prompt reads it
+back instead of recomputing the context. `materialize()` read that file whole into blobs, so the host
+held the rows of the whole conversation: 4 279 897 856 bytes at the 89999-token scale, on a machine
+with 2.7 GiB free. That is where the 32 seconds went.
+
+Now the file's checkpoints come into the host (the states, 17.5 MiB each, are what `state_at()` wants)
+and the rows stay in the file until the conversation takes the engine, which reads them one record at a
+time. The host never holds the whole conversation.
+
+At the 89999-token scale, the same scenario:
+
+| | before | after |
+|---|---:|---:|
+| the host memory the cache holds after the restore | 4 279 897 856 B | **17 545 216 B** |
+| the restore | 3 440.8 ms | 4 020.5 ms |
+| the park | 2 588.5 / 2 307.0 ms | 2 588.5 / 2 307.0 ms |
+
+The restore is 0.6 s slower on a machine with memory to spare, because the file is now read twice: once
+to step over the rows for the checkpoints, and once for the rows themselves. What it buys is the memory:
+the rows are the host's copy of a conversation that the engine's VRAM already holds, and on a machine
+without memory to spare that copy is what made the restore take 32 seconds instead of 3. Removing the
+second read is the next thing to do: the file's offset where the rows begin can be remembered when the
+checkpoints are read.
 
 The `RESTORE` command (the server's "bring this session file back") does not need the whole conversation in
 the host RAM. The rows live in the engine's VRAM, and the file is where they are between the runs, so the
