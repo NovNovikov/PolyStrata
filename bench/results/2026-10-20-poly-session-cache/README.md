@@ -59,11 +59,28 @@ Measured on the real file, packed and unpacked, compared byte for byte: the pack
 bytes, the unpacked bytes are identical to the original, the write takes 277.8 ms and the read back
 205.0 ms.
 
-## What it bought
+## What it bought, at the scale of a real chat
 
-Same engine, same model, same scenario, same machine, one run each:
+The scenario above is 10511 tokens. The scale that matters is a long conversation, so the same test was
+run with a 89999-token conversation (`tools/bench_poly_session_scale.py`): one long synthetic prompt,
+a different prompt that branches off it (which parks the conversation to a file in the session store),
+and the first prompt again (which brings it back from that file). The old engine and the new one, the
+same machine, the same conversation:
 
-| | old exe `d25903c1` | packed `2b9165ce` |
+| | old exe `d25903c1` | new exe `2b9165ce` | |
+|---|---:|---:|---|
+| the session file | 4 280 290 660 B | **652 459 431 B** | 6.6 times smaller |
+| park (the first) | 7 765.7 ms | **2 537.2 ms** | 3.1 times faster |
+| park (the second, the RAM is fuller) | 15 271.2 ms | **2 352.8 ms** | 6.5 times faster |
+| restore | 16 595.2 ms | **3 207.9 ms** | 5.2 times faster |
+
+The user's own log, on their real conversation, is the same order as the old engine here: 14 670.5 ms
+to park 90601 tokens and 32 114.5 ms to restore 74507 tokens. On the same scale the new engine parks
+in 2.5 s and restores in 3.2 s.
+
+And on the smaller scenario, with the file's size alone:
+
+| | old exe `d25903c1` | new exe `2b9165ce` |
 |---|---:|---:|
 | session file for 10511 tokens | 603 114 484 B | **179 411 487 B** (29.7 %) |
 | SAVE (write) | 589.8 ms | **389.3 ms** |
@@ -143,11 +160,13 @@ The other two levers, for the record:
   a new file holds only the cells added since the parent, and the parent is named in a sidecar
   (`auto_delta_state_filename`, `parent_id`, `range_lo`). That needs a second file format and a
   restore that walks the chain; also not done here.
-- **A 4.38 GB branch is still a 4.38 GB file of rows.** Packing makes it 1.3 GB, but the rows
-  themselves are what they are: the engine's compressed attention cache for 90601 positions.
-- The measured restore of a 90601-token branch (32.1 s before the change) was not repeated after it:
-  the new engine was measured on a 10511-token session, and the branch of that size needs a run of
-  about ten minutes that was not spent.
+- **A 4.38 GB branch is still a 4.38 GB file of rows.** Packing makes it 622 MiB, but the rows
+  themselves are what they are: the engine's compressed attention cache for 90601 positions. The
+  restore still brings those rows into the host RAM (4.4 GB), because the engine's rows are in VRAM
+  and the file is the only other place they are.
+- The host copy of the rows is the last big thing: the restore reads the file (622 MiB now) and unpacks
+  it into 4.4 GB of host memory, which the engine's window does not need. What that would take is in
+  `NEXT-STEPS.md`.
 
 ## Files
 

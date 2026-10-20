@@ -1,0 +1,45 @@
+{
+  "exe": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly-deployed-d25903c1.exe",
+  "tokens": 90000,
+  "work": "L:\\Temp\\opencode\\scale-old",
+  "parked_files": [
+    {
+      "name": "52280d5bbfeda63a-89999.bin",
+      "bytes": 4280290660
+    }
+  ],
+  "requests": [
+    {
+      "label": "A-long",
+      "prompt_tokens": 90000,
+      "generated": 64,
+      "prompt_ms": 184143.5,
+      "decode_ms": 2814.7,
+      "resume": 0
+    },
+    {
+      "label": "B-branch",
+      "prompt_tokens": 90000,
+      "generated": 64,
+      "prompt_ms": 192202.5,
+      "decode_ms": 2485.6,
+      "resume": 0
+    },
+    {
+      "label": "A-again",
+      "prompt_tokens": 90000,
+      "generated": 64,
+      "prompt_ms": 22069.3,
+      "decode_ms": 2714.3,
+      "resume": 89999
+    }
+  ],
+  "log": [
+    "strata-poly: session file 52280d5bbfeda63a-89999.bin: 4280290660 bytes",
+    "strata-poly: conversation cache: parked 89999 tokens in 7765.7 ms; parked=1 bytes=0 evictions=0",
+    "strata-poly: session file 32748d4ea32c48f8-89999.bin: 4280290660 bytes",
+    "strata-poly: conversation cache: parked 89999 tokens in 15271.2 ms; parked=2 bytes=4279897856 evictions=0",
+    "strata-poly: conversation cache: restored 89999 tokens in 16595.2 ms; parked=1 bytes=0 evictions=0",
+    "strata-poly: 89999 of 270000 prompt tokens were not read again (33.3%); 1 conversations parked in 0 MiB, 0 pushed out; 400 MiB of VRAM free at the end"
+  ]
+}

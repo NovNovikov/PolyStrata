@@ -1,0 +1,56 @@
+{
+  "exe_sha256": "2b9165ce1a44f8105bff90337feed61a6cca937e94dedd503ce4beb2f2fae73a",
+  "config_sha256": "2f51ccb290de4768f89bd3d8af5b1ea229761a7eb6a69532606cb5320c889ea9",
+  "work": "L:\\Temp\\opencode\\bench-packed2",
+  "anchors": [
+    2048,
+    4096,
+    6144,
+    8192
+  ],
+  "stages": [
+    "initial",
+    "restart"
+  ],
+  "session_sha256": "07d856c72484663e9f6f5b359d34e4e48dad234ee84daca474c0b5b8d91b330e",
+  "roundtrip_sha256": "07d856c72484663e9f6f5b359d34e4e48dad234ee84daca474c0b5b8d91b330e",
+  "session_bytes": 179411487,
+  "cache": {
+    "initial": {
+      "max_used_slots": 255,
+      "capacity": 255,
+      "max_used_mib": 2837.7,
+      "verified_counts": [
+        255,
+        253,
+        255,
+        255,
+        254
+      ]
+    },
+    "restart": {
+      "max_used_slots": 254,
+      "capacity": 255,
+      "max_used_mib": 2826.57,
+      "verified_counts": [
+        254,
+        253
+      ]
+    }
+  },
+  "automatic_sessions": [
+    {
+      "name": "1467a28ecb2c32b2-9999.bin",
+      "bytes": 158255907
+    },
+    {
+      "name": "406d49a55a715589-10511.bin",
+      "bytes": 179411487
+    },
+    {
+      "name": "87781200800a520c-10575.bin",
+      "bytes": 179852613
+    }
+  ],
+  "success": true
+}
