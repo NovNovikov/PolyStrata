@@ -257,6 +257,41 @@ What is left in the park: the rows come off the VRAM (4.3 GiB) and the packed fi
 disk. The next lever is not to write the whole conversation again: a delta file holds only the rows added
 since the parent, the way the Manual LLAMA_CPP fork's does (`parent_id`, `range_lo`, `range_hi`).
 
+## The delta: a conversation that grew writes only what came after
+
+The file's header now names the parent (`version 4`): a conversation that is parked again holds only
+the rows that came after the rows its file already has, and the chain of the files is the
+conversation. The reader walks the parents, and the rows and the checkpoints arrive in order.
+
+At the 89999-token scale, a conversation that grew by 1000 tokens and was parked again:
+
+| | before | after |
+|---|---:|---:|
+| the park | 1 913.5 ms | **30.1 ms** |
+| the file the park wrote | 652 459 431 B | **24 945 521 B** |
+| the chain's restore | 3 166.2 ms | 1 793.4 ms |
+
+The chain, as the files say it:
+
+```
+52280d5bbfeda63a-89999-1.bin  652459431 B  v3  parent=-                marks=1 rows=1023
+5fc36e09e235c1e9-90999-3.bin   24945521 B  v4  parent=52280d5bbfeda63a-89999-1.bin  marks=1 rows=12
+```
+
+The third file (the branch's own, not part of the chain): `32748d4ea32c48f8-89999-2.bin`, 652 459 413 B,
+no parent. The user's own log has this case: a conversation of 84462 tokens was parked and then 84553
+tokens, and the second file was written whole (4 070 669 872 B) for 91 new tokens.
+
+The traps, and how they are closed:
+- a file another file adds to is not a conversation of its own: the scan of the session dir skips it;
+- the eviction forgets a chain and not only its leaf, and leaves a parent that another file needs;
+- a delta carries only the checkpoints its parent does not have, so the chain has no two of the same;
+- a delta with nothing new is no file at all;
+- a file that would be written over its own parent is written whole, and the names carry a serial so
+  that this does not happen.
+
+The old files (version 3) are still read, and a version 2 file as well.
+
 ## Files
 
 - `packed/` - the new engine's run: `summary.json`, the engine's stderr, the protocol, per phase.
