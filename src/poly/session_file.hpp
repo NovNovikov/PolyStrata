@@ -115,6 +115,9 @@ public:
         uint64_t payload = 0;    // the payloads' size unpacked: what a restore holds in memory
         uint64_t marks_bytes = 0;   // the checkpoints' states alone: a restore keeps these
         uint64_t max_record = 0;    // the largest record: a restore that streams needs room for this one
+        uint64_t rows_at = 0;       // where the rows' records start in the file
+        uint64_t n_rows = 0;        // how many rows' records there are
+        uint32_t version = 0;       // the file's version
         size_t bytes = 0;        // the payloads plus the header, as the file is sized
     };
 
@@ -385,6 +388,8 @@ public:
         h.prompt = open.prompt;
         h.sb = open.sb;
         h.rb = open.rb;
+        h.version = open.version;
+        h.n_rows = open.n_rows;
         bool ok = true;
         for (uint64_t i = 0; ok && i < open.n_marks; ++i) {
             Raw r;
@@ -401,6 +406,7 @@ public:
             Raw r;
             ok = read_raw(f, open.version, true, r) && r.span <= room;
             if (!ok) break;
+            if (!i) h.rows_at = (uint64_t) std::ftell(f) - r.header;   // where the rows' records start
             room -= r.span;
             h.payload += r.bytes;
             h.max_record = std::max(h.max_record, r.bytes);
@@ -577,6 +583,8 @@ public:
         head.prompt = open.prompt;
         head.sb = open.sb;
         head.rb = open.rb;
+        head.version = open.version;
+        head.n_rows = open.n_rows;
         std::vector<uint8_t> packed;
         for (uint64_t i = 0; ok && i < open.n_marks; ++i) {
             Raw raw;
@@ -617,6 +625,7 @@ public:
             head.payload += raw.bytes;
             head.max_record = std::max(head.max_record, raw.bytes);
             head.rows_last = (int64_t) (raw.first + raw.keep);
+            if (!i) head.rows_at = (uint64_t) std::ftell(f) - raw.header;   // where the rows' records start
             if (marks_only) {   // the rows are not wanted now: the file is stepped over them
                 ok = skip_payload(f, open.version, raw.bytes, raw.packed);
                 if (!ok) break;
@@ -628,6 +637,49 @@ public:
                 break;
             }
             if (!visit(r, std::move(packed), open.version)) {
+                ok = false;
+                break;
+            }
+        }
+        std::fclose(f);
+        return ok;
+    }
+
+    // The rows' records from a file's offset, one at a time, with their payloads packed: a reader that has
+    // the checkpoints already does not walk the file again for them.
+    template<class Visit>
+    static bool read_packed_rows(const std::filesystem::path& path, uint64_t at, uint64_t n_rows, uint32_t version,
+                                 Visit&& visit) {
+        FILE* f = nullptr;
+#if defined(_WIN32)
+        _wfopen_s(&f, path.c_str(), L"rb");
+#else
+        f = std::fopen(path.c_str(), "rb");
+#endif
+        if (!f) return false;
+        if (std::fseek(f, (long) at, SEEK_SET) != 0) {
+            std::fclose(f);
+            return false;
+        }
+        bool ok = true;
+        std::vector<uint8_t> packed;
+        for (uint64_t i = 0; i < n_rows; ++i) {
+            Raw raw;
+            ok = read_raw(f, version, true, raw);
+            if (!ok) break;
+            Record r;
+            r.kind = Record::kRows;
+            r.index = (size_t) i;
+            r.first = (int64_t) raw.first;
+            r.count = (int64_t) raw.count;
+            r.keep = (int64_t) raw.keep;
+            r.raw = raw.bytes;
+            packed.assign((size_t) raw.packed, 0);
+            if (raw.packed && std::fread(packed.data(), 1, (size_t) raw.packed, f) != (size_t) raw.packed) {
+                ok = false;
+                break;
+            }
+            if (!visit(r, std::move(packed), version)) {
                 ok = false;
                 break;
             }
@@ -664,7 +716,7 @@ private:
         // The last of a payload's bytes.
         void finish() { flush_lit(); }
 
-    private:
+private:
         static constexpr size_t kMinRun = 16;   // a shorter run of zeros stays literal: a count costs 8 bytes
         static constexpr size_t kMaxLit = (size_t) 1 << 16;
 

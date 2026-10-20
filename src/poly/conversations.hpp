@@ -550,6 +550,9 @@ private:
         std::string disk;               // the session file that holds the blobs; empty: they are here
         std::vector<int64_t> disk_marks;  // where that file's checkpoints are, while its blobs are in it
         bool materialized = false;      ///< the file's checkpoints are in the host, its rows are still in the file
+        uint64_t rows_at = 0;          ///< where the file's rows' records start
+        uint64_t n_rows = 0;           ///< how many rows' records the file holds
+        uint32_t version = 0;          ///< the file's version
         size_t disk_bytes = 0;
     };
     struct Held {
@@ -917,18 +920,20 @@ private:
         }
         s.marks = std::move(marks);
         s.materialized = true;   // the rows are still in the file: enter() reads them
+        s.rows_at = head.rows_at;
+        s.n_rows = head.n_rows;
+        s.version = head.version;
         return true;
     }
 
     // The rows of a parked conversation, from its file, one record at a time: the host holds one record, not
-    // the whole conversation.  False: the file is gone or does not hold what the engine asked for.
+    // the whole conversation.  The file is not walked again for the checkpoints: where its rows begin is known.
     bool load_rows_from_file(size_t i, int64_t need) {
         Slot& s = slots_[i];
         const std::filesystem::path path = o_.session_dir / s.disk;
-        SessionFile::Head head;
-        return SessionFile::read_packed(
-            path, head, [&](const SessionFile::Record& r, std::vector<uint8_t>&& packed, uint32_t version) {
-                if (r.kind != SessionFile::Record::kRows) return true;
+        return SessionFile::read_packed_rows(
+            path, s.rows_at, s.n_rows, s.version,
+            [&](const SessionFile::Record& r, std::vector<uint8_t>&& packed, uint32_t version) {
                 const int64_t a = r.first, b = std::min(r.first + r.keep, need);
                 if (a >= b) return true;   // the rows past the place the engine comes back to are not wanted
                 std::vector<uint8_t> tmp((size_t) r.raw);

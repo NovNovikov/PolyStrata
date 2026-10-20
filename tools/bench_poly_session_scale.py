@@ -29,6 +29,7 @@ class Engine:
         self.home = home
         home.mkdir(parents=True, exist_ok=True)
         self.lines = []
+        self.ram = []      # the system's free RAM and the engine's resident size, every half second
         env = os.environ.copy()
         env.pop('STRATA_FREEZE_EXPERTS', None)
         env['PATH'] = os.pathsep.join(config.get('lib_dirs', []) + [env.get('PATH', '')])
@@ -45,6 +46,19 @@ class Engine:
             self.q.put(None)
 
         threading.Thread(target=read, daemon=True).start()
+
+        def sample_ram():
+            import psutil
+            while self.p.poll() is None:
+                try:
+                    avail = psutil.virtual_memory().available
+                    rss = psutil.Process(self.p.pid).memory_info().rss
+                    self.ram.append((avail, rss))
+                except Exception:
+                    pass
+                time.sleep(0.5)
+
+        threading.Thread(target=sample_ram, daemon=True).start()
 
     def line(self):
         line = self.q.get(timeout=3600)
@@ -149,6 +163,13 @@ def main():
     text_err = (a.output / 'engine' / 'engine.stderr').read_text(encoding='utf8', errors='replace')
     (a.output / 'engine.stderr').write_text(text_err, encoding='utf8')
     summary['log'] = [l for l in text_err.splitlines() if 'parked' in l or 'restored' in l or 'session file' in l]
+    if e.ram:
+        avail = [r[0] for r in e.ram]
+        rss = [r[1] for r in e.ram]
+        summary['ram'] = dict(samples=len(e.ram), min_available_mib=min(avail) / 1048576,
+                              max_rss_mib=max(rss) / 1048576)
+        print('RAM: the system had %.0f MiB free at its tightest, the engine's RSS peaked at %.0f MiB'
+              % (summary['ram']['min_available_mib'], summary['ram']['max_rss_mib']), flush=True)
     for line in summary['log']:
         print(line, flush=True)
     (a.output / 'summary.json').write_text(json.dumps(summary, indent=2), encoding='utf8')
