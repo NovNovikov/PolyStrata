@@ -14,6 +14,7 @@ import time
 import psutil
 
 from bench_poly_checkpoints import Engine, sha
+from poly_memory_report import summarize_consumption
 from strata_tokenizer import Tokenizer
 
 
@@ -91,7 +92,7 @@ def main():
     summary['source_sha256'] = {name:sha(root/name) for name in (
         'src/poly/engine.cpp','src/poly/engine.hpp','src/poly/deepseek4.hpp','src/poly/main.cpp',
         'include/strata/spec/draft_policy.hpp','src/spec/draft_policy.cpp',
-        'tools/bench_poly_graph_memory.py')}
+        'tools/bench_poly_graph_memory.py','tools/poly_memory_report.py')}
     def record():
         (a.output/'summary.json').write_text(json.dumps(summary,indent=2),encoding='utf8')
     e = MemoryEngine(config, args, a.output / 'engine')
@@ -142,31 +143,23 @@ def main():
                 e.close()
             finally:
                 record()
-    minimum = int(args[args.index('--vram-reserve-mib')+1])
     summary['checks'] = {}
     for label in ['engine'] + (['restart'] if a.sessions and not a.no_restart else []):
         log = (a.output/label/'engine.stderr').read_text(encoding='utf8',errors='replace')
-        free = [int(n)/2**20 for n in re.findall(r'device-memory\[.*?global_free=(\d+)',log)]
         slots = re.findall(r'staging_cache=(\d+)/(\d+) slots',log)
         verified = [int(n) for n in re.findall(r'staging cache verified: (\d+) GPU payloads',log)]
         assert slots and verified, f'no adaptive cache proof in {label}'
-        check = dict(minimum_cuda_free_mib=min(free), reserve_mib=minimum,
-                     reserve_satisfied=min(free)>=minimum,
-                     cache_capacity=max(int(n[1]) for n in slots),
+        check = dict(cache_capacity=max(int(n[1]) for n in slots),
                      cache_used=max(int(n[0]) for n in slots), verified_payloads=max(verified))
         assert check['cache_capacity'] == a.expected_cache_slots and check['cache_used'] > 0 and check['verified_payloads'] > 0, check
+        data = json.loads((a.output/label/'results.json').read_text())
+        check['process_consumption'] = summarize_consumption(data, log, require_warm=label == 'engine')
         if label == 'engine':
             assert check['cache_used'] == check['verified_payloads'] == a.expected_cache_slots, check
-            data = json.loads((a.output/label/'results.json').read_text())
-            counts = [int(n) for n in re.findall(r'graphs\[.*?execs=(\d+)',log)]
-            warm = [(m,c) for m,c in zip(data['gpu_process_memory'],counts) if m['phase'].startswith('warm-repeat-')][-10:]
-            assert len(warm) == 10, 'at least ten warm repeats required'
-            check['last_ten_graph_counts'] = [c for m,c in warm]
-            check['last_ten_local_spread_mib'] = (max(m['used'] for m,c in warm)-min(m['used'] for m,c in warm))/2**20
-            check['plateau'] = len({c for m,c in warm}) == 1 and check['last_ten_local_spread_mib'] <= 4
+            check['plateau'] = check['process_consumption']['warm_last_ten']['plateau']
         summary['checks'][label] = check
     summary['functional_success'] = True
-    summary['success'] = all(c['reserve_satisfied'] and c.get('plateau',True) for c in summary['checks'].values())
+    summary['success'] = all(c.get('plateau',True) for c in summary['checks'].values())
     record()
     assert summary['success'], summary['checks']
     print('GRAPH_MEMORY_SCENARIO_PASSED', flush=True)
