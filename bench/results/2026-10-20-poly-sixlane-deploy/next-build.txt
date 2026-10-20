@@ -1,0 +1,2 @@
+ninja: Entering directory `build-poly-cuda12'
+[1/1] Linking CXX executable strata-poly.exe

@@ -1,0 +1,15 @@
+{
+  "installed_sha256": "d25903c10ca00409f83bcf5f0438fe8da6ae8b428cf45a22b9d3fb3e07c191c8",
+  "json_files_unchanged": true,
+  "both_jsons_point_to_installed_file": true,
+  "help_expected_exit_code": 2,
+  "help_returned_expected_usage": true,
+  "note": "Initial smoke harness expected zero for --help; CLI intentionally returns 2. No executable failure was observed. Install timestamp refreshed after moving; contents unchanged.",
+  "parity_logits": 23141120,
+  "parity_bit_differences": 0,
+  "primary_header_dependencies": 9,
+  "no_disk_cpu_checks": 1579,
+  "fresh_and_primary_build_success": true,
+  "stage_mib_unchanged": 2848,
+  "no_new_throughput_or_no_disk_ram_measurement": true
+}

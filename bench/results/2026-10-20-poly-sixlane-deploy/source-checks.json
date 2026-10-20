@@ -1,0 +1,6 @@
+{
+  "preparation_body_matches_historical_sixlane": true,
+  "head_slot_mapping_matches_all_window_forms": true,
+  "modern_setup_exclusion_retained": true,
+  "explicit_no_disk_stage_uncapping_retained": true
+}

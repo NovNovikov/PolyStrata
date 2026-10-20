@@ -1,0 +1,62 @@
+{
+  "units": "GiB (2^30 bytes)",
+  "scope": "Historical row-layout staging tests; no new RAM load experiment",
+  "runs": {
+    "control-one-clean": {
+      "stage_mib": 2848,
+      "fixed_window_one": true,
+      "resident_weights_gib": 112.60064453125,
+      "owned_ram_weights_and_buffers_gib": 112.980888671875,
+      "rss_at_ready_gib": 113.46193313598633,
+      "warm_rss_median_gib": 114.10544967651367,
+      "sampled_rss_max_gib": 114.13629150390625,
+      "sampled_private_commit_max_gib": 136.83348846435547,
+      "system_available_at_load_gib": 4.0912890625,
+      "system_available_sampled_min_gib": 3.227158203125,
+      "source_results_sha256": "0024408796059de8fb65fabf8ab6bb6e3de4e3e6f8991b8dedf087189586bcbd",
+      "source_log_sha256": "954ec2a5826ff48c1a703d7fca51a133394872a888dfc101f748dc97dc18f685"
+    },
+    "plus512-one": {
+      "stage_mib": 3360,
+      "fixed_window_one": true,
+      "resident_weights_gib": 113.10015625,
+      "owned_ram_weights_and_buffers_gib": 113.480400390625,
+      "rss_at_ready_gib": 113.9607925415039,
+      "warm_rss_median_gib": 114.5731430053711,
+      "sampled_rss_max_gib": 114.60398864746094,
+      "sampled_private_commit_max_gib": 137.32934951782227,
+      "system_available_at_load_gib": 3.7700390625,
+      "system_available_sampled_min_gib": 2.767861328125,
+      "source_results_sha256": "92763b5ab8187b2c73a2f454fd55df51dc208a0ef9f04c32fe8a27e02dacb131",
+      "source_log_sha256": "ebd36334e546108d9fbf3eab11b486cad2e74a69fcdd479634efea42af224f03"
+    },
+    "control-default": {
+      "stage_mib": 2848,
+      "fixed_window_one": false,
+      "resident_weights_gib": 112.8969140625,
+      "owned_ram_weights_and_buffers_gib": 113.28052734375,
+      "rss_at_ready_gib": 114.0409164428711,
+      "warm_rss_median_gib": 114.34957504272461,
+      "sampled_rss_max_gib": 114.3531723022461,
+      "sampled_private_commit_max_gib": 136.9478416442871,
+      "system_available_at_load_gib": 2.900595703125,
+      "system_available_sampled_min_gib": 2.682705078125,
+      "source_results_sha256": "8db85d6963949bf41edb6eb726c94ddadf2cdbf7e77b6907738c7410ec73f8a1",
+      "source_log_sha256": "d1cc6c316283586665de69391ea9c5bab0f7f6ca3284ff584bc12641686e6f24"
+    },
+    "plus512-default": {
+      "stage_mib": 3360,
+      "fixed_window_one": false,
+      "resident_weights_gib": 113.39880859375,
+      "owned_ram_weights_and_buffers_gib": 113.782421875,
+      "rss_at_ready_gib": 114.54280471801758,
+      "warm_rss_median_gib": 114.8763198852539,
+      "sampled_rss_max_gib": 114.87652206420898,
+      "sampled_private_commit_max_gib": 137.47532272338867,
+      "system_available_at_load_gib": 3.186875,
+      "system_available_sampled_min_gib": 2.784228515625,
+      "source_results_sha256": "d0e3fb77c3bdc790416ba1a56071e05864c2a568c53e8fa460e63b688f3ee4f8",
+      "source_log_sha256": "7ab49cb90bcd1e09d81084d6206d25c6e890b5c031fbccbc71acb82df36ca90a"
+    }
+  }
+}

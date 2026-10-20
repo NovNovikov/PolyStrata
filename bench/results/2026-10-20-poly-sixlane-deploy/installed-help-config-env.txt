@@ -1,0 +1,94 @@
+usage: strata-poly --model FILE.gguf (--serve | --tokens ID,ID,... [--max-new N])
+  --no-disk              load weights into locked RAM / fixed VRAM and close model files
+  --no-disk-vram-margin-mib N  extra loading headroom, separate from VRAM reserve (default 512)
+  --ram-limit-mib N      cap no-disk RAM allocations (0: available RAM)
+  --rows-vram            reserve intermediate rows for the full context in VRAM
+  --max-context N        tokens the attention caches hold (default 8192)
+  --threads N            CPU threads for the experts that are not in VRAM (default: all usable)
+  --vram-reserve-mib N   VRAM left free beside the expert cache, 256 at least (default: a
+                         thirty-second of the card, 256 to 768, or a sixteenth, 512 to 1024,
+                         when the PC's free RAM is within 4 GiB of the model's files, and then
+                         kept whole; else half of it after the first request)
+  --layer-split S        the model's layers across the CUDA devices this process sees, in their
+                         order: S is auto (by each card's free VRAM) or the first layer of each
+                         later card, as 20 or 20,30 (default: the first card alone)
+  --expert-profile FILE  expert use counts: read to choose the cached experts, written back on
+                         exit and by --serve after an answer, every 10 s at most
+  --no-gpu-experts       keep every routed expert on the CPU
+  --any-node             on a PC with several NUMA nodes, let the CPU threads run on any of them
+                         (default: on the node whose memory holds most of the experts)
+  --window N             the most tokens that go through the model at once while an answer is
+                         written: the one that is known and guesses at the ones after it, which
+                         count when they turn out right (1 = no guesses; default 8, of which
+                         the block guesses 3, and 4 for GLM 5.3 Flash)
+  --lookup N             guess what followed an earlier repeat of the last N or more tokens
+                         (default 3, 0 = never)
+  --no-draft             do not run the block that guesses ahead
+  --draft-model FILE     a file of the same model to take that block from, when --model has none;
+                         for Gemma 4, its draft model (a gemma4-assistant file)
+  --draft-vocab N        the block guesses among the vocabulary's first N tokens (default:
+                         131072 for Qwen3.6, Ornith and Tiel, all of it for the others; 0 = all)
+  --no-graphs            launch a token's kernels one by one (default: a layer's are recorded once
+                         as a CUDA graph and replayed)
+  --compact-graphs       DeepSeek4/CUDA: combine GPU intervals and reuse graphs across attention sizes
+  --trace-graphs         synchronize and trace graph creation (diagnostic; affects timings)
+  --kv-whole             give the attention caches VRAM for the whole context at load (default: as
+                         the conversation grows, the expert cache having the rest until then)
+  --kv fmt               the K and V attention caches' format: fp16 (default, unchanged) or q8_0
+                         (ggml Q8_0 blocks: half the KV VRAM, slightly different answers); opt-in
+  --expert-swaps N       while an answer is written, up to N experts it keeps using are on their way
+                         into VRAM, in place of cached ones it uses less (default 64, 0 = the cache
+                         stays as it was loaded)
+  --prompt-batch N       prompt tokens read at a time (default 1024); about 1.4 MiB of VRAM each
+  --read-chunk N         prompt tokens in one layer-by-layer read() pass at most (default 0 =
+                         full context / 512 MiB RAM limit; --read-chunk-tokens is an alias)
+  --stage-mib N          VRAM the experts outside the cache pass through in a prompt batch (default
+                         2048, or what a layer's experts take when that is less); with less, more
+                         of them are copied after the layer has routed
+                         With --no-disk an explicit N also sizes the adaptive decode cache and
+                         may exceed one layer, leaving less VRAM for permanent experts.
+  --stage-ahead N        from N tokens, a batch copies those experts before it routes (default 1024,
+                         0 = never)
+  --stage-read-mib N     a prompt read of several batches grows the staging buffer to N MiB (at
+                         most a layer's experts) with VRAM the expert cache lends it until the
+                         answer starts (default 0 = never)
+  --cpu-share F          under that, the share of those experts the CPU computes meanwhile, the
+                         ones the fewest tokens chose (default: as the times say; 0 = none)
+  --prompt-cache N       checkpoints kept of a conversation, about 150 MB of RAM each (default 6;
+                         0 = a prompt is read from its start unless it goes on from the last token)
+  --prompt-cache-every N accepted for older launch scripts; semantic assistant-history checkpoints
+                         are used instead (the value has no effect)
+  --conversation-cache-mib N   RAM for parked conversations, so that several can take turns
+                         without being read again (default 0 = off)
+  --conversation-cache-slots N        parked conversations at most (default 4)
+  --conversation-cache-min-tokens N   a conversation shorter than this is not parked (default 1024)
+  --conversation-cache-min-free-mib N park only while this much physical RAM stays free (default
+                         2560)
+  --session-min-free-mib N     a session save asks this much disk room besides the file
+                         (default 4096, 0 = nothing)
+  --batch N              N answers written together, each in a sequence of its own with its own
+                         state and attention rows (default 0 = one at a time; at most 8);
+                         --slots N is the same
+  --check-batch K        with --tokens and --batch K or more: K prompts answered on their own and
+                         then together, compared token by token
+  --eos-ids ID,ID,...    tokens that end a reply (default: the GGUF's eos, eot and eom)
+  --temperature F --top-k N --top-p F --min-p F --seed N   sampling for --tokens (default greedy)
+  --images FILE          with --tokens: the prompt's pictures, as strata-vision writes them
+  --image-pad ID         the token whose runs in --tokens are the pictures' places, a token a row
+  --dump-layers          print a checksum of every layer's stages to stderr
+  --dump-buffers         print every allocation and scratch slice with its size and call site
+  --compact-scratch      DeepSeek4: reuse attention/MoE scratch between phases (opt-in)
+  --top-probs N          with --tokens: print the N most likely ids of every step to stderr
+  --follow ID,ID,...     with --tokens: write these tokens in place of the ones picked, for
+                         --top-probs of the same answer under other settings
+  --tail-skip N          an expert outside VRAM that every token of a window ranks at place N+1
+                         or later among its experts is left out: faster, and the answers move a
+                         little (default 0 = none is; setup gives Qwen3.6 6)
+  --skip-weight F        in place of --tail-skip: an expert outside VRAM that every token of a
+                         window weighs under F of its experts' weight is left out (default 0 = off)
+environment: STRATA_TRACE_DRAFT_POLICY=1  numeric window choices/costs after each answer
+environment: STRATA_REFRESH_DRAFT_COSTS=1  remeasure stale intermediate lookup windows
+environment: STRATA_ROUTE_TAIL_SKIP=N  in place of --tail-skip (0 turns it off)
+environment: STRATA_FREEZE_EXPERTS=1  hold the split of the routed experts between the card
+                         and the CPU still, so the same request gives the same greedy answer
+                         bit for bit; with guesses on, add --window 1 for a repeat everywhere

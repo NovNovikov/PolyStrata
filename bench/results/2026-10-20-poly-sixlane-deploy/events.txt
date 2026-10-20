@@ -1,0 +1,1 @@
+PASS: upload executed no work; 1000 current-data replays; host router event precedes trailing GPU work

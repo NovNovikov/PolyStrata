@@ -1,0 +1,36 @@
+{
+  "installed_at": "2026-10-20T03:03:12.0624542+02:00",
+  "graph_method": "six-lane",
+  "installed_exe": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+  "installed_sha256": "d25903c10ca00409f83bcf5f0438fe8da6ae8b428cf45a22b9d3fb3e07c191c8",
+  "fresh_primary_build_sha256": "d34df9ab16fb8ed0693fa0acd9faf467d6960cdfcb7520c03eb72c8f133f27df",
+  "source_exe_moved_from": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12-clean\\strata-poly.exe",
+  "former_working_backup": "build-poly-cuda12/strata-poly-policy-trace-20261020.exe",
+  "retained_features": [
+    "explicit no-disk staging size",
+    "setup timing exclusion",
+    "remaining-output proposal cap",
+    "original policy by default"
+  ],
+  "configs": [
+    {
+      "name": "strata-dsv4-q3_k_m.json",
+      "sha256": "2f51ccb290de4768f89bd3d8af5b1ea229761a7eb6a69532606cb5320c889ea9",
+      "exe": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+      "compact_graphs": true,
+      "stage_mib": "2848"
+    },
+    {
+      "name": "strata-glm-3.0bit.json",
+      "sha256": "644eaa8ca417223a0f26768ea9f3a28a7e7ee75d752529c86127d5b56c5c855f",
+      "exe": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+      "compact_graphs": false,
+      "stage_mib": "--no-disk"
+    }
+  ],
+  "source_sha256": {
+    "src/poly/main.cpp": "8c4290da85dfbb04ce60504659d8b318e65e356b9a632545f4f5466173bf80eb",
+    "src/poly/engine.cpp": "a04b72497b2ceb176c03421c1066fc80a67a6ac2d0ae67d64ddad389d3ee2138",
+    "src/poly/engine.hpp": "45a7c60236e4865b7df10d96c95162f64098f128fec6b31c9dd8aa934d5404ee"
+  }
+}
