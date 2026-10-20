@@ -241,6 +241,40 @@ int main() {
         std::filesystem::remove_all(own);
     }
 
+    // A conversation that is parked, comes back, grows and is parked again: the second file is a delta that
+    // names the first, and the chain of them restores the whole conversation.
+    {
+        const std::filesystem::path own = dir / "delta";
+        std::filesystem::create_directories(own);
+        CacheOptions o = options(own);
+        o.checkpoints = 4;
+        const std::vector<int32_t> first = text(81, 5000);
+        Fake e;
+        Conversations<Fake> kept(e, o);
+        go_on(e, kept, first, kept.resume(first));
+        const std::vector<int32_t> other = text(82, 300);
+        go_on(e, kept, other, kept.resume(other));   // the first one is parked to a file
+        check(files_in(own) == 1, "the conversation left one session file");
+        std::vector<int32_t> grown = first;
+        const std::vector<int32_t> more = text(83, 100);
+        grown.insert(grown.end(), more.begin(), more.end());
+        go_on(e, kept, grown, kept.resume(grown));   // it comes back and grows
+        check(e.holds(grown), "the restored conversation is bit for bit the reread's result");
+        go_on(e, kept, other, kept.resume(other));   // and is parked again
+        size_t files = 0, deltas = 0;
+        for (const auto& p : std::filesystem::directory_iterator(own)) {
+            if (p.path().extension() != ".bin") continue;
+            ++files;
+            const auto h = strata::poly::SessionFile::read_head(p.path());
+            if (h && !h->parent.empty()) ++deltas;
+        }
+        check(files >= 2, "the chain holds the file and the delta");
+        check(deltas == 1, "the second park wrote a delta that names the file it adds to");
+        go_on(e, kept, grown, kept.resume(grown));   // the whole conversation comes back through the chain
+        check(e.holds(grown), "the chain restores the whole conversation");
+        std::filesystem::remove_all(own);
+    }
+
     // More than the writer's 4 MiB staging buffer. save_rows() is layer-major (all hashes, then all tokens),
     // so concatenating separately saved chunks is NOT the bytes of one save_rows() over the whole span.
     {

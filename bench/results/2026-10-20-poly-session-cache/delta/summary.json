@@ -1,0 +1,56 @@
+{
+  "exe_sha256": "bd70fe354001b8a336314725562f9236e754771c7ef3f1834f8d463cf6de4ca6",
+  "config_sha256": "2f51ccb290de4768f89bd3d8af5b1ea229761a7eb6a69532606cb5320c889ea9",
+  "work": "L:\\Temp\\opencode\\bench-delta",
+  "anchors": [
+    2048,
+    4096,
+    6144,
+    8192
+  ],
+  "stages": [
+    "initial",
+    "restart"
+  ],
+  "session_sha256": "70065e26bef1146e64cea4ef0103e1d3fb33e50f3c30b655130f965c53f6fda9",
+  "roundtrip_sha256": "70065e26bef1146e64cea4ef0103e1d3fb33e50f3c30b655130f965c53f6fda9",
+  "session_bytes": 179415470,
+  "cache": {
+    "initial": {
+      "max_used_slots": 255,
+      "capacity": 255,
+      "max_used_mib": 2837.7,
+      "verified_counts": [
+        255,
+        254,
+        255,
+        254,
+        255
+      ]
+    },
+    "restart": {
+      "max_used_slots": 253,
+      "capacity": 255,
+      "max_used_mib": 2815.44,
+      "verified_counts": [
+        252,
+        253
+      ]
+    }
+  },
+  "automatic_sessions": [
+    {
+      "name": "1467a28ecb2c32b2-9999-2.bin",
+      "bytes": 158255907
+    },
+    {
+      "name": "406d49a55a715589-10511-4.bin",
+      "bytes": 179415470
+    },
+    {
+      "name": "87781200800a520c-10575-1.bin",
+      "bytes": 179856593
+    }
+  ],
+  "success": true
+}

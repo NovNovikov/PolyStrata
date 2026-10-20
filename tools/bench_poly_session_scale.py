@@ -112,6 +112,22 @@ class Engine:
         (self.home / 'protocol.txt').write_text('\n'.join(self.lines) + '\n', encoding='utf8')
 
 
+def chain_of(path):
+    """The file's header: the version, the parent's name and the rows' end."""
+    with open(path, 'rb') as f:
+        head = f.read(120)
+    if len(head) < 56:
+        return None
+    magic, version = int.from_bytes(head[0:4], 'little'), int.from_bytes(head[4:8], 'little')
+    if magic != 0x53505353:
+        return None
+    out = dict(version=version, n_marks=int.from_bytes(head[40:48], 'little'),
+               n_rows=int.from_bytes(head[48:56], 'little'), parent='')
+    if version == 4 and len(head) >= 120:
+        out['parent'] = head[56:120].split(b'\x00')[0].decode('utf8', 'replace')
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--config', type=Path, required=True)
@@ -140,11 +156,12 @@ def main():
     text = 'Synthetic long session scale test.\n' + ''.join(
         f'{i:05d}: amber birch cobalt delta elm frost.\n' for i in range(40000))
     ids = tok.encode(text)[:a.tokens]
+    more = tok.encode('Grown synthetic tail. Cedar copper dune fern gravel.\n' * 400)[:1000]
     other = list(ids)
     other[0] = next(t for t in ids if t != ids[0])
     del tok, text
     gc.collect()
-    assert len(ids) == a.tokens and len(other) == a.tokens
+    assert len(ids) == a.tokens and len(other) == a.tokens and len(more) > 0
     print('prompt tokens', len(ids), flush=True)
 
     e = Engine(config, args, a.output / 'engine', a.exe)
@@ -157,7 +174,13 @@ def main():
         assert files, 'the conversation was not parked to a file'
         summary['parked_files'] = [dict(name=p.name, bytes=p.stat().st_size) for p in files]
         back = e.generate('A-again', ids, 64)
+        # The conversation grows and is parked again: the new file is a delta that names the first.
+        grown = list(ids) + more
+        e.generate('A-grown', grown, 64)
+        e.generate('B-branch-again', other, 64)
         summary['requests'] = [first, second, back]
+        summary['chain'] = [dict(name=p.name, bytes=p.stat().st_size, **(chain_of(p) or {}))
+                            for p in sorted(sessions.iterdir())]
     finally:
         e.close()
     text_err = (a.output / 'engine' / 'engine.stderr').read_text(encoding='utf8', errors='replace')

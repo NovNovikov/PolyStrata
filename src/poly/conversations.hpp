@@ -575,9 +575,16 @@ private:
         std::string disk;               // the session file that holds the blobs; empty: they are here
         std::vector<int64_t> disk_marks;  // where that file's checkpoints are, while its blobs are in it
         bool materialized = false;      ///< the file's checkpoints are in the host, its rows are still in the file
-        uint64_t rows_at = 0;          ///< where the file's rows' records start
-        uint64_t n_rows = 0;           ///< how many rows' records the file holds
-        uint32_t version = 0;          ///< the file's version
+        // One file of the chain a conversation's rows come from: a file may hold only what came after its
+        // parent's rows, and the chain of them is the conversation.
+        struct File {
+            std::string name;      // the file's name in the session dir
+            uint64_t rows_at = 0;  // where its rows' records start
+            uint64_t n_rows = 0;   // how many rows' records it holds
+            uint32_t version = 0;  // the file's version
+        };
+        std::vector<File> chain;        // the files the rows come from, the root first
+        uint64_t disk_rows_end = 0;     // where the rows in the files reach
         size_t disk_bytes = 0;
     };
     struct Held {
@@ -739,23 +746,38 @@ private:
             s.rows.push_back({b, from, end - from, end - from});
         }
         if (disk) {
-            // the file takes the whole chain and all the rows, streamed from where they live: the blobs exist
-            // and the engine reads its own tail straight to the file, so nothing is copied whole into RAM
+            // The file takes the whole chain and all the rows, streamed from where they live: the blobs exist
+            // and the engine reads its own tail straight to the file, so nothing is copied whole into RAM.
+            // When the slot has a file already, the new file holds only what came after that one's rows: it is
+            // a delta, and it names the file it adds to.
+            const uint64_t held = s.disk_rows_end;   // where the rows in the slot's files reach
+            const std::string name = SessionFile::name_for(s.seq, ++park_serial_);
+            // A file that would be written over its own parent is written whole: the name is the conversation's,
+            // and a delta's parent has to be another file.
+            const bool whole = !held || name == s.disk;
+            const int64_t first_new = whole ? from : std::max<int64_t>(from, (int64_t) held);
+            const std::string parent = whole ? std::string() : s.disk;
             std::vector<std::pair<int64_t, SessionFile::SessionPart>> parts;
             parts.reserve(s.marks.size());
-            for (const Checkpoint& m : s.marks)
+            for (const Checkpoint& m : s.marks) {
+                // the checkpoints the slot's file already has are in that file
+                if (!whole && std::find(s.disk_marks.begin(), s.disk_marks.end(), m.pos) != s.disk_marks.end())
+                    continue;
                 parts.push_back({m.pos, SessionFile::part_of(m.state->p.get(), m.state->bytes)});
+            }
             std::vector<SessionFile::StreamRows> rows;
             rows.reserve(s.rows.size() + 1);
-            for (const Rows& r : s.rows) {
-                rows.push_back({r.first, r.count, r.keep, SessionFile::part_of(r.blob->p.get(), r.blob->bytes)});
+            if (whole) {   // the rows the host holds are the file's
+                for (const Rows& r : s.rows) {
+                    rows.push_back({r.first, r.count, r.keep, SessionFile::part_of(r.blob->p.get(), r.blob->bytes)});
+                }
             }
             // save_rows() is opaque and normally layer-major: two independently saved spans cannot be
             // concatenated into one rows record. Give each bounded capture its own count and record, so
             // load_rows() uses exactly the layout save_rows() wrote, also for a partial restore of that record.
             const size_t rb = e_.row_bytes();
             const int64_t chunk = rb ? (int64_t) std::max<size_t>(1, ((size_t) 4 << 20) / rb) : end - from;
-            for (int64_t first = from; first < end; ) {
+            for (int64_t first = first_new; first < end; ) {
                 const int64_t count = std::min(chunk, end - first);
                 SessionFile::SessionPart tail;
                 tail.bytes = (uint64_t) count * rb;
@@ -769,14 +791,25 @@ private:
                 rows.push_back({first, count, count, tail});
                 first += count;
             }
-            const std::string name = SessionFile::name_for(s.seq);
             SessionFile::WStat st;
+            if (!whole && rows.empty() && parts.empty()) {
+                // nothing new: the file stays as it is, and the conversation keeps it
+                s.marks.clear();
+                s.rows.clear();
+                s.held = false;
+                say("parked", end, t0, cur_);
+                return true;
+            }
             if (SessionFile::write_stream(o_.session_dir, name, s.prompt, e_.state_bytes(), e_.row_bytes(), s.seq,
-                                          parts, rows, &st)) {
+                                          parts, rows, &st, {}, parent)) {
                 s.disk = name;
-                s.disk_marks.clear();
-                for (const Checkpoint& m : s.marks) s.disk_marks.push_back(m.pos);
-                s.disk_bytes = st.bytes;
+                for (const Checkpoint& m : s.marks) {
+                    if (std::find(s.disk_marks.begin(), s.disk_marks.end(), m.pos) == s.disk_marks.end())
+                        s.disk_marks.push_back(m.pos);
+                }
+                s.disk_bytes = whole ? st.bytes : s.disk_bytes + st.bytes;   // the chain's size
+                s.disk_rows_end = (uint64_t) end;
+                s.chain.clear();
                 s.marks.clear();
                 s.rows.clear();
                 disk_fit(keep);
@@ -832,9 +865,7 @@ private:
                 slots_[i] = Slot{};
                 return false;
             }
-            slots_[i].disk.clear();
-            slots_[i].disk_marks.clear();
-            slots_[i].disk_bytes = 0;
+            // the file is still the conversation's home: the rows are in it, and the next park adds to it
             slots_[i].materialized = false;
         } else {
             for (const Rows& r : slots_[i].rows) {
@@ -877,8 +908,23 @@ private:
         return true;
     }
 
+    // The names the files of the session dir name as their parents: those files are a part of a chain, and
+    // they are not conversations of their own.
+    std::vector<std::string> parent_names() const {
+        std::vector<std::string> names;
+        std::error_code ec;
+        std::filesystem::directory_iterator it(o_.session_dir, ec), end;
+        for (; it != end && !ec; it.increment(ec)) {
+            if (!it->is_regular_file(ec) || it->path().extension() != ".bin") continue;
+            const std::optional<SessionFile::Head> h = SessionFile::read_head(it->path());
+            if (h && !h->parent.empty()) names.push_back(h->parent);
+        }
+        return names;
+    }
+
     // The session files earlier runs left in the session dir become parked conversations: their headers are read
-    // (the tokens and where the checkpoints sit), the payloads when one of them takes the engine.  More files than
+    // (the tokens and where the checkpoints sit), the payloads when one of them takes the engine.  A file that
+    // another file adds to is a part of that one's chain, not a conversation of its own.  More files than
     // there are empty slots stay unlooked at; they still come back after a restart.
     void scan_disk() {
         std::error_code ec;
@@ -888,6 +934,7 @@ private:
         for (; it != end && !ec; it.increment(ec))
             if (it->is_regular_file(ec) && it->path().extension() == ".bin") files.emplace_back(it->last_write_time(ec), it->path());
         if (ec) return;
+        const std::vector<std::string> parents = parent_names();
         std::sort(files.begin(), files.end(), std::greater<>());   // the newest first
         for (const auto& [when, path] : files) {
             size_t at = slots_.size();
@@ -897,6 +944,8 @@ private:
                     break;
                 }
             if (at == slots_.size()) break;
+            const std::string name = path.filename().string();
+            if (std::find(parents.begin(), parents.end(), name) != parents.end()) continue;   // a chain's part
             const std::optional<SessionFile::Head> h = SessionFile::read_head(path);
             if (!h || h->seq.empty()) continue;
             if (h->sb != e_.state_bytes() || h->rb != e_.row_bytes()) {   // not this engine's any more
@@ -907,7 +956,7 @@ private:
             Slot& s = slots_[at];
             s.seq = h->seq;
             s.prompt = h->prompt;
-            s.disk = path.filename().string();
+            s.disk = name;
             s.disk_marks = h->mark_pos;
             s.disk_bytes = h->bytes;
             s.stamp = (uint64_t) when.time_since_epoch().count();
@@ -916,56 +965,70 @@ private:
 
     // A conversation whose rows are in its session file reads them back.  The checkpoints' states come into the
     // host now (the host needs them to know where the conversation can be come back to); the rows stay in the
-    // file until the conversation takes the engine, which reads them one record at a time: the host never holds
-    // the whole conversation.  False: the file is gone or not this engine's any more (the model or its row size
-    // changed; the file goes, and the caller forgets the conversation), or the host could not take the states.
+    // files until the conversation takes the engine, which reads them one record at a time: the host never holds
+    // the whole conversation.  A file may hold only what came after its parent's rows, so the chain of them is
+    // the conversation.  False: a file of the chain is gone or not this engine's any more (the model or its row
+    // size changed; the files go, and the caller forgets the conversation), or the host could not take the states.
     bool materialize(size_t i) {
         Slot& s = slots_[i];
-        SessionFile::Head head;
+        std::vector<std::filesystem::path> chain;
+        if (!SessionFile::chain_of(o_.session_dir / s.disk, chain)) {
+            std::error_code ec;
+            std::filesystem::remove(o_.session_dir / s.disk, ec);
+            return false;
+        }
         std::vector<Checkpoint> marks;
         bool no_ram = false;
-        const bool ok = SessionFile::read_packed(
-            o_.session_dir / s.disk, head,
-            [&](const SessionFile::Record& r, std::vector<uint8_t>&& packed, uint32_t version) {
-                if (r.kind != SessionFile::Record::kMark) return true;   // the rows come when the engine takes it
-                const BlobPtr b = blob(r.raw);
-                if (!b) {
-                    no_ram = true;
-                    return false;
-                }
-                if (!SessionFile::unpack(version, packed.data(), packed.size(), b->p.get(), r.raw)) return false;
-                marks.push_back({r.pos, b});
-                return true;
-            },
-            true);
+        bool ok = true;
+        s.chain.clear();
+        SessionFile::Head head;
+        for (const std::filesystem::path& path : chain) {
+            ok = SessionFile::read_packed(
+                path, head,
+                [&](const SessionFile::Record& r, std::vector<uint8_t>&& packed, uint32_t version) {
+                    if (r.kind != SessionFile::Record::kMark) return true;   // the rows come with the engine
+                    const BlobPtr b = blob(r.raw);
+                    if (!b) {
+                        no_ram = true;
+                        return false;
+                    }
+                    if (!SessionFile::unpack(version, packed.data(), packed.size(), b->p.get(), r.raw))
+                        return false;
+                    marks.push_back({r.pos, b});
+                    return true;
+                },
+                true);
+            if (!ok || no_ram) break;
+            s.chain.push_back({path.filename().string(), head.rows_at, head.n_rows, head.version});
+        }
         if (!ok || no_ram || head.seq.empty() || head.sb != e_.state_bytes() || head.rb != e_.row_bytes()) {
             std::error_code ec;
             std::filesystem::remove(o_.session_dir / s.disk, ec);
             return false;
         }
         s.marks = std::move(marks);
-        s.materialized = true;   // the rows are still in the file: enter() reads them
-        s.rows_at = head.rows_at;
-        s.n_rows = head.n_rows;
-        s.version = head.version;
+        s.materialized = true;   // the rows are still in the files: enter() reads them
         return true;
     }
 
-    // The rows of a parked conversation, from its file, one record at a time: the host holds one record, not
-    // the whole conversation.  The file is not walked again for the checkpoints: where its rows begin is known.
+    // The rows of a parked conversation, from its files, one record at a time: the host holds one record, not
+    // the whole conversation.  The files are not walked again for the checkpoints: where their rows begin is known.
     bool load_rows_from_file(size_t i, int64_t need) {
         Slot& s = slots_[i];
-        const std::filesystem::path path = o_.session_dir / s.disk;
-        return SessionFile::read_packed_rows(
-            path, s.rows_at, s.n_rows, s.version,
-            [&](const SessionFile::Record& r, std::vector<uint8_t>&& packed, uint32_t version) {
-                const int64_t a = r.first, b = std::min(r.first + r.keep, need);
-                if (a >= b) return true;   // the rows past the place the engine comes back to are not wanted
-                std::vector<uint8_t> tmp((size_t) r.raw);
-                if (!SessionFile::unpack(version, packed.data(), packed.size(), tmp.data(), r.raw)) return false;
-                e_.load_rows(tmp.data(), r.first, r.count, a, b - a);
-                return true;
-            });
+        for (const Slot::File& f : s.chain) {
+            const bool ok = SessionFile::read_packed_rows(
+                o_.session_dir / f.name, f.rows_at, f.n_rows, f.version,
+                [&](const SessionFile::Record& r, std::vector<uint8_t>&& packed, uint32_t version) {
+                    const int64_t a = r.first, b = std::min(r.first + r.keep, need);
+                    if (a >= b) return true;   // the rows past the place the engine comes back to are not wanted
+                    std::vector<uint8_t> tmp((size_t) r.raw);
+                    if (!SessionFile::unpack(version, packed.data(), packed.size(), tmp.data(), r.raw)) return false;
+                    e_.load_rows(tmp.data(), r.first, r.count, a, b - a);
+                    return true;
+                });
+            if (!ok) return false;
+        }
+        return true;
     }
 
     // The session files take session_max_mib at most; the least recently used goes, the current one and `keep`
@@ -985,14 +1048,27 @@ private:
         }
     }
 
-    // Forgets a slot's session file, if it has one.
+    // Forgets a slot's session files: the file and the ones it adds to, unless another file names one of them
+    // as its parent.
     void unfile(Slot& s) {
         if (s.disk.empty()) return;
         std::error_code ec;
-        std::filesystem::remove(o_.session_dir / s.disk, ec);
+        std::vector<std::filesystem::path> chain;
+        if (SessionFile::chain_of(o_.session_dir / s.disk, chain)) {
+            const std::vector<std::string> parents = parent_names();
+            for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+                const std::string name = it->filename().string();
+                if (std::find(parents.begin(), parents.end(), name) != parents.end()) continue;   // another's parent
+                std::filesystem::remove(*it, ec);
+            }
+        } else {
+            std::filesystem::remove(o_.session_dir / s.disk, ec);
+        }
         s.disk.clear();
         s.disk_marks.clear();
         s.disk_bytes = 0;
+        s.disk_rows_end = 0;
+        s.chain.clear();
     }
 
     // `with` is the current slot when its conversation is the one just parked.
@@ -1011,6 +1087,7 @@ private:
     size_t cur_ = 0;
     uint64_t clock_ = 0;
     size_t evictions_ = 0;
+    uint64_t park_serial_ = 0;   // the files' names carry it, so a delta's parent keeps its own name
     std::vector<Checkpoint> due_;   // inside()'s checkpoints, until read() makes them the conversation's
     std::vector<int64_t> after_;    // where the conversation's checkpoints are once that read is done
     std::vector<int64_t> anchors_;  // semantic assistant boundaries in the prompt being read

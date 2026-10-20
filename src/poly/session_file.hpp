@@ -56,9 +56,12 @@ public:
     // Its metadata cannot distinguish those corrupt parks from valid snapshots; reread rather than reuse them.
     static constexpr uint32_t kVersion = 2;           // the payloads as the engine wrote them
     static constexpr uint32_t kVersionPacked = 3;     // the payloads packed: a run of zeros is a count
+    static constexpr uint32_t kVersionDelta = 4;      // the payloads packed, and the header names the parent
+    static constexpr size_t kParentBytes = 64;        // the parent's name in the header, zero-padded
 
     // A parked conversation's name: stable for the same token stream, so a repark overwrites its own file.
-    static std::string name_for(const std::vector<int32_t>& seq) {
+    // `serial` makes it another file: a delta adds to another one, and its parent has to keep its name.
+    static std::string name_for(const std::vector<int32_t>& seq, uint64_t serial = 0) {
         uint64_t h = 1469598103934665603ull;   // FNV-1a
         for (int32_t t : seq) {
             const uint32_t u = (uint32_t) t;
@@ -66,8 +69,12 @@ public:
             h *= 1099511628211ull;
             h ^= u << 16;   // fold the sign bits in too
         }
-        char out[48];
-        std::snprintf(out, sizeof out, "%016llx-%lld.bin", (unsigned long long) h, (long long) seq.size());
+        char out[80];
+        if (serial)
+            std::snprintf(out, sizeof out, "%016llx-%lld-%llu.bin", (unsigned long long) h,
+                          (long long) seq.size(), (unsigned long long) serial);
+        else
+            std::snprintf(out, sizeof out, "%016llx-%lld.bin", (unsigned long long) h, (long long) seq.size());
         return out;
     }
 
@@ -118,6 +125,7 @@ public:
         uint64_t rows_at = 0;       // where the rows' records start in the file
         uint64_t n_rows = 0;        // how many rows' records there are
         uint32_t version = 0;       // the file's version
+        std::string parent;         // the file this one adds to; empty: it holds the whole conversation
         size_t bytes = 0;        // the payloads plus the header, as the file is sized
     };
 
@@ -128,6 +136,7 @@ public:
         uint64_t sb = 0, rb = 0;
         uint64_t n_seq = 0, n_marks = 0, n_rows = 0;
         uint32_t version = 0;
+        std::string parent;
     };
 
     // One record of a file: a checkpoint's state, or a block of rows.
@@ -158,7 +167,7 @@ public:
             if (!get(f, r.pos) || !get(f, r.bytes)) return false;
             r.header = 16;
         }
-        if (version == kVersionPacked) {
+        if (version == kVersionPacked || version == kVersionDelta) {
             if (!get(f, r.packed)) return false;
             r.header += 8;
         } else {
@@ -170,12 +179,15 @@ public:
 
     // Streams the file with the payloads arriving as parts (no full host copy): `seq` is referenced, not
     // copied (it must outlive the write); each mark's part is one record's state and each rows record's part
-    // is its block, in the file's order.  Same refusal contract as write():
+    // is its block, in the file's order.  `parent` names the file this one adds to: the file then holds only
+    // what came after the parent's rows, and the chain of them is the conversation.  Empty: the file holds the
+    // whole conversation.  Same refusal contract as write():
     static bool write_stream(const std::filesystem::path& dir, const std::string& name, int64_t prompt,
                              uint64_t sb, uint64_t rb, const std::vector<int32_t>& seq,
                              const std::vector<std::pair<int64_t, SessionPart>>& marks,
                              const std::vector<StreamRows>& rows, WStat* st = nullptr,
-                             const std::function<void(uint64_t, uint64_t)>& say = {}) {
+                             const std::function<void(uint64_t, uint64_t)>& say = {},
+                             const std::string& parent = {}) {
         if (st) *st = WStat{};
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
@@ -268,9 +280,20 @@ public:
             }
             return true;
         };
-        bool ok = put(f, kMagic) && put(f, kVersionPacked) && put(f, (uint64_t) seq.size()) &&
-                  put(f, (uint64_t) prompt) && put(f, sb) && put(f, rb) && put(f, (uint64_t) marks.size()) &&
-                  put(f, (uint64_t) rows.size());
+        const bool delta = !parent.empty();
+        bool ok = put(f, kMagic) && put(f, delta ? kVersionDelta : kVersionPacked) &&
+                  put(f, (uint64_t) seq.size()) && put(f, (uint64_t) prompt) && put(f, sb) && put(f, rb) &&
+                  put(f, (uint64_t) marks.size()) && put(f, (uint64_t) rows.size());
+        if (ok && delta) {   // the parent's name, zero-padded: the file adds to that one
+            char field[kParentBytes] = {0};
+            if (parent.size() >= kParentBytes) {
+                fail = "the parent's name does not fit the header";
+                ok = false;
+            } else {
+                std::memcpy(field, parent.data(), parent.size());
+                ok = std::fwrite(field, 1, kParentBytes, f) == kParentBytes;
+            }
+        }
         if (ok && !seq.empty())
             ok = std::fwrite(seq.data(), 4, seq.size(), f) == seq.size();
         // A record's header names its payload's packed size, which is only known once the payload is written:
@@ -348,15 +371,24 @@ public:
     static bool head_ok(const std::filesystem::path& path, FILE* f, Head0& v, uint64_t& room) {
         uint32_t magic = 0, version = 0;
         if (!get(f, magic) || !get(f, version) || magic != kMagic ||
-            (version != kVersion && version != kVersionPacked) ||
+            (version != kVersion && version != kVersionPacked && version != kVersionDelta) ||
             !get(f, v.n_seq) || !get(f, (uint64_t&) v.prompt) || !get(f, v.sb) || !get(f, v.rb) ||
             !get(f, v.n_marks) || !get(f, v.n_rows))
             return false;
         v.version = version;
+        uint64_t head_bytes = 56;
+        if (version == kVersionDelta) {   // the parent's name follows the counts
+            char name[kParentBytes];
+            if (std::fread(name, 1, kParentBytes, f) != kParentBytes) return false;
+            const void* nul = std::memchr(name, 0, kParentBytes);
+            const size_t at = nul ? (size_t) ((const char*) nul - name) : kParentBytes;
+            v.parent.assign(name, at);
+            head_bytes += kParentBytes;
+        }
         std::error_code ec;
         const uint64_t file_bytes = (uint64_t) std::filesystem::file_size(path, ec);
         if (ec) return false;
-        room = file_bytes >= 56 ? file_bytes - 56 : 0;   // the header's own 56 bytes come off first
+        room = file_bytes >= head_bytes ? file_bytes - head_bytes : 0;   // the header's own bytes come off first
         if (v.n_seq > room / 4) return false;            // the seq's bytes alone will not fit this file
         room -= v.n_seq * 4;
         // each record carries its own fields (a state 16 bytes, a rows block 32): the counts of records the
@@ -388,6 +420,7 @@ public:
         h.prompt = open.prompt;
         h.sb = open.sb;
         h.rb = open.rb;
+        h.parent = open.parent;
         h.version = open.version;
         h.n_rows = open.n_rows;
         bool ok = true;
@@ -492,6 +525,7 @@ public:
         head.prompt = open.prompt;
         head.sb = open.sb;
         head.rb = open.rb;
+        head.parent = open.parent;
         for (uint64_t i = 0; ok && i < open.n_marks; ++i) {
             Raw raw;
             ok = read_raw(f, open.version, false, raw);
@@ -531,7 +565,7 @@ public:
     // A payload's bytes, out of the file's packed bytes: a version 2 payload is the bytes as they are, a
     // version 3 payload is packed.  False: the bytes are not the payload they say.
     static bool unpack(uint32_t version, const uint8_t* in, size_t in_bytes, uint8_t* dst, uint64_t bytes) {
-        if (version != kVersionPacked) {
+        if (version != kVersionPacked && version != kVersionDelta) {
             if (in_bytes != bytes) return false;
             if (bytes) std::memcpy(dst, in, (size_t) bytes);
             return true;
@@ -583,6 +617,7 @@ public:
         head.prompt = open.prompt;
         head.sb = open.sb;
         head.rb = open.rb;
+        head.parent = open.parent;
         head.version = open.version;
         head.n_rows = open.n_rows;
         std::vector<uint8_t> packed;
@@ -690,6 +725,35 @@ public:
         return ok;
     }
 
+    // The files a file adds to, the root first: the file itself and the files it names as parents, read
+    // through their headers.  False: a file is missing, unreadable, or the chain loops.
+    static bool chain_of(const std::filesystem::path& path, std::vector<std::filesystem::path>& chain) {
+        chain.clear();
+        std::filesystem::path at = path;
+        for (size_t guard = 0; guard < 4096; ++guard) {
+            for (const auto& p : chain)
+                if (p == at) return false;   // a file that is its own ancestor
+            chain.push_back(at);
+            const std::optional<Head> h = read_head(at);
+            if (!h) return false;
+            if (h->parent.empty()) return true;
+            at = at.parent_path() / h->parent;
+        }
+        return false;   // a chain that does not end
+    }
+
+    // The records of a file's chain, from the root down: the file and the files it adds to, in the order the
+    // conversation's rows and checkpoints run.  `visit` gets the record and the payload's packed bytes, as
+    // read_packed gives them.  False: a file of the chain is missing or unreadable.
+    template<class Visit>
+    static bool read_chain(const std::filesystem::path& path, Head& head, Visit&& visit) {
+        std::vector<std::filesystem::path> chain;
+        if (!chain_of(path, chain)) return false;
+        for (auto it = chain.rbegin(); it != chain.rend(); ++it)
+            if (!read_packed(*it, head, visit)) return false;
+        return true;
+    }
+
 private:
     // A payload's bytes, packed: a run of zeros is a count, the rest is a literal run.  The engine's rows hold a
     // block's compressed row once per block, so most of a payload is empty positions.
@@ -717,7 +781,8 @@ private:
         // The last of a payload's bytes.
         void finish() { flush_lit(); }
 
-    private:
+private:
+
         // The length of the run of zeros at `p`, at most `n` bytes: eight bytes at a time, so a payload that is
         // mostly zeros is counted a word at a time.  A byte at a time would cost a cycle per byte, and a
         // payload of a real conversation is mostly zeros.
