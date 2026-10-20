@@ -1108,6 +1108,15 @@ int serve(Session& ss, const Options& o) {
         const auto& answer_before = o.no_disk ? (emitted ? decode_before : now) : before;
         const long long hits = now.gpu_experts - answer_before.gpu_experts;
         const long long misses = now.cpu_experts - answer_before.cpu_experts;
+        if (std::getenv("STRATA_TRACE_DECODE_COSTS"))
+            // Existing accumulated host timers; CPU work can overlap GPU work. These are
+            // not additive pieces of decode_ms, and prompt work is excluded by the snapshot.
+            std::fprintf(stderr, "strata-poly: decode-costs generated=%lld accounted_tokens=%lld wall_ms=%.3f "
+                                 "cpu_expert_ms=%.3f route_wait_ms=%.3f uploads=%lld drafts_offered=%lld drafts_accepted=%lld\n",
+                         (long long) r.produced, (long long) (now.tokens - answer_before.tokens), r.decode_ms,
+                         now.cpu_ms - answer_before.cpu_ms, now.route_wait_ms - answer_before.route_wait_ms,
+                         (long long) (now.swapped_experts - answer_before.swapped_experts),
+                         (long long) r.guessed, (long long) r.guessed_right);
         if (o.no_disk)
             std::fprintf(stderr, "strata-poly: expert-cache answer: generated=%lld GPU=%lld CPU=%lld hit=%.2f%% "
                                  "uploads=%lld; prompt work excluded\n", (long long) r.produced, hits, misses,
@@ -1349,6 +1358,7 @@ void usage() {
                  "                         little (default 0 = none is; setup gives Qwen3.6 6)\n"
                  "  --skip-weight F        in place of --tail-skip: an expert outside VRAM that every token of a\n"
                  "                         window weighs under F of its experts' weight is left out (default 0 = off)\n"
+                 "environment: STRATA_TRACE_DECODE_COSTS=1  numeric CPU-expert and router-wait timers after each answer\n"
                  "environment: STRATA_TRACE_DRAFT_POLICY=1  numeric window choices/costs after each answer\n"
                  "environment: STRATA_REFRESH_DRAFT_COSTS=1  remeasure stale intermediate lookup windows\n"
                  "environment: STRATA_ROUTE_TAIL_SKIP=N  in place of --tail-skip (0 turns it off)\n"

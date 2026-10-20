@@ -1,0 +1,13 @@
+{
+  "measured_binary_sha256": "0c919d9883051f92e8f5048334a8760773837ea0cfbd0a9c17046dc49f3b66a7",
+  "installed_binary_sha256": "7888d158849f6d49101a76bc6fdacdd6c8e67a3e58af873b1cb12cb4b1f09d68",
+  "before_diagnostics_backup_sha256": "f8dd3e5b58170b7d8eca9fa028c058d344cb246edef39b6aa82dc86a0745db3c",
+  "config_unchanged": true,
+  "stage_mib": "2848",
+  "eight_cases_completed": true,
+  "adaptive_cache_payloads_verified": 255,
+  "mtplike_tensors_found": 0,
+  "disk_parking_observed": false,
+  "python_syntax_valid": true,
+  "post_measurement_change": "Only diagnostic counter label evaluated_tokens -> accounted_tokens and help text; no inference arithmetic or policy change."
+}

@@ -1,0 +1,11 @@
+{
+  "gguf_version": 3,
+  "tensor_count": 1328,
+  "relevant_metadata": {
+    "general.architecture": "deepseek4",
+    "deepseek4.block_count": 43,
+    "deepseek4.expert_used_count": 6
+  },
+  "draft_tensor_matches": [],
+  "scope": "Metadata and tensor descriptors only; no weight payload read"
+}
