@@ -63,23 +63,38 @@ bytes, the unpacked bytes are identical to the original, the write takes 277.8 m
 
 Same engine, same model, same scenario, same machine, one run each:
 
-| | old exe `d25903c1` | new exe `989ceb9a` |
+| | old exe `d25903c1` | packed `2b9165ce` |
 |---|---:|---:|
-| session file for 10511 tokens | 603 114 484 B | **179 411 489 B** (29.7 %) |
-| SAVE (write) | 589.8 ms | **420.1 ms** |
-| RESTORE (read back) | 369.9 ms | 398.7 ms |
-| second SAVE | 408.9 ms | 276.6 ms |
-| RESTORE after a process restart | 670.8 ms | 2348.5 ms |
+| session file for 10511 tokens | 603 114 484 B | **179 411 487 B** (29.7 %) |
+| SAVE (write) | 589.8 ms | **389.3 ms** |
+| SAVE (again) | 408.9 ms | **251.1 ms** |
+| RESTORE (read back) | 369.9 ms | **196.7 ms** |
+| RESTORE after a process restart | 670.8 ms | **319.5 ms** |
 
-Read on a real file, packed and unpacked, compared bit for bit: 220.1 ms for the packed file, and the
-unpacked bytes are identical. The 2348.5 ms above is the one number that moved the wrong way: it is a
-restore right after a process restart, where the new file is read from the disk for the first time and
-then unpacked into 603 MB, while the old file was 603 MB read straight into place with no unpacking
-step. It is one sample of a cold read, and the same cold read on the packed file is 1.3 GB of disk
-plus 603 MB of unpacking.
+So the restore is now 1.9 times faster than the old file's, and the write 1.5 times faster, on top of
+the file being 3.4 times smaller. The other gain is not in the numbers above: the restore no longer
+holds the file's bytes in RAM a second time, so the host memory a restore needs is one copy of the
+unpacked payload instead of two (4.4 GB instead of 8.8 GB for a 90601-token branch).
 
-What the numbers say: the file is 3.4 times smaller, the write is faster, and the RAM a restore needs
-is one copy of the unpacked payload instead of two.
+## The reader that was slower, and why
+
+The first packed build (`989ceb9a`) read a packed file *slower* than the old one: 398.7 ms against
+369.9 ms warm, and 2348.5 ms against 670.8 ms after a process restart. The file was smaller, and the
+restore was slower, which is not a trade worth making.
+
+The cause was in the reader, not in the packing: the decoder read the file's bytes run by run (an
+8-byte header for every run, then the run's bytes), which is 339 247 reads for one session file. A
+cold file then costs more in small reads than the whole unpacked file cost in one read.
+
+Measured on the real file (171.1 MiB in the file, 575.1 MiB unpacked), the same file read two ways:
+
+| | cold | warm | reads |
+|---|---:|---:|---:|
+| a read for every run (the first build) | 429.3 ms | 229.7 ms | 339 247 |
+| one read for the block, the decode out of memory | 160.0 ms | 166.7 ms | 30 |
+
+The reader now takes the file's bytes in blocks of 1 MiB and decodes them out of the block, so the
+reads are 30 for the whole file. That is the `2b9165ce` build, and the numbers above are its.
 
 ## Where the 32 seconds come from, and what the next step is
 

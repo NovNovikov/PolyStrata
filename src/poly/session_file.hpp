@@ -15,6 +15,7 @@
 #pragma once
 
 #include <cerrno>
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -588,11 +589,35 @@ private:
             if (!dst) return std::fseek(f, (long) bytes, SEEK_CUR) == 0;
             return std::fread(dst, 1, (size_t) bytes, f) == (size_t) bytes;
         }
+        // The packed bytes come in blocks and the decode runs out of the block, not out of the file: a read for
+        // every run would be hundreds of thousands of small reads, and a cold file then costs more than the
+        // unpacked file did.  `dst` may be null: the payload is then stepped over.
+        constexpr size_t kBlock = (size_t) 1 << 20;
+        std::vector<uint8_t> buf(kBlock);
+        size_t pos = 0, end = 0;
         uint64_t left = bytes, read = 0;
+        const auto more = [&](size_t need) -> bool {
+            while (end - pos < need) {
+                if (pos) {   // what is left of the block to the front
+                    std::memmove(buf.data(), buf.data() + pos, end - pos);
+                    end -= pos;
+                    pos = 0;
+                }
+                if (need > buf.size()) return false;   // a literal longer than the block
+                if ((uint64_t) (need - end) > packed - read) return false;
+                const size_t want = (size_t) std::min<uint64_t>(buf.size() - end, packed - read);
+                if (!want) return false;
+                if (std::fread(buf.data() + end, 1, want, f) != want) return false;
+                end += want;
+                read += want;
+            }
+            return true;
+        };
         while (left) {
+            if (!more(8)) return false;
             uint64_t h = 0;
-            if (!get(f, h)) return false;
-            read += sizeof h;
+            std::memcpy(&h, buf.data() + pos, 8);
+            pos += 8;
             if (h & (1ull << 63)) {   // a run of zeros
                 const uint64_t run = h & ~(1ull << 63);
                 if (run > left) return false;
@@ -601,12 +626,15 @@ private:
                 continue;
             }
             if (h > left) return false;
-            if (dst) {
+            if (h <= buf.size() && more((size_t) h)) {
+                if (dst) std::memcpy(dst + (bytes - left), buf.data() + pos, (size_t) h);
+                pos += (size_t) h;
+            } else if (dst) {   // a literal longer than the block: it comes straight from the file
                 if (std::fread(dst + (bytes - left), 1, (size_t) h, f) != (size_t) h) return false;
+                read += h;
             } else if (std::fseek(f, (long) h, SEEK_CUR) != 0) {
                 return false;
             }
-            read += h;
             left -= h;
         }
         return read == packed;
