@@ -313,7 +313,22 @@ The traps, and how they are closed:
 
 The old files (version 3) are still read, and a version 2 file as well.
 
-## Files
+## A branch writes a delta too (version 5)
+
+The header of a delta now names where the file's rows begin (`branch_at`): the parent's part ends
+there. A branch (the client's history goes another way from a checkpoint) uses the same mechanism: the
+rows up to the point of the divergence are the parent's, the file holds only what came after it, and
+the reader takes the parent's rows up to that point and no further.
+
+A file that another file continues *strictly* (the child's rows begin where the parent's end) is a part
+of that one's chain and not a conversation of its own; a file another file only branches from is both.
+
+At the 89999-token scale, with the chain: the park of a conversation that came back and grew is
+29.5 ms, the parks with nothing new are 1.1 ms and write no file, the restores through the chain are
+1714.4 and 1702.4 ms, and the tokens the engine produced are the same as the whole file's.
+
+The host test says the same at the data level: the chain restores the rows and the state bit for bit
+what a full reread gives, and a branch's chain restores the branch, not the conversation it came from.
 
 - `packed/` - the new engine's run: `summary.json`, the engine's stderr, the protocol, per phase.
 - `old/` - the old engine's run, same scenario.

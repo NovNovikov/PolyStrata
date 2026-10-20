@@ -275,6 +275,51 @@ int main() {
         std::filesystem::remove_all(own);
     }
 
+    // A branch: the conversation goes another way from a checkpoint.  The branch's file names the file it
+    // continues and says where it diverges, and the chain brings the branch back.
+    {
+        const std::filesystem::path own = dir / "branch";
+        std::filesystem::create_directories(own);
+        CacheOptions o = options(own);
+        o.checkpoints = 4;
+        const std::vector<int32_t> original = text(91, 5000);
+        Fake e;
+        Conversations<Fake> kept(e, o);
+        go_on(e, kept, original, kept.resume(original));
+        kept.prompt_was(300);   // the client sent the first 300 tokens
+        const std::vector<int32_t> other = text(92, 300);
+        go_on(e, kept, other, kept.resume(other));   // the original is parked to a file
+        check(files_in(own) == 1, "the original left one session file");
+        // The branch: the same beginning, but the re-render differs inside the prompt, at a checkpoint the
+        // cache kept (the engine keeps a few, and a point it dropped cannot be come back to).
+        std::vector<int32_t> fork(original.begin(), original.begin() + 4900);
+        fork[4800] = 49999;
+        const std::vector<int32_t> tail = text(93, 120);
+        fork.insert(fork.end(), tail.begin(), tail.end());
+        const int64_t split = kept.resume(fork);
+        check(split > 0 && split < 4900, "the branch goes on from a checkpoint of the original");
+        go_on(e, kept, fork, split);
+        check(e.holds(fork), "the branch read on from the checkpoint is bit for bit the reread's result");
+        go_on(e, kept, other, kept.resume(other));   // the branch is parked
+        size_t files = 0, deltas = 0;
+        uint64_t branch_at = 0;
+        for (const auto& p : std::filesystem::directory_iterator(own)) {
+            if (p.path().extension() != ".bin") continue;
+            ++files;
+            const auto h = strata::poly::SessionFile::read_head(p.path());
+            if (h && !h->parent.empty()) {
+                ++deltas;
+                branch_at = h->branch_at;
+            }
+        }
+        check(files == 3, "the branch left a file of its own beside the other two");
+        check(deltas == 1, "the branch's file names the file it continues");
+        check(branch_at > 0 && branch_at <= 4900, "the branch's file says where it diverged");
+        go_on(e, kept, fork, kept.resume(fork));   // the branch comes back through the chain
+        check(e.holds(fork), "the chain restores the branch, not the conversation it came from");
+        std::filesystem::remove_all(own);
+    }
+
     // More than the writer's 4 MiB staging buffer. save_rows() is layer-major (all hashes, then all tokens),
     // so concatenating separately saved chunks is NOT the bytes of one save_rows() over the whole span.
     {

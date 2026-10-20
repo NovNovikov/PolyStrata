@@ -582,6 +582,7 @@ private:
             uint64_t rows_at = 0;  // where its rows' records start
             uint64_t n_rows = 0;   // how many rows' records it holds
             uint32_t version = 0;  // the file's version
+            uint64_t rows_from = 0;  // where this file's rows begin: the parent's part ends there
         };
         std::vector<File> chain;        // the files the rows come from, the root first
         uint64_t disk_rows_end = 0;     // where the rows in the files reach
@@ -681,6 +682,10 @@ private:
         while (!s.marks.empty() && s.marks.back().pos > at) s.marks.pop_back();
         while (!s.rows.empty() && s.rows.back().first >= at) s.rows.pop_back();
         if (!s.rows.empty()) s.rows.back().keep = std::min(s.rows.back().keep, at - s.rows.back().first);
+        // The conversation stops here: the rows past it are not its own, and the file it adds to is used up
+        // to here as well.
+        if (s.disk_rows_end > (uint64_t) at) s.disk_rows_end = (uint64_t) at;
+        while (!s.disk_marks.empty() && s.disk_marks.back() > at) s.disk_marks.pop_back();
     }
 
     // The parked conversations and what they hold; a blob several of them share counts once.  The current one
@@ -801,7 +806,7 @@ private:
                 return true;
             }
             if (SessionFile::write_stream(o_.session_dir, name, s.prompt, e_.state_bytes(), e_.row_bytes(), s.seq,
-                                          parts, rows, &st, {}, parent)) {
+                                          parts, rows, &st, {}, parent, (uint64_t) first_new)) {
                 s.disk = name;
                 for (const Checkpoint& m : s.marks) {
                     if (std::find(s.disk_marks.begin(), s.disk_marks.end(), m.pos) == s.disk_marks.end())
@@ -903,6 +908,14 @@ private:
         b.prompt = std::min(a.prompt, at);
         b.marks = std::move(marks);
         b.rows = std::move(rows);
+        // The copy continues the same conversation up to the point of the divergence: its rows are the
+        // original's up to there, and the file it adds to holds them.  The rows past the divergence are the
+        // original's own, and the copy does not have them.
+        b.disk = a.disk;
+        b.chain = a.chain;
+        b.disk_rows_end = (uint64_t) at;
+        for (const int64_t p : a.disk_marks)
+            if (p <= at) b.disk_marks.push_back(p);
         slots_[to] = std::move(b);
         cur_ = to;
         return true;
@@ -934,7 +947,34 @@ private:
         for (; it != end && !ec; it.increment(ec))
             if (it->is_regular_file(ec) && it->path().extension() == ".bin") files.emplace_back(it->last_write_time(ec), it->path());
         if (ec) return;
-        const std::vector<std::string> parents = parent_names();
+        // The headers: what each file holds and what it adds to.  A file that another file continues strictly
+        // (the child's rows begin where the parent's end) is a part of that one's chain; a file another file
+        // only branches from (the child's rows begin earlier) is a conversation of its own as well.
+        struct Info {
+            std::filesystem::path path;
+            std::filesystem::file_time_type when;
+            uint64_t rows_last = 0;
+            uint64_t branch_at = 0;
+            uint32_t version = 0;
+            std::string parent;
+        };
+        std::vector<Info> infos;
+        for (const auto& [when, path] : files) {
+            const std::optional<SessionFile::Head> h = SessionFile::read_head(path);
+            if (!h || h->seq.empty()) continue;
+            infos.push_back({path, when, (uint64_t) h->rows_last, h->branch_at, h->version, h->parent});
+        }
+        std::vector<std::string> continued;   // the files that are a part of another's chain
+        for (const Info& child : infos) {
+            if (child.parent.empty()) continue;
+            for (const Info& parent : infos) {
+                if (parent.path.filename().string() != child.parent) continue;
+                const bool strict = child.version == SessionFile::kVersionBranch
+                                        ? (child.branch_at && child.branch_at == parent.rows_last)
+                                        : child.version == SessionFile::kVersionDelta;
+                if (strict) continued.push_back(child.parent);
+            }
+        }
         std::sort(files.begin(), files.end(), std::greater<>());   // the newest first
         for (const auto& [when, path] : files) {
             size_t at = slots_.size();
@@ -945,7 +985,7 @@ private:
                 }
             if (at == slots_.size()) break;
             const std::string name = path.filename().string();
-            if (std::find(parents.begin(), parents.end(), name) != parents.end()) continue;   // a chain's part
+            if (std::find(continued.begin(), continued.end(), name) != continued.end()) continue;   // a chain's part
             const std::optional<SessionFile::Head> h = SessionFile::read_head(path);
             if (!h || h->seq.empty()) continue;
             if (h->sb != e_.state_bytes() || h->rb != e_.row_bytes()) {   // not this engine's any more
@@ -977,16 +1017,55 @@ private:
             std::filesystem::remove(o_.session_dir / s.disk, ec);
             return false;
         }
+        std::reverse(chain.begin(), chain.end());   // the root first: the chain is read in that order
+        // Each file's header says where its rows begin: the parent's part ends there.  A file that continues
+        // its parent (the ordinary delta) begins where the parent's rows ended; a file that diverges from it
+        // (a branch) begins at the point of the divergence, and the parent's rows past it are not its own.
+        std::vector<typename Slot::File> files;
+        uint64_t prev_end = 0;
+        bool prev_end_known = false;
+        for (size_t k = 0; k < chain.size(); ++k) {
+            SessionFile::Head0 h;
+            FILE* f = nullptr;
+#if defined(_WIN32)
+            _wfopen_s(&f, chain[k].c_str(), L"rb");
+#else
+            f = std::fopen(chain[k].c_str(), "rb");
+#endif
+            if (!f) return false;
+            uint64_t room = 0;
+            const bool ok = SessionFile::head_ok(chain[k], f, h, room);
+            std::fclose(f);
+            if (!ok) return false;
+            typename Slot::File entry;
+            entry.name = chain[k].filename().string();
+            entry.version = h.version;
+            if (k == 0) {
+                entry.rows_from = 0;
+            } else if (h.version == SessionFile::kVersionBranch) {
+                entry.rows_from = h.branch_at;   // this file says where its rows begin
+            } else {   // a version 4 file: it continues where the previous one's rows ended
+                if (!prev_end_known) {
+                    const std::optional<SessionFile::Head> full = SessionFile::read_head(chain[k - 1]);
+                    prev_end = full ? (uint64_t) full->rows_last : 0;
+                    prev_end_known = true;
+                }
+                entry.rows_from = prev_end;
+            }
+            files.push_back(entry);
+        }
         std::vector<Checkpoint> marks;
         bool no_ram = false;
         bool ok = true;
         s.chain.clear();
         SessionFile::Head head;
-        for (const std::filesystem::path& path : chain) {
+        for (size_t k = 0; k < files.size() && ok; ++k) {
+            const uint64_t bound = k + 1 < files.size() ? files[k + 1].rows_from : (uint64_t) -1;
             ok = SessionFile::read_packed(
-                path, head,
+                o_.session_dir / files[k].name, head,
                 [&](const SessionFile::Record& r, std::vector<uint8_t>&& packed, uint32_t version) {
                     if (r.kind != SessionFile::Record::kMark) return true;   // the rows come with the engine
+                    if (r.pos > bound) return true;   // a checkpoint past the divergence is the parent's own
                     const BlobPtr b = blob(r.raw);
                     if (!b) {
                         no_ram = true;
@@ -999,13 +1078,15 @@ private:
                 },
                 true);
             if (!ok || no_ram) break;
-            s.chain.push_back({path.filename().string(), head.rows_at, head.n_rows, head.version});
+            files[k].rows_at = head.rows_at;
+            files[k].n_rows = head.n_rows;
         }
         if (!ok || no_ram || head.seq.empty() || head.sb != e_.state_bytes() || head.rb != e_.row_bytes()) {
             std::error_code ec;
             std::filesystem::remove(o_.session_dir / s.disk, ec);
             return false;
         }
+        s.chain = std::move(files);
         s.marks = std::move(marks);
         s.materialized = true;   // the rows are still in the files: enter() reads them
         // where the rows in the files reach: the deepest checkpoint of the chain, which is where the file
@@ -1018,11 +1099,16 @@ private:
     // the whole conversation.  The files are not walked again for the checkpoints: where their rows begin is known.
     bool load_rows_from_file(size_t i, int64_t need) {
         Slot& s = slots_[i];
-        for (const Slot::File& f : s.chain) {
+        for (size_t k = 0; k < s.chain.size(); ++k) {
+            const typename Slot::File& f = s.chain[k];
+            // the parent's part ends where this file's rows begin: the rows past that are the parent's own,
+            // and a branch does not have them
+            const uint64_t bound = k + 1 < s.chain.size() ? s.chain[k + 1].rows_from : (uint64_t) -1;
             const bool ok = SessionFile::read_packed_rows(
                 o_.session_dir / f.name, f.rows_at, f.n_rows, f.version,
                 [&](const SessionFile::Record& r, std::vector<uint8_t>&& packed, uint32_t version) {
-                    const int64_t a = r.first, b = std::min(r.first + r.keep, need);
+                    const int64_t a = std::max<int64_t>(r.first, (int64_t) f.rows_from);
+                    const int64_t b = std::min<int64_t>(r.first + r.keep, (int64_t) std::min<uint64_t>(bound, (uint64_t) need));
                     if (a >= b) return true;   // the rows past the place the engine comes back to are not wanted
                     std::vector<uint8_t> tmp((size_t) r.raw);
                     if (!SessionFile::unpack(version, packed.data(), packed.size(), tmp.data(), r.raw)) return false;

@@ -57,6 +57,7 @@ public:
     static constexpr uint32_t kVersion = 2;           // the payloads as the engine wrote them
     static constexpr uint32_t kVersionPacked = 3;     // the payloads packed: a run of zeros is a count
     static constexpr uint32_t kVersionDelta = 4;      // the payloads packed, and the header names the parent
+    static constexpr uint32_t kVersionBranch = 5;     // the parent's part ends where this file's rows begin
     static constexpr size_t kParentBytes = 64;        // the parent's name in the header, zero-padded
 
     // A parked conversation's name: stable for the same token stream, so a repark overwrites its own file.
@@ -126,6 +127,7 @@ public:
         uint64_t n_rows = 0;        // how many rows' records there are
         uint32_t version = 0;       // the file's version
         std::string parent;         // the file this one adds to; empty: it holds the whole conversation
+        uint64_t branch_at = 0;     // where this file's rows begin: the parent's part ends there
         size_t bytes = 0;        // the payloads plus the header, as the file is sized
     };
 
@@ -137,6 +139,7 @@ public:
         uint64_t n_seq = 0, n_marks = 0, n_rows = 0;
         uint32_t version = 0;
         std::string parent;
+        uint64_t branch_at = 0;
     };
 
     // One record of a file: a checkpoint's state, or a block of rows.
@@ -167,7 +170,7 @@ public:
             if (!get(f, r.pos) || !get(f, r.bytes)) return false;
             r.header = 16;
         }
-        if (version == kVersionPacked || version == kVersionDelta) {
+        if (version == kVersionPacked || version == kVersionDelta || version == kVersionBranch) {
             if (!get(f, r.packed)) return false;
             r.header += 8;
         } else {
@@ -187,7 +190,7 @@ public:
                              const std::vector<std::pair<int64_t, SessionPart>>& marks,
                              const std::vector<StreamRows>& rows, WStat* st = nullptr,
                              const std::function<void(uint64_t, uint64_t)>& say = {},
-                             const std::string& parent = {}) {
+                             const std::string& parent = {}, uint64_t branch_at = 0) {
         if (st) *st = WStat{};
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
@@ -281,7 +284,7 @@ public:
             return true;
         };
         const bool delta = !parent.empty();
-        bool ok = put(f, kMagic) && put(f, delta ? kVersionDelta : kVersionPacked) &&
+        bool ok = put(f, kMagic) && put(f, delta ? kVersionBranch : kVersionPacked) &&
                   put(f, (uint64_t) seq.size()) && put(f, (uint64_t) prompt) && put(f, sb) && put(f, rb) &&
                   put(f, (uint64_t) marks.size()) && put(f, (uint64_t) rows.size());
         if (ok && delta) {   // the parent's name, zero-padded: the file adds to that one
@@ -294,6 +297,7 @@ public:
                 ok = std::fwrite(field, 1, kParentBytes, f) == kParentBytes;
             }
         }
+        if (ok && delta) ok = put(f, branch_at);   // where this file's rows begin
         if (ok && !seq.empty())
             ok = std::fwrite(seq.data(), 4, seq.size(), f) == seq.size();
         // A record's header names its payload's packed size, which is only known once the payload is written:
@@ -371,19 +375,24 @@ public:
     static bool head_ok(const std::filesystem::path& path, FILE* f, Head0& v, uint64_t& room) {
         uint32_t magic = 0, version = 0;
         if (!get(f, magic) || !get(f, version) || magic != kMagic ||
-            (version != kVersion && version != kVersionPacked && version != kVersionDelta) ||
+            (version != kVersion && version != kVersionPacked && version != kVersionDelta &&
+             version != kVersionBranch) ||
             !get(f, v.n_seq) || !get(f, (uint64_t&) v.prompt) || !get(f, v.sb) || !get(f, v.rb) ||
             !get(f, v.n_marks) || !get(f, v.n_rows))
             return false;
         v.version = version;
         uint64_t head_bytes = 56;
-        if (version == kVersionDelta) {   // the parent's name follows the counts
+        if (version == kVersionDelta || version == kVersionBranch) {   // the parent's name follows the counts
             char name[kParentBytes];
             if (std::fread(name, 1, kParentBytes, f) != kParentBytes) return false;
             const void* nul = std::memchr(name, 0, kParentBytes);
             const size_t at = nul ? (size_t) ((const char*) nul - name) : kParentBytes;
             v.parent.assign(name, at);
             head_bytes += kParentBytes;
+        }
+        if (version == kVersionBranch) {   // where this file's rows begin
+            if (!get(f, v.branch_at)) return false;
+            head_bytes += 8;
         }
         std::error_code ec;
         const uint64_t file_bytes = (uint64_t) std::filesystem::file_size(path, ec);
@@ -421,6 +430,7 @@ public:
         h.sb = open.sb;
         h.rb = open.rb;
         h.parent = open.parent;
+        h.branch_at = open.branch_at;
         h.version = open.version;
         h.n_rows = open.n_rows;
         bool ok = true;
@@ -526,6 +536,7 @@ public:
         head.sb = open.sb;
         head.rb = open.rb;
         head.parent = open.parent;
+        head.branch_at = open.branch_at;
         for (uint64_t i = 0; ok && i < open.n_marks; ++i) {
             Raw raw;
             ok = read_raw(f, open.version, false, raw);
@@ -565,7 +576,7 @@ public:
     // A payload's bytes, out of the file's packed bytes: a version 2 payload is the bytes as they are, a
     // version 3 payload is packed.  False: the bytes are not the payload they say.
     static bool unpack(uint32_t version, const uint8_t* in, size_t in_bytes, uint8_t* dst, uint64_t bytes) {
-        if (version != kVersionPacked && version != kVersionDelta) {
+        if (version != kVersionPacked && version != kVersionDelta && version != kVersionBranch) {
             if (in_bytes != bytes) return false;
             if (bytes) std::memcpy(dst, in, (size_t) bytes);
             return true;
@@ -618,6 +629,7 @@ public:
         head.sb = open.sb;
         head.rb = open.rb;
         head.parent = open.parent;
+        head.branch_at = open.branch_at;
         head.version = open.version;
         head.n_rows = open.n_rows;
         std::vector<uint8_t> packed;
@@ -734,10 +746,20 @@ public:
             for (const auto& p : chain)
                 if (p == at) return false;   // a file that is its own ancestor
             chain.push_back(at);
-            const std::optional<Head> h = read_head(at);
-            if (!h) return false;
-            if (h->parent.empty()) return true;
-            at = at.parent_path() / h->parent;
+            FILE* f = nullptr;
+#if defined(_WIN32)
+            _wfopen_s(&f, at.c_str(), L"rb");
+#else
+            f = std::fopen(at.c_str(), "rb");
+#endif
+            if (!f) return false;
+            Head0 open;
+            uint64_t room = 0;
+            const bool ok = head_ok(at, f, open, room);
+            std::fclose(f);
+            if (!ok) return false;
+            if (open.parent.empty()) return true;
+            at = at.parent_path() / open.parent;
         }
         return false;   // a chain that does not end
     }
