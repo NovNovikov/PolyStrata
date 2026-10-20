@@ -81,6 +81,42 @@ plus 603 MB of unpacking.
 What the numbers say: the file is 3.4 times smaller, the write is faster, and the RAM a restore needs
 is one copy of the unpacked payload instead of two.
 
+## Where the 32 seconds come from, and what the next step is
+
+Read from the code, with the file and the RAM as the two parts of it:
+
+- **The rows live in VRAM.** `DeepSeek4::save_card_rows` copies device to host (`B.rows`, `B.keys` are
+  device pointers) and `load_card_rows` copies host to device. A restore is therefore a transfer, not a
+  place: the 4.07 GB of rows has to be in host RAM only while it is on its way to the device.
+- **The file is already in small pieces.** `park()` writes the engine's tail in chunks of about 4 MiB
+  (`chunk = 4 << 20 / row_bytes`, conversations.hpp:638), so a 90601-token branch is a thousand records
+  of 4 MiB, not one record of 4.38 GB.
+- **The host copy is what thrashes.** `load_blobs()` reads a record into a blob and keeps it, so the
+  restore's host RAM is the sum of all the records: 4.4 GB with 2.7 GiB free. The kernel has to evict
+  other pages to give it, which is where the 32 s went, not the disk (1.5 GB/s cold) and not the
+  transfer.
+
+So the next lever is not the file's size but the host copy: load each record into the device and give
+the host buffer back as soon as it is loaded, so the peak is one record (4 MiB) instead of the whole
+conversation. What that costs is the host copy the conversation keeps afterwards: the parked
+conversation's rows would have to be captured from the device again (the engine can do that,
+`save_rows` reads the device) when the conversation is written out again. This is the change to make
+next, and it is not made here.
+
+The fork does the same thing on its side: its reader hands the file's bytes to the device
+(`llama_io_read_file::read_tensor` to `ggml_backend_tensor_set`) instead of building a dump in RAM
+first.
+
+The other two levers, for the record:
+
+- **Delta files** make the write small: a new file holds only the rows added since the parent, and
+  the parent is named in a sidecar (`parent_id`, `range_lo`, `range_hi` in the fork). It does not make
+  the read small, because the read needs the whole chain.
+- **A background writer** takes the write off the request path (`auto_enqueue_snapshot` in the fork).
+  For the disk path here it needs the rows in RAM first, because the engine may move on while the
+  writer runs: the whole 4.38 GB of a 90601-token branch. That is why the disk path streams the
+  engine's tail straight into the file instead.
+
 ## What is not done
 
 - **The save is still synchronous.** The request still waits for the write of the branch it parks.
