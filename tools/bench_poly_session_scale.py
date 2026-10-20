@@ -168,7 +168,7 @@ def main():
         rss = [r[1] for r in e.ram]
         summary['ram'] = dict(samples=len(e.ram), min_available_mib=min(avail) / 1048576,
                               max_rss_mib=max(rss) / 1048576)
-        print('RAM: the system had %.0f MiB free at its tightest, the engine's RSS peaked at %.0f MiB'
+        print('RAM: the system had %.0f MiB free at its tightest, the engine RSS peaked at %.0f MiB'
               % (summary['ram']['min_available_mib'], summary['ram']['max_rss_mib']), flush=True)
     for line in summary['log']:
         print(line, flush=True)
