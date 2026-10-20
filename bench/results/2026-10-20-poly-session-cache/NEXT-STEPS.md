@@ -63,7 +63,58 @@ What is left is the conversation cache's own path, which is the one a client's n
 2 (the delta files) comes after that, if the write is still the slower half. 3 (the background writer)
 needs the rows in RAM, which is what the above removes.
 
-## The test that says it worked
+## The delta files, worked out (2026-10-20)
+
+The park writes the whole conversation again every time: 4.3 GiB of rows for 89999 tokens, of which
+622 MiB reach the disk after the packing. A delta file holds only the rows added since the parent, and
+names the parent. The Manual LLAMA_CPP fork does this (`parent_id`, `range_lo`, `range_hi`), and it is
+the step that makes the write small enough not to matter.
+
+**The format.** The header (56 bytes now: magic, version, n_seq, prompt, sb, rb, n_marks, n_rows) gets
+the parent's name in a fixed 64-byte field; empty means there is no parent. The version goes to 4. The
+offset where the rows begin is not needed: a delta's rows begin where the parent's end, and the chain is
+read by the names.
+
+**The writer** (`src/poly/session_file.hpp`, `write_stream`): a `parent` parameter, written into the
+header. The marks and rows are written as they are, so a delta file carries only [k, end).
+
+**The reader**: `read_head` gives the `parent`; a new `read_chain(path)` walks the parents to the root and
+reads the chain from the root down, joining the marks and the rows in position order. One pass over the
+bytes, as now; the host holds one record at a time.
+
+**The cache** (`src/poly/conversations.hpp`):
+- `Slot` gets `disk_rows_end`: how far the rows in its file reach;
+- `park()`: when the slot has a file and its `disk_rows_end` is below the end, the new record is a delta
+  [disk_rows_end, end) whose parent is the old file; otherwise a whole file;
+- `take()` and `branch()` carry `disk` and `disk_rows_end` over (the rows of a copy are the same bytes:
+  they are a function of the tokens);
+- `materialize()` and `enter()` read the chain, not one file.
+
+**The traps:**
+1. The eviction. `disk_fit()` drops the oldest file; a parent cannot go while a child lives, so the
+   leaves are dropped and the chains are counted whole. Otherwise a delta is orphaned and the
+   conversation is lost.
+2. The branch. A new branch off an old one shares a prefix but its file is not that branch's delta: a
+   delta is only valid from a file with the *same* prefix, which the cache checks with `common()`.
+3. The marks. A delta carries only the marks after the parent's end; else the chain holds two of them
+   and `state_at()` finds the wrong one.
+4. The names. A file's name is a hash of the whole token sequence, so every park gives a new name and
+   the chain grows. The parent link has to be by name, not by hash.
+5. An empty delta. When there are no new rows, no file is written at all.
+
+**The order, so that every step is testable:**
+1. The format: the parent's field, version 4, the writer takes the parent, `read_head` gives it. The
+   format's own tests stay green and the old files are still read.
+2. The chain reader: `read_chain`, used by `mount()` and `materialize()`. Nothing writes a delta yet, so
+   nothing changes.
+3. The cache: `disk_rows_end`, the delta in `park()`, `take()` and `branch()`.
+4. The eviction with chains, and the prefix check.
+5. The measurement: the 89999-token scenario, where the park should go from ~1.7 s to tens of
+   milliseconds; the files on the disk add up to about the same as before (the chain is as big as the
+   whole file was).
+
+Roughly 300-350 lines in two files, plus the tests. It is a change of its own.
+
 
 The same scenario as the numbers in `README.md`: a 90601-token branch parked to a file and read back,
 on a machine with the RAM the user has. The number to beat is 14.7 s for the park and 32.1 s for the
