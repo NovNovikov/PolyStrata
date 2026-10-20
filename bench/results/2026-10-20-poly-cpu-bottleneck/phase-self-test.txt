@@ -1,0 +1,1 @@
+GPU phase captured-event self-test passed: 0.066560 ms

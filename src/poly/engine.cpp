@@ -13,6 +13,9 @@
 #include "resident_dma.hpp"
 #include "strata/poly/kernels.hpp"
 #include "strata/kernels/native_mmvq.hpp"
+#ifdef STRATA_GPU_PHASE_PROBE
+#include "gpu_phase_probe.hpp"
+#endif
 
 #include "ggml.h"
 
@@ -3387,6 +3390,9 @@ void Engine::run(const int32_t* tokens, int n) {
 
     // h_r_ and h_cpu_ may still be the source of the previous call's copies
     ck(cudaStreamSynchronize(cs(st_)), "eval");
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::state().begin(n, pos_);
+#endif
     if (n >= kStageRows && mmq_) drop_resident_stage_cache();
     // Greedy answers have to be a function of the request alone: which experts take the GPU path and which the
     // CPU one decides a layer's sums to the last bit (the two paths add in different orders), so the cache's

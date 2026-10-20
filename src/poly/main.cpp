@@ -12,6 +12,13 @@
 #include "strata/spec/draft_policy.hpp"
 #include "strata/spec/suffix_drafter.hpp"
 
+#ifdef STRATA_POLY_CUDA_PROFILER
+#include <cuda_profiler_api.h>
+#endif
+#ifdef STRATA_GPU_PHASE_PROBE
+#include "gpu_phase_probe.hpp"
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -1034,6 +1041,26 @@ int serve(Session& ss, const Options& o) {
         int64_t resume = 0;
         Session::Result r;
         int32_t first = -1;   // the token BGEN's read picks
+#ifdef STRATA_POLY_CUDA_PROFILER
+        // Capture decode kernels without tracing model loading or prompt processing.
+        struct DecodeCapture {
+            bool active = false;
+            void start() {
+                if (!active && std::getenv("STRATA_PROFILE_DECODE")) {
+                    const auto status = cudaProfilerStart();
+                    std::fprintf(stderr, "strata-poly: decode profiler start status=%d\n", (int) status);
+                    active = status == cudaSuccess;
+                }
+            }
+            void stop() {
+                if (active) {
+                    std::fprintf(stderr, "strata-poly: decode profiler stop status=%d\n", (int) cudaProfilerStop());
+                    active = false;
+                }
+            }
+            ~DecodeCapture() { stop(); }
+        } capture;
+#endif
         try {
             engine.bind(0);
             from_slot(ids);
@@ -1052,6 +1079,9 @@ int serve(Session& ss, const Options& o) {
             r = ss.generate(
                 ids, pictures, pad, checkpoints, max_new, s, lines.stop,
                 [&](int32_t t) {
+#ifdef STRATA_POLY_CUDA_PROFILER
+                    if (first < 0) capture.start();
+#endif
                     if (o.no_disk) {
                         const strata::poly::Stats current = engine.stats();
                         if (emitted == 0) {
@@ -1086,6 +1116,9 @@ int serve(Session& ss, const Options& o) {
                     std::fflush(stdout);
                 },
                 slots.empty() ? nullptr : &between);
+#ifdef STRATA_POLY_CUDA_PROFILER
+            capture.stop();
+#endif
             if (r.gave_way >= 0) {
                 engine.copy_seq(0, gives_to + 1);
                 slots[(size_t) gives_to] = Slot{};
@@ -1359,6 +1392,9 @@ void usage() {
                  "  --skip-weight F        in place of --tail-skip: an expert outside VRAM that every token of a\n"
                  "                         window weighs under F of its experts' weight is left out (default 0 = off)\n"
                  "environment: STRATA_TRACE_DECODE_COSTS=1  numeric CPU-expert and router-wait timers after each answer\n"
+#ifdef STRATA_POLY_CUDA_PROFILER
+                 "environment: STRATA_PROFILE_DECODE=1  cudaProfilerStart/Stop around each GEN decode, for external profilers\n"
+#endif
                  "environment: STRATA_TRACE_DRAFT_POLICY=1  numeric window choices/costs after each answer\n"
                  "environment: STRATA_REFRESH_DRAFT_COSTS=1  remeasure stale intermediate lookup windows\n"
                  "environment: STRATA_ROUTE_TAIL_SKIP=N  in place of --tail-skip (0 turns it off)\n"
@@ -1383,6 +1419,9 @@ void no_power_throttling() {
 
 int main(int argc, char** argv) {
     no_power_throttling();
+#ifdef STRATA_GPU_PHASE_PROBE
+    if (argc == 2 && std::strcmp(argv[1], "--probe-self-test") == 0) return strata::poly::gpu_probe::self_test();
+#endif
     Options o;
     CacheFlags cache;
     Sampling s;

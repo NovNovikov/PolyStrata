@@ -1,0 +1,162 @@
+[
+  {
+    "context": "1536",
+    "room": "2048",
+    "kernel": "attend_ratio0",
+    "us_per_call": "25.4240",
+    "layer_count": 2,
+    "ms_per_43_layers": 0.050848
+  },
+  {
+    "context": "1536",
+    "room": "2048",
+    "kernel": "attend_ratio4",
+    "us_per_call": "94.2025",
+    "layer_count": 21,
+    "ms_per_43_layers": 1.9782525
+  },
+  {
+    "context": "1536",
+    "room": "2048",
+    "kernel": "attend_ratio128",
+    "us_per_call": "27.8880",
+    "layer_count": 20,
+    "ms_per_43_layers": 0.55776
+  },
+  {
+    "context": "1536",
+    "room": "2048",
+    "kernel": "index_score",
+    "us_per_call": "21.4720",
+    "layer_count": 21,
+    "ms_per_43_layers": 0.45091200000000004
+  },
+  {
+    "context": "1536",
+    "room": "2048",
+    "kernel": "select",
+    "us_per_call": "1.1490",
+    "layer_count": 21,
+    "ms_per_43_layers": 0.024129
+  },
+  {
+    "context": "22446",
+    "room": "32768",
+    "kernel": "attend_ratio0",
+    "us_per_call": "25.3075",
+    "layer_count": 2,
+    "ms_per_43_layers": 0.050615
+  },
+  {
+    "context": "22446",
+    "room": "32768",
+    "kernel": "attend_ratio4",
+    "us_per_call": "116.2400",
+    "layer_count": 21,
+    "ms_per_43_layers": 2.44104
+  },
+  {
+    "context": "22446",
+    "room": "32768",
+    "kernel": "attend_ratio128",
+    "us_per_call": "57.1200",
+    "layer_count": 20,
+    "ms_per_43_layers": 1.1423999999999999
+  },
+  {
+    "context": "22446",
+    "room": "32768",
+    "kernel": "index_score",
+    "us_per_call": "35.5650",
+    "layer_count": 21,
+    "ms_per_43_layers": 0.746865
+  },
+  {
+    "context": "22446",
+    "room": "32768",
+    "kernel": "select",
+    "us_per_call": "18.0160",
+    "layer_count": 21,
+    "ms_per_43_layers": 0.37833599999999995
+  },
+  {
+    "context": "90000",
+    "room": "131072",
+    "kernel": "attend_ratio0",
+    "us_per_call": "25.2430",
+    "layer_count": 2,
+    "ms_per_43_layers": 0.050485999999999996
+  },
+  {
+    "context": "90000",
+    "room": "131072",
+    "kernel": "attend_ratio4",
+    "us_per_call": "116.6080",
+    "layer_count": 21,
+    "ms_per_43_layers": 2.448768
+  },
+  {
+    "context": "90000",
+    "room": "131072",
+    "kernel": "attend_ratio128",
+    "us_per_call": "150.3950",
+    "layer_count": 20,
+    "ms_per_43_layers": 3.0079000000000002
+  },
+  {
+    "context": "90000",
+    "room": "131072",
+    "kernel": "index_score",
+    "us_per_call": "96.5600",
+    "layer_count": 21,
+    "ms_per_43_layers": 2.02776
+  },
+  {
+    "context": "90000",
+    "room": "131072",
+    "kernel": "select",
+    "us_per_call": "37.2000",
+    "layer_count": 21,
+    "ms_per_43_layers": 0.7812
+  },
+  {
+    "context": "131072",
+    "room": "131072",
+    "kernel": "attend_ratio0",
+    "us_per_call": "25.3270",
+    "layer_count": 2,
+    "ms_per_43_layers": 0.050654000000000005
+  },
+  {
+    "context": "131072",
+    "room": "131072",
+    "kernel": "attend_ratio4",
+    "us_per_call": "117.0500",
+    "layer_count": 21,
+    "ms_per_43_layers": 2.4580499999999996
+  },
+  {
+    "context": "131072",
+    "room": "131072",
+    "kernel": "attend_ratio128",
+    "us_per_call": "207.0215",
+    "layer_count": 20,
+    "ms_per_43_layers": 4.14043
+  },
+  {
+    "context": "131072",
+    "room": "131072",
+    "kernel": "index_score",
+    "us_per_call": "129.4830",
+    "layer_count": 21,
+    "ms_per_43_layers": 2.719143
+  },
+  {
+    "context": "131072",
+    "room": "131072",
+    "kernel": "select",
+    "us_per_call": "62.8750",
+    "layer_count": 21,
+    "ms_per_43_layers": 1.320375
+  }
+]

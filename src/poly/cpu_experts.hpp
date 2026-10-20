@@ -15,6 +15,12 @@
 
 namespace strata::poly {
 
+#ifdef STRATA_CPU_STAGE_TIMING
+// Only compiled into the standalone CPU benchmark, never into the engine.
+struct CpuStageTiming { double prepare = 0, gate_up = 0, quantize = 0, down = 0; };
+CpuStageTiming& cpu_stage_timing();
+#endif
+
 /// Runs fn(0..n-1) on the workers and the calling thread, and returns when all of them are done.  A call from
 /// inside fn does its work on the thread it is on.
 class Workers {

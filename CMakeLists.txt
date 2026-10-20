@@ -2073,11 +2073,22 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
   else()
     set(_strata_poly_driver CUDA::cuda_driver)
   endif()
+  if(STRATA_ENABLE_CUDA)
+    set_property(SOURCE src/poly/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS STRATA_POLY_CUDA_PROFILER=1)
+  endif()
   target_link_libraries(strata-poly PRIVATE strata_poly_mmq strata_kernels strata_spec ggml-cpu ggml-base
                                            ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target}
                                            ${_strata_poly_driver}
                                            Threads::Threads)
   # Manual synthetic model test: compare full logits with identical (empty) expert placement.
+  if(STRATA_ENABLE_CUDA)
+    get_target_property(_poly_probe_sources strata-poly SOURCES)
+    add_executable(poly_gpu_phase_probe EXCLUDE_FROM_ALL ${_poly_probe_sources})
+    target_compile_definitions(poly_gpu_phase_probe PRIVATE STRATA_GPU_PHASE_PROBE=1)
+    target_include_directories(poly_gpu_phase_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${_strata_gpu_include_directories})
+    target_link_libraries(poly_gpu_phase_probe PRIVATE strata_poly_mmq strata_kernels strata_spec ggml-cpu ggml-base
+                         ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target} ${_strata_poly_driver} Threads::Threads)
+  endif()
   get_target_property(_poly_scratch_sources strata-poly SOURCES)
   list(REMOVE_ITEM _poly_scratch_sources src/poly/main.cpp)
   add_executable(poly_scratch_parity_test EXCLUDE_FROM_ALL src/poly/scratch_parity_test.cpp ${_poly_scratch_sources})
@@ -2143,11 +2154,29 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
   target_include_directories(poly_dsv4_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
                                                    ${_strata_gpu_include_directories})
   target_link_libraries(poly_dsv4_test PRIVATE ${_strata_gpu_runtime_target})
+  add_executable(poly_dsv4_decode_bench EXCLUDE_FROM_ALL src/poly/dsv4_decode_bench.cu src/poly/kernels_dsv4.cu)
+  target_include_directories(poly_dsv4_decode_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${_strata_gpu_include_directories})
+  target_link_libraries(poly_dsv4_decode_bench PRIVATE ${_strata_gpu_runtime_target})
   # the pool of the CPU experts, without a model
   add_executable(poly_workers_test src/poly/workers_test.cpp src/poly/cpu_experts.cpp)
   target_include_directories(poly_workers_test PRIVATE ${_strata_gg}/include)
   target_link_libraries(poly_workers_test PRIVATE ggml-cpu ggml-base Threads::Threads)
   add_test(NAME poly_workers_test COMMAND poly_workers_test)
+  # Isolate CPU decode throughput on real routed weights, without a GPU or chat input.
+  add_executable(poly_cpu_decode_bench EXCLUDE_FROM_ALL src/poly/cpu_decode_bench.cpp src/poly/cpu_experts.cpp)
+  target_compile_definitions(poly_cpu_decode_bench PRIVATE STRATA_CPU_STAGE_TIMING=1)
+  target_include_directories(poly_cpu_decode_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${_strata_gg}/include)
+  target_link_libraries(poly_cpu_decode_bench PRIVATE ggml-cpu ggml-base Threads::Threads)
+  if(MSVC AND STRATA_HAVE_AVXVNNI_INTRINSICS)
+    add_executable(poly_cpu_decode_vnni_bench EXCLUDE_FROM_ALL src/poly/cpu_decode_bench.cpp
+                   src/poly/cpu_experts.cpp src/poly/cpu_vnni_probe.c)
+    target_compile_definitions(poly_cpu_decode_vnni_bench PRIVATE STRATA_CPU_STAGE_TIMING=1 STRATA_VNNI_PROBE=1
+                               GGML_AVX2 GGML_FMA GGML_F16C)
+    set_source_files_properties(src/poly/cpu_vnni_probe.c PROPERTIES COMPILE_OPTIONS /arch:AVX2)
+    target_include_directories(poly_cpu_decode_vnni_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
+                               ${_strata_gg}/include ${_strata_gg}/src ${_strata_gg}/src/ggml-cpu)
+    target_link_libraries(poly_cpu_decode_vnni_bench PRIVATE ggml-cpu ggml-base Threads::Threads)
+  endif()
   # read chunking and buffer allocation unit test, without a model or GPU
   add_executable(poly_read_chunk_test src/poly/read_chunk_test.cpp)
   target_include_directories(poly_read_chunk_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

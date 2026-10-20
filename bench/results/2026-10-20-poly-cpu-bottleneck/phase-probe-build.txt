@@ -1,0 +1,103 @@
+-- Strata: CUDA enabled, arch 89
+-- strata: pack/full/experts.bin absent - the expert arena load test is NOT registered
+-- CMAKE_SYSTEM_PROCESSOR: AMD64
+-- CMAKE_GENERATOR_PLATFORM: 
+-- GGML_SYSTEM_ARCH: x86
+-- Including CPU backend
+-- x86 detected
+-- Adding CPU backend variant ggml-cpu: /arch:AVX2 GGML_AVX2;GGML_FMA;GGML_F16C
+-- ggml version: 0.24.0
+-- ggml commit:  d869941e
+-- Configuring done (3.0s)
+-- Generating done (0.2s)
+-- Build files have been written to: L:/AI_pictures_generate/PolyStrata/build-poly-cuda12
+[1/14] Building CXX object CMakeFiles\poly_gpu_phase_probe.dir\src\poly\glm5next.cpp.obj
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(47): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(48): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+[2/14] Building CXX object CMakeFiles\poly_gpu_phase_probe.dir\src\poly\no_disk.cpp.obj
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(47): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(48): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+[3/14] Building CXX object CMakeFiles\poly_gpu_phase_probe.dir\src\poly\qwen35.cpp.obj
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(47): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(48): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+[4/14] Building CXX object CMakeFiles\poly_gpu_phase_probe.dir\src\poly\engine.cpp.obj
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(47): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(48): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp(185): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp(190): warning C4996: 'fscanf': This function or variable may be unsafe. Consider using fscanf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp(298): warning C4996: 'sscanf': This function or variable may be unsafe. Consider using sscanf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp(1064): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp(1208): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp(1394): warning C4456: объявление "kv" скрывает предыдущее локальное объявление
+L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp(1316): note:  см. объявление "kv"
+L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp(2088): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp(2449): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp(3047): warning C4456: объявление "at" скрывает предыдущее локальное объявление
+L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp(3014): note:  см. объявление "at"
+[5/14] Building CXX object CMakeFiles\poly_gpu_phase_probe.dir\src\poly\main.cpp.obj
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(47): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(48): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\main.cpp(225): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\main.cpp(361): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\main.cpp(372): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\main.cpp(1049): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\main.cpp(1144): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\main.cpp(1552): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\conversations.hpp(1070): warning C4018: >: несоответствие типов со знаком и без знака
+L:\AI_pictures_generate\PolyStrata\src\poly\conversations.hpp(1070): note: контекст создания экземпляра шаблона (сначала самый старый)
+L:\AI_pictures_generate\PolyStrata\src\poly\main.cpp(345): note: выполняется компиляция ссылки на экземпляр класс шаблон функции "strata::poly::Conversations<strata::poly::Engine>"
+L:\AI_pictures_generate\PolyStrata\src\poly\conversations.hpp(1014): note: во время компиляции функции-члена класс шаблон "bool strata::poly::Conversations<strata::poly::Engine>::materialize(size_t)"
+L:\AI_pictures_generate\PolyStrata\src\poly\conversations.hpp(254): note: см. первую ссылку на "strata::poly::Conversations<strata::poly::Engine>::materialize" в "strata::poly::Conversations<strata::poly::Engine>::snapshot"
+L:\AI_pictures_generate\PolyStrata\src\poly\main.cpp(861): note: см. первую ссылку на "strata::poly::Conversations<strata::poly::Engine>::snapshot" в "`anonymous-namespace'::serve"
+L:\AI_pictures_generate\PolyStrata\src\poly\main.cpp(435): warning C4458: объявление "most" скрывает член класса
+L:\AI_pictures_generate\PolyStrata\src\poly\main.cpp(355): note:  см. объявление "`anonymous-namespace'::Session::most"
+L:\AI_pictures_generate\PolyStrata\src\poly\main.cpp(435): note: контекст создания экземпляра шаблона (сначала самый старый)
+L:\AI_pictures_generate\PolyStrata\src\poly\main.cpp(1079): note: выполняется компиляция ссылки на экземпляр шаблон функции "`anonymous-namespace'::Session::Result `anonymous-namespace'::Session::generate<`anonymous-namespace'::serve::<lambda_9>,`anonymous-namespace'::serve::<lambda_10>>(const std::vector<int32_t,std::allocator<int>> &,const `anonymous-namespace'::Pictures &,int32_t,const std::vector<int64_t,std::allocator<int64_t>> &,int64_t,const `anonymous-namespace'::Sampling &,const std::atomic<bool> &,OnToken,OnProgress,const std::function<bool (int64_t)> *)"
+        with
+        [
+            OnToken=`anonymous-namespace'::serve::<lambda_9>,
+            OnProgress=`anonymous-namespace'::serve::<lambda_10>
+        ]
+[6/14] Building CXX object CMakeFiles\poly_gpu_phase_probe.dir\src\poly\gemma4.cpp.obj
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(47): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(48): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+[7/14] Building CXX object CMakeFiles\poly_gpu_phase_probe.dir\src\poly\cpu_experts.cpp.obj
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(47): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(48): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+[8/14] Building CXX object CMakeFiles\poly_gpu_phase_probe.dir\src\poly\deepseek4.cpp.obj
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(47): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(48): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+[9/14] Building CXX object CMakeFiles\poly_gpu_phase_probe.dir\src\poly\lfm2moe.cpp.obj
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(47): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(48): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+[10/14] Building CXX object CMakeFiles\poly_gpu_phase_probe.dir\src\platform\memory.cpp.obj
+[11/14] Building CXX object CMakeFiles\poly_gpu_phase_probe.dir\src\core\conversation_memory.cpp.obj
+[12/14] Building CUDA object CMakeFiles\poly_gpu_phase_probe.dir\src\poly\kernels_dsv4.cu.obj
+kernels_dsv4.cu
+tmpxft_0000311c_00000000-10_kernels_dsv4.cudafe1.cpp
+[13/14] Building CUDA object CMakeFiles\poly_gpu_phase_probe.dir\src\poly\kernels.cu.obj
+L:\AI_pictures_generate\PolyStrata\src\poly\kernels.cu(1182): warning #177-D: variable "k" was declared but never referenced
+              const half* k = kcache + base + SCORE_VALUES * lane;
+                          ^
+          detected during instantiation of "void strata::poly::<unnamed>::attn_score_reg_kernel<N,STEPS,Q8>(const float *, const half *, float *, int, int, int, long long, int, int, float, int, int, long long, const long long *, const int8_t *, const uint16_t *) [with N=4, STEPS=1, Q8=true]" at line 2489
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+L:\AI_pictures_generate\PolyStrata\src\poly\kernels.cu(1182): warning #177-D: variable "k" was declared but never referenced
+              const half* k = kcache + base + SCORE_VALUES * lane;
+                          ^
+          detected during instantiation of "void strata::poly::<unnamed>::attn_score_reg_kernel<N,STEPS,Q8>(const float *, const half *, float *, int, int, int, long long, int, int, float, int, int, long long, const long long *, const int8_t *, const uint16_t *) [with N=8, STEPS=2, Q8=true]" at line 2492
+
+L:\AI_pictures_generate\PolyStrata\src\poly\kernels.cu(1182): warning #177-D: variable "k" was declared but never referenced
+              const half* k = kcache + base + SCORE_VALUES * lane;
+                          ^
+          detected during instantiation of "void strata::poly::<unnamed>::attn_score_reg_kernel<N,STEPS,Q8>(const float *, const half *, float *, int, int, int, long long, int, int, float, int, int, long long, const long long *, const int8_t *, const uint16_t *) [with N=4, STEPS=2, Q8=true]" at line 2495
+
+L:\AI_pictures_generate\PolyStrata\src\poly\kernels.cu(1182): warning #177-D: variable "k" was declared but never referenced
+              const half* k = kcache + base + SCORE_VALUES * lane;
+                          ^
+          detected during instantiation of "void strata::poly::<unnamed>::attn_score_reg_kernel<N,STEPS,Q8>(const float *, const half *, float *, int, int, int, long long, int, int, float, int, int, long long, const long long *, const int8_t *, const uint16_t *) [with N=4, STEPS=4, Q8=true]" at line 2498
+
+kernels.cu
+tmpxft_00006a50_00000000-10_kernels.cudafe1.cpp
+[14/14] Linking CXX executable poly_gpu_phase_probe.exe

@@ -1,0 +1,22 @@
+{
+  "binary_sha256": "ded95995d0c72f48c03f780d2e3bb2d02451aefdcd7babb0125dd87f33594687",
+  "public_source_sha256": {
+    "docs/DETAILS.md": "18fc87191cef7d3c376bc8411ac079e4b7ff971fee4b81aeb3304c8f3e30ecaa",
+    "src/poly/engine.hpp": "45a7c60236e4865b7df10d96c95162f64098f128fec6b31c9dd8aa934d5404ee",
+    "src/poly/cpu_experts.cpp": "809ef2902f9fc9a076fe3dfe7c9bb6775d17b347b96660f3b3c35e8071dcf49c",
+    "serve/frontend.py": "9548b0e17318a43bb6119f56f7fb4d5ddb1e6ea4e570945dec64ae8a72cb773b"
+  },
+  "launch_prefix": [
+    "C:\\Program Files\\NVIDIA Corporation\\Nsight Systems 2023.4.4\\target-windows-x64\\nsys.exe",
+    "profile",
+    "--trace=cuda",
+    "--sample=none",
+    "--cpuctxsw=none",
+    "--cuda-graph-trace=node",
+    "--capture-range=cudaProfilerApi",
+    "--capture-range-end=stop",
+    "--force-overwrite=false",
+    "--output=L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-20-poly-cpu-bottleneck\\gpu-trace\\decode"
+  ],
+  "private_data_read": false
+}

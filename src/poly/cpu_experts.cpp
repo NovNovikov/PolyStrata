@@ -10,8 +10,14 @@
 #include <immintrin.h>
 #include <mutex>
 #include <numeric>
+#ifdef STRATA_CPU_STAGE_TIMING
+#include <chrono>
+#endif
 
 namespace strata::poly {
+#ifdef STRATA_CPU_STAGE_TIMING
+CpuStageTiming& cpu_stage_timing() { static thread_local CpuStageTiming t; return t; }
+#endif
 namespace {
 
 // Rows of gate and up, and of down, a task.  With fewer tasks than several a thread, the last round left threads
@@ -142,6 +148,14 @@ bool cpu_expert_types_ok(int gu_type, int d_type, int n_embd, int n_ff, std::str
 void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, int gu_type, int d_type, int n_embd,
                  int n_ff, const float* x, float limit, bool gelu, float* out,
                  const std::function<void()>* meanwhile) {
+#ifdef STRATA_CPU_STAGE_TIMING
+    auto stage_at = std::chrono::steady_clock::now();
+    auto take_time = [&](double& value) {
+        const auto now = std::chrono::steady_clock::now();
+        value += std::chrono::duration<double, std::milli>(now - stage_at).count();
+        stage_at = now;
+    };
+#endif
     init_once();
     const ggml_type_traits_cpu* tg = traits(gu_type);
     const ggml_type_traits_cpu* td = traits(d_type);
@@ -178,6 +192,9 @@ void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, in
     const int* runp = run.data();
     const int gu_tasks = (n_ff + kRowsPerTask - 1) / kRowsPerTask;
     const int first = meanwhile ? 1 : 0;   // task 0, so it is taken at once
+#ifdef STRATA_CPU_STAGE_TIMING
+    take_time(cpu_stage_timing().prepare);
+#endif
     workers.run(first + n_run * gu_tasks, [&](int t) {
         if (t < first) return (*meanwhile)();
         t -= first;
@@ -204,9 +221,15 @@ void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, in
             }
         }
     });
+#ifdef STRATA_CPU_STAGE_TIMING
+    take_time(cpu_stage_timing().gate_up);
+#endif
     uint8_t* hqp = hq.data();
     const auto hq_from = traits(td->vec_dot_type)->from_float;
     workers.run(n, [&](int j) { hq_from(hp + (size_t) j * n_ff, hqp + (size_t) j * h_bytes, n_ff); });
+#ifdef STRATA_CPU_STAGE_TIMING
+    take_time(cpu_stage_timing().quantize);
+#endif
 
     const int d_tasks = (n_embd + kRowsPerDownTask - 1) / kRowsPerDownTask;
     workers.run(d_tasks, [&](int t) {
@@ -229,6 +252,9 @@ void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, in
             }
         }
     });
+#ifdef STRATA_CPU_STAGE_TIMING
+    take_time(cpu_stage_timing().down);
+#endif
 }
 
 }  // namespace strata::poly

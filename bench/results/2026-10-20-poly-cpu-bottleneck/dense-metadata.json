@@ -1,0 +1,418 @@
+{
+  "attn_kv.weight": {
+    "count": 43,
+    "bytes": 95813632,
+    "types": [
+      "Q8_0"
+    ],
+    "shapes": [
+      [
+        4096,
+        512
+      ]
+    ]
+  },
+  "attn_kv_a_norm.weight": {
+    "count": 43,
+    "bytes": 88064,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        512
+      ]
+    ]
+  },
+  "attn_norm.weight": {
+    "count": 43,
+    "bytes": 704512,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        4096
+      ]
+    ]
+  },
+  "attn_output_a.weight": {
+    "count": 43,
+    "bytes": 1533018112,
+    "types": [
+      "Q8_0"
+    ],
+    "shapes": [
+      [
+        4096,
+        8192
+      ]
+    ]
+  },
+  "attn_output_b.weight": {
+    "count": 43,
+    "bytes": 1533018112,
+    "types": [
+      "Q8_0"
+    ],
+    "shapes": [
+      [
+        8192,
+        4096
+      ]
+    ]
+  },
+  "attn_q_a.weight": {
+    "count": 43,
+    "bytes": 191627264,
+    "types": [
+      "Q8_0"
+    ],
+    "shapes": [
+      [
+        4096,
+        1024
+      ]
+    ]
+  },
+  "attn_q_a_norm.weight": {
+    "count": 43,
+    "bytes": 176128,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        1024
+      ]
+    ]
+  },
+  "attn_q_b.weight": {
+    "count": 43,
+    "bytes": 1533018112,
+    "types": [
+      "Q8_0"
+    ],
+    "shapes": [
+      [
+        1024,
+        32768
+      ]
+    ]
+  },
+  "attn_sinks.weight": {
+    "count": 43,
+    "bytes": 11008,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        64
+      ]
+    ]
+  },
+  "ffn_down_shexp.weight": {
+    "count": 43,
+    "bytes": 383254528,
+    "types": [
+      "Q8_0"
+    ],
+    "shapes": [
+      [
+        2048,
+        4096
+      ]
+    ]
+  },
+  "ffn_gate_inp.weight": {
+    "count": 43,
+    "bytes": 90177536,
+    "types": [
+      "BF16"
+    ],
+    "shapes": [
+      [
+        4096,
+        256
+      ]
+    ]
+  },
+  "ffn_gate_shexp.weight": {
+    "count": 43,
+    "bytes": 383254528,
+    "types": [
+      "Q8_0"
+    ],
+    "shapes": [
+      [
+        4096,
+        2048
+      ]
+    ]
+  },
+  "ffn_gate_tid2eid.weight": {
+    "count": 3,
+    "bytes": 0,
+    "types": [
+      "I32"
+    ],
+    "shapes": [
+      [
+        6,
+        129280
+      ]
+    ]
+  },
+  "ffn_norm.weight": {
+    "count": 43,
+    "bytes": 704512,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        4096
+      ]
+    ]
+  },
+  "ffn_up_shexp.weight": {
+    "count": 43,
+    "bytes": 383254528,
+    "types": [
+      "Q8_0"
+    ],
+    "shapes": [
+      [
+        4096,
+        2048
+      ]
+    ]
+  },
+  "hc_attn_base.weight": {
+    "count": 43,
+    "bytes": 4128,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        24
+      ]
+    ]
+  },
+  "hc_attn_fn.weight": {
+    "count": 43,
+    "bytes": 67633152,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        16384,
+        24
+      ]
+    ]
+  },
+  "hc_attn_scale.weight": {
+    "count": 43,
+    "bytes": 516,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        3
+      ]
+    ]
+  },
+  "hc_ffn_base.weight": {
+    "count": 43,
+    "bytes": 4128,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        24
+      ]
+    ]
+  },
+  "hc_ffn_fn.weight": {
+    "count": 43,
+    "bytes": 67633152,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        16384,
+        24
+      ]
+    ]
+  },
+  "hc_ffn_scale.weight": {
+    "count": 43,
+    "bytes": 516,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        3
+      ]
+    ]
+  },
+  "attn_compressor_ape.weight": {
+    "count": 41,
+    "bytes": 5586944,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        512,
+        128
+      ],
+      [
+        1024,
+        4
+      ]
+    ]
+  },
+  "attn_compressor_gate.weight": {
+    "count": 41,
+    "bytes": 260046848,
+    "types": [
+      "BF16"
+    ],
+    "shapes": [
+      [
+        4096,
+        512
+      ],
+      [
+        4096,
+        1024
+      ]
+    ]
+  },
+  "attn_compressor_kv.weight": {
+    "count": 41,
+    "bytes": 260046848,
+    "types": [
+      "BF16"
+    ],
+    "shapes": [
+      [
+        4096,
+        512
+      ],
+      [
+        4096,
+        1024
+      ]
+    ]
+  },
+  "attn_compressor_norm.weight": {
+    "count": 41,
+    "bytes": 83968,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        512
+      ]
+    ]
+  },
+  "indexer.attn_q_b.weight": {
+    "count": 21,
+    "bytes": 187170816,
+    "types": [
+      "Q8_0"
+    ],
+    "shapes": [
+      [
+        1024,
+        8192
+      ]
+    ]
+  },
+  "indexer.proj.weight": {
+    "count": 21,
+    "bytes": 11010048,
+    "types": [
+      "BF16"
+    ],
+    "shapes": [
+      [
+        4096,
+        64
+      ]
+    ]
+  },
+  "indexer_compressor_ape.weight": {
+    "count": 21,
+    "bytes": 86016,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        256,
+        4
+      ]
+    ]
+  },
+  "indexer_compressor_gate.weight": {
+    "count": 21,
+    "bytes": 44040192,
+    "types": [
+      "BF16"
+    ],
+    "shapes": [
+      [
+        4096,
+        256
+      ]
+    ]
+  },
+  "indexer_compressor_kv.weight": {
+    "count": 21,
+    "bytes": 44040192,
+    "types": [
+      "BF16"
+    ],
+    "shapes": [
+      [
+        4096,
+        256
+      ]
+    ]
+  },
+  "indexer_compressor_norm.weight": {
+    "count": 21,
+    "bytes": 10752,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        128
+      ]
+    ]
+  },
+  "exp_probs_b.bias": {
+    "count": 40,
+    "bytes": 40960,
+    "types": [
+      "F32"
+    ],
+    "shapes": [
+      [
+        256
+      ]
+    ]
+  }
+}

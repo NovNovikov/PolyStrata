@@ -7,6 +7,9 @@
 #include "strata/kernels/native_mmvq.hpp"
 
 #include "ggml.h"
+#ifdef STRATA_GPU_PHASE_PROBE
+#include "gpu_phase_probe.hpp"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -419,6 +422,10 @@ void DeepSeek4::attention(Block& B, int64_t pos, int n) {
         if (head < n) store_f16(kv_ + (size_t) head * dim, B.raw, dim, 0, n - head, st_);
     }
 
+#ifdef STRATA_GPU_PHASE_PROBE
+    const int probe_layer = gpu_probe::state().active_layer;
+    gpu_probe::mark(n, probe_layer, 2, st_);
+#endif
     // The compressed rows the tokens finish are there before they attend: a token reads its own block's.
     if (B.ratio) squeeze(B, B.comp, pos, n);
     const float scale = 1.f / std::sqrt((float) dim);
@@ -440,14 +447,26 @@ void DeepSeek4::attention(Block& B, int64_t pos, int n) {
             dsv4_select(score_, score_stride_, sel_ + (size_t) t * idx_top_k_, idx_top_k_, idx_top_k_, 4, pos + t, c,
                         st_, at_t);
         }
+#ifdef STRATA_GPU_PHASE_PROBE
+        gpu_probe::mark(n, probe_layer, 3, st_);
+#endif
         dsv4_attend(q_, B.raw, raw_ring_, window_, B.rows, 4, sel_, idx_top_k_, idx_top_k_, fp(B.sinks), att_, dim,
                     n_head_, scale, pos, n, st_, at, sized);
     } else {
+#ifdef STRATA_GPU_PHASE_PROBE
+        gpu_probe::mark(n, probe_layer, 3, st_);
+#endif
         dsv4_attend(q_, B.raw, raw_ring_, window_, B.ratio ? B.rows : nullptr, std::max(B.ratio, 1), nullptr, 0, 0,
                     fp(B.sinks), att_, dim, n_head_, scale, pos, n, st_, at, sized);
     }
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(n, probe_layer, 4, st_);
+#endif
     dsv4_rope(att_, att_, dim, n_head_, off, n_rot_, B.rope, pos, 1, n, false, 0.f, true, st_, at);
     out_proj(B, n);
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(n, probe_layer, 5, st_);
+#endif
 }
 
 // What ggml's MoE graph does for this model: sqrt(softplus) of the router's scores; the n_used largest of those
@@ -503,11 +522,18 @@ void DeepSeek4::moe_shared(const Layer& L, int il, int n) {
 // A layer from its input to its router's copy.  A prompt batch's MoE (moe_rows) does its own routing.
 void DeepSeek4::layer_head(Layer& L, int il, int n) {
     Block& B = blocks_[(size_t) il];
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::state().active_layer = il;
+    gpu_probe::mark(n, il, 0, st_);
+#endif
     hc_pre(r_, fp(B.hc_attn_fn), fp(B.hc_attn_scale), fp(B.hc_attn_base), mix_, hcw_, cur_, n_embd_, n, rms_eps_,
            hc_eps_, sinkhorn_, st_);
     rms_norm(cur_, fp(L.attn_norm), xn_, n_embd_, n, rms_eps_, st_);
     kernels::native_quantize_q8_1(xn_, xq_, n_embd_ * n, 1, st_);
     dbg("attn_in", il, xn_, n_embd_);
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(n, il, 1, st_);
+#endif
     attention(B, pos_, n);
     dbg("attn", il, ao_, n_embd_);
     hc_post(ao_, hcw_, r_, n_embd_, n, st_);
@@ -518,6 +544,9 @@ void DeepSeek4::layer_head(Layer& L, int il, int n) {
     kernels::native_quantize_q8_1(xn_, xq_, n_embd_ * n, 1, st_);
     dbg("ffn_in", il, xn_, n_embd_);
     if (!batched(L, n)) moe_router(L, n);
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(n, il, 6, st_);
+#endif
 }
 
 // The positions before the next one whose compressor rows a block still needs: its own, and with the overlap the

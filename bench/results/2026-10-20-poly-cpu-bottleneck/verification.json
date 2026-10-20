@@ -1,0 +1,8 @@
+{
+  "production_help_exit": 2,
+  "production_exe_sha256": "b1affab0ccf90a38087cda62752590caa9e14f091bfa35b8498df7ecd21619bc",
+  "cpu_isa_outputs_byte_identical": true,
+  "phase_probe_profiler_api_disabled_by_default": true,
+  "all_255_stage_payloads_verified": true,
+  "arithmetic_and_cache_policy_changed": false
+}

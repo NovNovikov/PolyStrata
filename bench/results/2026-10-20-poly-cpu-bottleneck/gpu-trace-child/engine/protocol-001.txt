@@ -1,0 +1,1 @@
+ERR no-disk: free VRAM below requested reserve after load: free=262991872 bytes, reserve=268435456 bytes, load_margin=268435456 bytes

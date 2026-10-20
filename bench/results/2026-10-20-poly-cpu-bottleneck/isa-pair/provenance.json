@@ -1,0 +1,29 @@
+{
+  "stock": {
+    "command": [
+      "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\poly_cpu_decode_bench.exe",
+      "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+      "12",
+      "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-20-poly-cpu-bottleneck\\isa-pair\\stock.bin"
+    ],
+    "exit": 0,
+    "elapsed": 28.81732989999,
+    "binary_sha256": "bf06c2990ec97192ed1b92c62606712b593f2f9493929453f0138f403de40f17"
+  },
+  "vnni": {
+    "command": [
+      "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\poly_cpu_decode_vnni_bench.exe",
+      "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+      "12",
+      "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-20-poly-cpu-bottleneck\\isa-pair\\vnni.bin"
+    ],
+    "exit": 0,
+    "elapsed": 24.173388299997896,
+    "binary_sha256": "42bc14d19aa7e3de87aa01d4a1749979ec4cd8e32bbf9de8d838459ac8319c3b"
+  },
+  "byte_identical_input_and_all_outputs": true,
+  "reference_hashes": {
+    "stock": "13521561387a161e2a193b32b4ed18935d158702d281d72e9d4123dcba285aa6",
+    "vnni": "13521561387a161e2a193b32b4ed18935d158702d281d72e9d4123dcba285aa6"
+  }
+}

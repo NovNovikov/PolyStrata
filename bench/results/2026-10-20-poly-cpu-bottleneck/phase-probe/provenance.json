@@ -1,0 +1,13 @@
+{
+  "binary_sha256": "4e8f31760c8047251def871005cf08835cdf68cdaaa55e945652d3858eb08295",
+  "public_source_sha256": {
+    "docs/DETAILS.md": "18fc87191cef7d3c376bc8411ac079e4b7ff971fee4b81aeb3304c8f3e30ecaa",
+    "src/poly/engine.hpp": "45a7c60236e4865b7df10d96c95162f64098f128fec6b31c9dd8aa934d5404ee",
+    "src/poly/cpu_experts.cpp": "66b2ce9fc8b03123ca3b7715e3252808627148bc9cdea2d1e984cfb464274153",
+    "serve/frontend.py": "9548b0e17318a43bb6119f56f7fb4d5ddb1e6ea4e570945dec64ae8a72cb773b"
+  },
+  "profiler": "None",
+  "phase_probe": "build-poly-cuda12\\poly_gpu_phase_probe.exe",
+  "private_data_read": false,
+  "note": "Run this Python driver under nsys; it owns the engine protocol pipes."
+}

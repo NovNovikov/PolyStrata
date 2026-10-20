@@ -1,0 +1,20 @@
+-- Strata: CUDA enabled, arch 89
+-- strata: pack/full/experts.bin absent - the expert arena load test is NOT registered
+-- CMAKE_SYSTEM_PROCESSOR: AMD64
+-- CMAKE_GENERATOR_PLATFORM: 
+-- GGML_SYSTEM_ARCH: x86
+-- Including CPU backend
+-- x86 detected
+-- Adding CPU backend variant ggml-cpu: /arch:AVX2 GGML_AVX2;GGML_FMA;GGML_F16C
+-- ggml version: 0.24.0
+-- ggml commit:  d869941e
+-- Configuring done (3.1s)
+-- Generating done (0.2s)
+-- Build files have been written to: L:/AI_pictures_generate/PolyStrata/build-poly-cuda12
+[1/3] Building CUDA object CMakeFiles\poly_dsv4_decode_bench.dir\src\poly\dsv4_decode_bench.cu.obj
+dsv4_decode_bench.cu
+tmpxft_0000685c_00000000-10_dsv4_decode_bench.cudafe1.cpp
+[2/3] Building CUDA object CMakeFiles\poly_dsv4_decode_bench.dir\src\poly\kernels_dsv4.cu.obj
+kernels_dsv4.cu
+tmpxft_000030a4_00000000-10_kernels_dsv4.cudafe1.cpp
+[3/3] Linking CUDA executable poly_dsv4_decode_bench.exe
