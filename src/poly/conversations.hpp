@@ -38,6 +38,8 @@ struct CacheOptions {
     int64_t park_mib = 0;      ///< host memory for parked conversations; 0: none is parked unless a session dir is
     int park_slots = 4;        ///< parked conversations at most
     int64_t park_min = 1024;   ///< a conversation with fewer tokens before its last checkpoint is not parked
+    bool keep_branches = true; ///< a conversation the client changed keeps its old version as a branch of its
+    ///< own; off: the old version is replaced, and the client's own branching does the work
     std::function<bool(size_t)> admit;   ///< whether the host can spare this many bytes; unset: it can
     FILE* log = nullptr;       ///< where parking is reported; the server reads these lines
     std::filesystem::path session_dir;   ///< parked conversations go to files here and free their host memory; the
@@ -100,7 +102,7 @@ public:
                     kept_state.assign(state, state + e_.state_bytes());
                 // The conversation is left at `at`.  If the prompt the client sent for it went on from there, the
                 // client may send that again, so the conversation is parked and this one goes on in a copy.
-                if (same >= cur().prompt || !branch(at)) cut(cur(), at);
+                if (!o_.keep_branches || same >= cur().prompt || !branch(at)) cut(cur(), at);
                 e_.load_state(kept_state.empty() ? state_at(cur(), at) : kept_state.data(), at);
             }
         }

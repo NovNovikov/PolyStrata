@@ -1325,6 +1325,8 @@ void usage() {
                  "  --conversation-cache-min-tokens N   a conversation shorter than this is not parked (default 1024)\n"
                  "  --conversation-cache-min-free-mib N park only while this much physical RAM stays free (default\n"
                  "                         2560)\n"
+                 "  --conversation-cache-no-branch     a conversation the client changed replaces the old version\n"
+                 "                         instead of keeping it as a branch (the client's own branching does that)\n"
                  "  --session-min-free-mib N     a session save asks this much disk room besides the file\n"
                  "                         (default 4096, 0 = nothing)\n"
                  "  --batch N              N answers written together, each in a sequence of its own with its own\n"
@@ -1464,6 +1466,7 @@ int main(int argc, char** argv) {
         else if (a == "--conversation-cache-slots") cache.o.park_slots = std::atoi(val());
         else if (a == "--conversation-cache-min-tokens") cache.o.park_min = std::atoll(val());
         else if (a == "--conversation-cache-min-free-mib") cache.min_free_mib = std::atoll(val());
+        else if (a == "--conversation-cache-no-branch") cache.o.keep_branches = false;
         else if (a == "--session-dir") cache.o.session_dir = val();
         else if (a == "--session-max-mib") cache.o.session_max_mib = std::atoll(val());
         else if (a == "--session-min-free-mib") cache.min_save_free_mib = std::atoll(val());
