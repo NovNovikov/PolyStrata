@@ -1,0 +1,7 @@
+{
+  "timestamp": "2026-10-20T02:29:27.2441827+02:00",
+  "reason": "Requested cleanup after ordinary candidate completed",
+  "path": "L:\\Temp\\opencode\\stage-split-plus512-default-20261020\\sessions\\6ab0072fa22ba3e4-9999.bin",
+  "bytes": 561322500,
+  "result": "All 14 generated responses preserved under bench/results; automatic parking was observed before cleanup"
+}

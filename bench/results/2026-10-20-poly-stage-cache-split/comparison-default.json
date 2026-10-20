@@ -1,0 +1,72 @@
+{
+  "all_generated_ids_equal": true,
+  "compared_responses": 14,
+  "arms": {
+    "control-default": {
+      "warm_median_tps": 36.34902808478242,
+      "warm_median_hit_percent": 54.297403716008375,
+      "first512_tps": 27.262784431936403,
+      "edited512_tps": 35.164744419059154,
+      "checks": {
+        "engine": {
+          "minimum_cuda_free_mib": 251.9921875,
+          "reserve_mib": 256,
+          "reserve_satisfied": false,
+          "cache_capacity": 255,
+          "cache_used": 255,
+          "verified_payloads": 255,
+          "last_ten_graph_counts": [
+            661,
+            661,
+            661,
+            661,
+            661,
+            661,
+            661,
+            661,
+            661,
+            661
+          ],
+          "last_ten_local_spread_mib": 0.0234375,
+          "plateau": true
+        }
+      },
+      "binary_sha256": "9b0089e349bf0bdcb9c846991f19a4d5755a607bd4c6a1e28242daaebd3a487a",
+      "config_sha256": "0dfde862ee7d6e77c4d29bc9dd88d6348c9ce046fec59f44cac3faebcf47eef1",
+      "source_profile_sha256": "b06d1fcd08c83787b79f3528d2da54577e3d557151b6aa1608865199070ec6ed"
+    },
+    "plus512-default": {
+      "warm_median_tps": 37.42118821893662,
+      "warm_median_hit_percent": 55.300233788605894,
+      "first512_tps": 28.077694442155003,
+      "edited512_tps": 34.24657534246575,
+      "checks": {
+        "engine": {
+          "minimum_cuda_free_mib": 224.60546875,
+          "reserve_mib": 256,
+          "reserve_satisfied": false,
+          "cache_capacity": 301,
+          "cache_used": 301,
+          "verified_payloads": 301,
+          "last_ten_graph_counts": [
+            661,
+            661,
+            661,
+            661,
+            661,
+            661,
+            661,
+            661,
+            661,
+            661
+          ],
+          "last_ten_local_spread_mib": 0.0,
+          "plateau": true
+        }
+      },
+      "binary_sha256": "9b0089e349bf0bdcb9c846991f19a4d5755a607bd4c6a1e28242daaebd3a487a",
+      "config_sha256": "0dfde862ee7d6e77c4d29bc9dd88d6348c9ce046fec59f44cac3faebcf47eef1",
+      "source_profile_sha256": "b06d1fcd08c83787b79f3528d2da54577e3d557151b6aa1608865199070ec6ed"
+    }
+  }
+}
