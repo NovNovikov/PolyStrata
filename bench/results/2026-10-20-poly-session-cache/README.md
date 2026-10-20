@@ -233,12 +233,29 @@ the same (`CHECKPOINT_CACHE_INTEGRATION_PASSED`).
   restore that walks the chain; also not done here.
 - **The park and resume path still holds the rows in the host RAM.** The `parked`/`restored` lines in the
   log are the conversation cache's own path: a parked conversation's file is read back into blobs by
-  `materialize()`, and the blobs are the rows of the whole conversation (4.4 GB at the 89999-token
-  scale). The `RESTORE` command above does not do that any more, but `materialize()` does, and it is the
-  path a client's next prompt takes. This is the last big thing, and it is what `NEXT-STEPS.md` says
-  how to do.
+  `materialize()`, and the blobs were the rows of the whole conversation (4.4 GB at the 89999-token
+  scale). That is done now: the checkpoints' states come into the host and the rows are read from the
+  file one record at a time, so the cache holds 17.5 MB instead of 4.4 GB.
 - **A 4.38 GB branch is still a 4.38 GB file of rows.** Packing makes it 622 MiB, but the rows
-  themselves are what they are: the engine's compressed attention cache for 90601 positions.
+  themselves are what they are: the engine's compressed attention cache for 90601 positions. A delta
+  file is what would make the write small.
+
+## The packer counted the zeros byte by byte
+
+The packer found each run of zeros with a byte-at-a-time loop, and a payload of a real conversation is
+mostly zeros (85.5 %): that was a cycle per byte over 4.3 GiB at the 89999-token scale. The run is now
+counted eight bytes at a time.
+
+| | before | after |
+|---|---:|---:|
+| packing 603 MB (the probe, on the real file) | 258.1 ms | **199.0-222.1 ms** |
+| the park, 89999 tokens | 2 592.0 / 2 211.5 ms | **1 948.8 / 1 651.2 ms** |
+
+The packed bytes are the same (the probe compares them bit for bit).
+
+What is left in the park: the rows come off the VRAM (4.3 GiB) and the packed file (622 MiB) goes to the
+disk. The next lever is not to write the whole conversation again: a delta file holds only the rows added
+since the parent, the way the Manual LLAMA_CPP fork's does (`parent_id`, `range_lo`, `range_hi`).
 
 ## Files
 
