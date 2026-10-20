@@ -316,28 +316,26 @@ public:
         file_bytes = (size_t) size;
         const std::string why = std::to_string(size >> 20) + " MiB plus a floor of " +
                                 std::to_string(floor_mib) + " MiB needed";
-        if (o_.admit && !o_.admit((size_t) size)) {
-            err = "not enough RAM to read it (" + why + ")";
-            return SLoad::no_ram;
-        }
-        std::optional<SessionView> v = SessionFile::read(path);
-        if (!v || v->seq.empty()) {
+        const std::optional<SessionFile::Head> head = SessionFile::read_head(path);
+        if (!head || head->seq.empty()) {
             err = "unreadable: not the format this engine writes";
             return SLoad::unreadable;
         }
-        if (v->sb != e_.state_bytes() || v->rb != e_.row_bytes()) {   // not this engine's any more
+        if (head->sb != e_.state_bytes() || head->rb != e_.row_bytes()) {   // not this engine's any more
             err = "the model or its shapes have changed since the file was written";
             return SLoad::unreadable;
         }
-        if (o_.admit && !o_.admit((size_t) size)) {   // the blobs copy the payloads too
+        // The host holds the payloads unpacked, which a packed file is smaller than: the ask is the unpacked
+        // size, and the sessions' copies go up to make room for it.
+        if (o_.admit && !o_.admit((size_t) head->payload)) {
             size_t was = 0;   // the sessions' copies go up; the file replaces the sessions wholesale, as Qwen does
             for (const Slot& z : slots_) was += droppings(z);
             for (Slot& z : slots_) z = Slot{};
             err = "not enough RAM to read it (" + why + ", " + std::to_string(was >> 20) +
                   " MiB of the sessions' copies was given up for it)";
-            if (o_.admit && !o_.admit((size_t) size)) return SLoad::no_ram;
+            if (o_.admit && !o_.admit((size_t) head->payload)) return SLoad::no_ram;
         }
-        return mount(std::move(*v), err, tokens, (size_t) size, touched);
+        return mount(path, err, tokens, (size_t) size, touched);
     }
 
     /// The bytes the engine holds that the SAVE of the whole session takes: the seq, the rows it did not save
@@ -354,40 +352,30 @@ public:
     size_t evictions() const { return evictions_; }
 
 private:
-    // sideload's placement: the conversation's blobs from the view (all the RAM questions answered before),
+    // sideload's placement: the conversation's blobs from the file (all the RAM questions answered before),
     // the engine's writes last.  `tokens` is what the engine holds, the file's conversation when its rows reach
     // its end and the deepest checkpoint row-covered when they do not (its tail is the next prompts' to redo).
-    SLoad mount(SessionView v, std::string& err, int64_t& tokens, size_t file_bytes, bool& touched) {
-        if (o_.admit && !o_.admit(2 * file_bytes)) {   // the file's payloads are here and their blobs at once
-            err = "not enough RAM to read it: the file's payloads would not stay in RAM";
-            return SLoad::no_ram;
-        }
+    SLoad mount(const std::filesystem::path& path, std::string& err, int64_t& tokens, size_t file_bytes,
+                bool& touched) {
+        std::vector<int32_t> seq;
+        int64_t prompt = 0;
+        uint64_t sb = 0, rb = 0;
         std::vector<Checkpoint> marks;
         std::vector<Rows> rows;
-        try {
-            marks.reserve(v.marks.size());
-            for (const SessionView::Mark& m : v.marks) {
-                const BlobPtr b = blob(m.state.size());
-                if (!b) throw std::bad_alloc();
-                std::memcpy(b->p.get(), m.state.data(), m.state.size());
-                marks.push_back({m.pos, b});
+        bool no_ram = false;
+        if (!load_blobs(path, seq, prompt, sb, rb, marks, rows, no_ram)) {
+            if (no_ram) {
+                err = "not enough RAM to read it: the file's payloads would not stay in RAM";
+                return SLoad::no_ram;
             }
-            rows.reserve(v.rows.size());
-            for (const SessionView::Rows& r : v.rows) {
-                const BlobPtr b = blob(r.data.size());
-                if (!b) throw std::bad_alloc();
-                std::memcpy(b->p.get(), r.data.data(), r.data.size());
-                rows.push_back({b, r.first, r.count, r.keep});
-            }
-        } catch (const std::bad_alloc&) {
-            err = "not enough RAM to read it: the file's payloads would not stay in RAM";
-            return SLoad::no_ram;
+            err = "unreadable: not the format this engine writes";
+            return SLoad::unreadable;
         }
         int64_t rows_last = 0;
         for (const Rows& r : rows) rows_last = std::max(rows_last, r.first + r.keep);
         Slot s;
-        s.seq = std::move(v.seq);
-        s.prompt = v.prompt;
+        s.seq = std::move(seq);
+        s.prompt = prompt;
         s.stamp = ++clock_;
         s.marks = std::move(marks);
         s.rows = std::move(rows);
@@ -437,6 +425,31 @@ private:
         BlobPtr blob;
         int64_t first, count, keep;
     };
+
+    // The file's payloads, read straight into blobs: the file's bytes are never in RAM twice.  False: the
+    // file is not readable (the caller says so) or there is no memory for a payload (`no_ram` says which).
+    bool load_blobs(const std::filesystem::path& path, std::vector<int32_t>& seq, int64_t& prompt,
+                    uint64_t& sb, uint64_t& rb, std::vector<Checkpoint>& marks, std::vector<Rows>& rows,
+                    bool& no_ram) {
+        no_ram = false;
+        SessionFile::Head head;
+        const auto take = [&](const SessionFile::Record& r) -> uint8_t* {
+            const BlobPtr b = blob((size_t) r.raw);
+            if (!b) {
+                no_ram = true;
+                return nullptr;
+            }
+            if (r.kind == SessionFile::Record::kMark) marks.push_back({r.pos, b});
+            else rows.push_back({b, r.first, r.count, r.keep});
+            return b->p.get();
+        };
+        if (!SessionFile::read_into(path, head, take)) return false;
+        seq = std::move(head.seq);
+        prompt = head.prompt;
+        sb = head.sb;
+        rb = head.rb;
+        return true;
+    }
     struct Slot {
         std::vector<int32_t> seq;
         int64_t prompt = 0;             // seq's first tokens that the client sent
@@ -775,30 +788,16 @@ private:
     // filled before anything of it is placed: a half materialize leaves the caller the file, not half a slot.
     bool materialize(size_t i) {
         Slot& s = slots_[i];
-        const std::optional<SessionView> v = SessionFile::read(o_.session_dir / s.disk);
-        if (!v || v->seq.empty() || v->sb != e_.state_bytes() || v->rb != e_.row_bytes()) {
-            std::error_code ec;
-            std::filesystem::remove(o_.session_dir / s.disk, ec);
-            return false;
-        }
+        std::vector<int32_t> seq;
+        int64_t prompt = 0;
+        uint64_t sb = 0, rb = 0;
         std::vector<Checkpoint> marks;
         std::vector<Rows> rows;
-        try {
-            marks.reserve(v->marks.size());
-            for (const SessionView::Mark& m : v->marks) {
-                const BlobPtr b = blob(m.state.size());
-                if (!b) throw std::bad_alloc();   // no memory for it: the conversation stays on the disk for later
-                std::memcpy(b->p.get(), m.state.data(), m.state.size());
-                marks.push_back({m.pos, b});
-            }
-            rows.reserve(v->rows.size());
-            for (const SessionView::Rows& r : v->rows) {
-                const BlobPtr b = blob(r.data.size());
-                if (!b) throw std::bad_alloc();
-                std::memcpy(b->p.get(), r.data.data(), r.data.size());
-                rows.push_back({b, r.first, r.count, r.keep});
-            }
-        } catch (...) {   // no memory (the new blob or the vector): nothing of the slot was replaced
+        bool no_ram = false;
+        if (!load_blobs(o_.session_dir / s.disk, seq, prompt, sb, rb, marks, rows, no_ram) || seq.empty() ||
+            sb != e_.state_bytes() || rb != e_.row_bytes()) {
+            std::error_code ec;
+            std::filesystem::remove(o_.session_dir / s.disk, ec);
             return false;
         }
         s.marks = std::move(marks);

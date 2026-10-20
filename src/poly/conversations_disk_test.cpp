@@ -54,7 +54,13 @@ struct Fake {
         }
     }
     size_t state_bytes() const { return state; }
-    void save_state(uint8_t* dst) const { std::memcpy(dst, &h, 8); }
+    // The state is filled, as a real engine's is: bytes that are not the hash are the state's own, and they
+    // are what the file carries.  Left as they were, the file would hold zeros and the disk cap would not
+    // see the states at all.
+    void save_state(uint8_t* dst) const {
+        std::memcpy(dst, &h, 8);
+        for (size_t i = 8; i < state; ++i) dst[i] = (uint8_t) (h >> ((i % 7) * 8) ^ (i * 31));
+    }
     void load_state(const uint8_t* src, int64_t pos) { std::memcpy(&h, src, 8), at = pos; }
     size_t row_bytes() const { return 16; }
     void save_rows(int64_t first, int64_t n, uint8_t* dst) const {
@@ -392,18 +398,17 @@ int main() {
         check(more_from == (int64_t) ids.size(), "the restored conversation is where it left off");
         go_on(e5, second, more, more_from);
         check(e5.holds(more), "the conversation read on from the restore is bit for bit the reread's result");
-        // the file's payloads are in the view and in their blobs at once while the restore mounts: a host that
-        // cannot take both gets the refusal before the engine is touched
+        // The host holds the payloads unpacked, and the file's own bytes are never in memory twice: a host
+        // that cannot take the payloads gets the refusal before the engine is touched
         {
             Fake e6;
             CacheOptions o2 = options(dir);
-            const size_t whole = (size_t) std::filesystem::file_size(store / name);
-            o2.admit = [whole](size_t asked) { return asked < 2 * whole; };   // one file, not two
+            o2.admit = [](size_t) { return false; };   // no memory for the payloads at all
             Conversations<Fake> scarce(e6, o2);
             std::string err2;
             bool freeze = false;
             const auto short_of = scarce.sideload(store / name, 2560, err2, tokens, rbytes, freeze);
-            check(short_of == Conversations<Fake>::SLoad::no_ram, "a host two files short is refused before the engine");
+            check(short_of == Conversations<Fake>::SLoad::no_ram, "a host short of the payloads is refused before the engine");
             check(!freeze, "a refusal of the mount touches no engine state");
         }
         // A memory that breaks at the third blob of a restore, two states building fine then stopping: the

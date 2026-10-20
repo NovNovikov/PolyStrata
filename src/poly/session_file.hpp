@@ -5,6 +5,13 @@
 // The layout is engine-agnostic: the payloads are the engine's own save_state()/save_rows() bytes, opaque here.
 // A file holds the WHOLE checkpoint chain (the Qwen round's lesson: the deepest checkpoint alone cannot mount a
 // prompt that forks before it).
+//
+// Version 3 packs the payloads: the engine's rows hold a block's compressed row once per block, so most of a
+// payload is empty positions (85 % of the bytes of a real DeepSeek4 file).  A run of zeros is written as a
+// count, so a version 3 file is about a third of the size.  A version 2 file is still read.
+//
+// A version 3 record's header is its version 2 header (the same fields, the same sizes) plus the payload's
+// packed size, so the reader knows the record's exact span in the file and can refuse a truncated one.
 #pragma once
 
 #include <cerrno>
@@ -46,7 +53,8 @@ public:
     static constexpr uint32_t kMagic = 0x53505353u;   // "SSPS" little-endian
     // Version 1 could concatenate independently captured layer-major chunks into a single rows record.
     // Its metadata cannot distinguish those corrupt parks from valid snapshots; reread rather than reuse them.
-    static constexpr uint32_t kVersion = 2;
+    static constexpr uint32_t kVersion = 2;           // the payloads as the engine wrote them
+    static constexpr uint32_t kVersionPacked = 3;     // the payloads packed: a run of zeros is a count
 
     // A parked conversation's name: stable for the same token stream, so a repark overwrites its own file.
     static std::string name_for(const std::vector<int32_t>& seq) {
@@ -96,6 +104,64 @@ public:
         SessionPart part;
     };
 
+    // The header without the payloads: enough for resume()'s scan (the tokens and where the checkpoints sit).
+    struct Head {
+        std::vector<int32_t> seq;
+        int64_t prompt = 0;
+        uint64_t sb = 0, rb = 0;
+        std::vector<int64_t> mark_pos;
+        int64_t rows_last = 0;   // the last row the conversation keeps, 0 when none
+        uint64_t payload = 0;    // the payloads' size unpacked: what a restore holds in memory
+        size_t bytes = 0;        // the payloads plus the header, as the file is sized
+    };
+
+    // The header's counts, once they are held against the file's size: junk counts are refused before any
+    // memory is asked for.
+    struct Head0 {
+        int64_t prompt = 0;
+        uint64_t sb = 0, rb = 0;
+        uint64_t n_seq = 0, n_marks = 0, n_rows = 0;
+        uint32_t version = 0;
+    };
+
+    // One record of a file: a checkpoint's state, or a block of rows.
+    struct Record {
+        enum Kind { kMark, kRows } kind = kMark;
+        size_t index = 0;                                // the mark's or rows record's place in the file
+        int64_t pos = 0;                                 // a mark's position
+        int64_t first = 0, count = 0, keep = 0;          // a rows span's places
+        uint64_t raw = 0;                                // the payload's size, unpacked
+    };
+
+    // A record's header as it is in the file: what it says, and what it takes of the file.
+    struct Raw {
+        uint64_t pos = 0, first = 0, count = 0, keep = 0;
+        uint64_t bytes = 0;    // the payload's size, unpacked
+        uint64_t packed = 0;   // the payload's size in the file
+        uint64_t header = 0;   // the header's own size
+        uint64_t span = 0;     // the header and the payload together: what the record takes of the file
+    };
+
+    // A record's header, read: what the record says and what it takes of the file.  A version 3 record's
+    // payload is packed, so it takes less of the file than it says.
+    static bool read_raw(FILE* f, uint32_t version, bool rows, Raw& r) {
+        if (rows) {
+            if (!get(f, r.first) || !get(f, r.count) || !get(f, r.keep) || !get(f, r.bytes)) return false;
+            r.header = 32;
+        } else {
+            if (!get(f, r.pos) || !get(f, r.bytes)) return false;
+            r.header = 16;
+        }
+        if (version == kVersionPacked) {
+            if (!get(f, r.packed)) return false;
+            r.header += 8;
+        } else {
+            r.packed = r.bytes;
+        }
+        r.span = r.header + r.packed;
+        return true;
+    }
+
     // Streams the file with the payloads arriving as parts (no full host copy): `seq` is referenced, not
     // copied (it must outlive the write); each mark's part is one record's state and each rows record's part
     // is its block, in the file's order.  Same refusal contract as write():
@@ -124,18 +190,19 @@ public:
             if (d < 0) return errno == EINVAL || errno == ENOTSUP || errno == EACCES || errno == EROFS ? 1 : -1;
             const int rc = ::fsync(d);
             ::close(d);
-            return rc == 0 ? 0 : (errno == EINVAL || errno == ENOTSUP || errno == EROFS ? 1 : -1);
+            return rc == 0 ? 0 : (errno == EINVAL || errno == ENOTSUP || errno == EACCES || errno == EROFS ? 1 : -1);
 #endif
         };
         uint64_t total = (uint64_t) seq.size() * 4;
         uint64_t payload = total;
         size_t align = 1;
         for (const auto& [pos, part] : marks) {
+            (void) pos;
             total += 16 + part.bytes;
             payload += part.bytes;
             if (part.align > 1) align = (size_t) part.align;
         }
-        for (const StreamRows& r : rows) {
+        for (const auto& r : rows) {
             total += 32 + r.part.bytes;
             payload += r.part.bytes;
             if (r.part.align > 1) align = (size_t) r.part.align;
@@ -153,25 +220,28 @@ public:
         const auto lacked = [](int e) {
             return false
 #ifdef ENOSPC
-                || e == ENOSPC
+            || e == ENOSPC
 #endif
 #ifdef EFBIG
-                || e == EFBIG
+            || e == EFBIG
 #endif
 #ifdef EDQUOT
-                || e == EDQUOT
+            || e == EDQUOT
 #endif
-                ;
+            ;
         };
         const char* fail = nullptr;
         bool no_room = false;
+        // The payload goes out packed: a run of zeros as a count, the rest as literal bytes.  The packer writes
+        // what it has as it goes, so a payload never sits in memory whole.
+        Packer packer(f);
         const auto stream = [&](const SessionPart& p) {
             uint64_t off = 0;
             while (off < p.bytes) {
                 uint64_t n = p.bytes - off;
                 if (n > buf.size()) n = buf.size();
                 if (p.align > 1) n -= n % p.align;
-                if (n == 0) {   // the part's bytes do not hold on its own alignment
+                if (n == 0) {   // the part's bytes do not hold on their own alignment
                     fail = "the part's size and alignment disagree";
                     return false;
                 }
@@ -179,32 +249,48 @@ public:
                     fail = "the engine would not hand over its payload";
                     return false;
                 }
-                const size_t put = std::fwrite(buf.data(), 1, (size_t) n, f);
-                done += put;
+                packer.put(buf.data(), (size_t) n);
+                done += n;
                 mark();
-                if (put != n) {
-                    fail = "the write fell short";
-                    no_room = lacked(errno);
-                    return false;
-                }
                 off += n;
+            }
+            packer.finish();
+            if (packer.failed()) {
+                fail = "the write fell short";
+                no_room = lacked(errno);
+                return false;
             }
             return true;
         };
-        bool ok = put(f, kMagic) && put(f, kVersion) && put(f, (uint64_t) seq.size()) && put(f, (uint64_t) prompt) &&
-                  put(f, sb) && put(f, rb) && put(f, (uint64_t) marks.size()) && put(f, (uint64_t) rows.size());
+        bool ok = put(f, kMagic) && put(f, kVersionPacked) && put(f, (uint64_t) seq.size()) &&
+                  put(f, (uint64_t) prompt) && put(f, sb) && put(f, rb) && put(f, (uint64_t) marks.size()) &&
+                  put(f, (uint64_t) rows.size());
         if (ok && !seq.empty())
-            ok = stream(part_of((const uint8_t*) seq.data(), (size_t) seq.size() * 4));
+            ok = std::fwrite(seq.data(), 4, seq.size(), f) == seq.size();
+        // A record's header names its payload's packed size, which is only known once the payload is written:
+        // the size is left out and filled in after, and the file is a temporary one until it is renamed.
         for (const auto& [pos, part] : marks) {
             if (!ok) break;
             ok = put(f, (uint64_t) pos) && put(f, (uint64_t) part.bytes);
-            if (ok) ok = stream(part);
+            if (!ok) break;
+            const long at = std::ftell(f);
+            ok = put(f, (uint64_t) 0);
+            if (!ok) break;
+            packer.reset();
+            if (!stream(part)) { ok = false; break; }
+            ok = patch(f, at, packer.written());
         }
-        for (const StreamRows& r : rows) {
+        for (const auto& r : rows) {
             if (!ok) break;
             ok = put(f, (uint64_t) r.first) && put(f, (uint64_t) r.count) && put(f, (uint64_t) r.keep) &&
                  put(f, (uint64_t) r.part.bytes);
-            if (ok) ok = stream(r.part);
+            if (!ok) break;
+            const long at = std::ftell(f);
+            ok = put(f, (uint64_t) 0);
+            if (!ok) break;
+            packer.reset();
+            if (!stream(r.part)) { ok = false; break; }
+            ok = patch(f, at, packer.written());
         }
         if (ok && say && done < total) say(done, total);
         if (ok) {
@@ -253,30 +339,14 @@ public:
         return flushed >= 0;
     }
 
-    // The header without the payloads: enough for resume()'s scan (the tokens and where the checkpoints sit).
-    struct Head {
-        std::vector<int32_t> seq;
-        int64_t prompt = 0;
-        uint64_t sb = 0, rb = 0;
-        std::vector<int64_t> mark_pos;
-        int64_t rows_last = 0;   // the last row the conversation keeps, 0 when none
-        size_t bytes = 0;        // the payloads plus the header, as the file is sized
-    };
-
-    // The header's counts, once they are held against the file's size: junk counts are refused before any
-    // memory is asked for them.
-    struct Head0 {
-        int64_t prompt = 0;
-        uint64_t sb = 0, rb = 0;
-        uint64_t n_seq = 0, n_marks = 0, n_rows = 0;
-    };
-
     static bool head_ok(const std::filesystem::path& path, FILE* f, Head0& v, uint64_t& room) {
         uint32_t magic = 0, version = 0;
-        if (!get(f, magic) || !get(f, version) || magic != kMagic || version != kVersion ||
+        if (!get(f, magic) || !get(f, version) || magic != kMagic ||
+            (version != kVersion && version != kVersionPacked) ||
             !get(f, v.n_seq) || !get(f, (uint64_t&) v.prompt) || !get(f, v.sb) || !get(f, v.rb) ||
             !get(f, v.n_marks) || !get(f, v.n_rows))
             return false;
+        v.version = version;
         std::error_code ec;
         const uint64_t file_bytes = (uint64_t) std::filesystem::file_size(path, ec);
         if (ec) return false;
@@ -314,20 +384,22 @@ public:
         h.rb = open.rb;
         bool ok = true;
         for (uint64_t i = 0; ok && i < open.n_marks; ++i) {
-            uint64_t pos = 0, bytes = 0;
-            ok = get(f, pos) && get(f, bytes) && bytes + 16 <= room;   // the entry's own fields are in the file too
+            Raw r;
+            ok = read_raw(f, open.version, false, r) && r.span <= room;
             if (!ok) break;
-            room -= bytes + 16;
-            h.mark_pos.push_back((int64_t) pos);
-            ok = std::fseek(f, (long) bytes, SEEK_CUR) == 0;
+            room -= r.span;
+            h.payload += r.bytes;
+            h.mark_pos.push_back((int64_t) r.pos);
+            ok = skip_payload(f, open.version, r.bytes, r.packed);
         }
         for (uint64_t i = 0; ok && i < open.n_rows; ++i) {
-            uint64_t first = 0, count = 0, keep = 0, bytes = 0;
-            ok = get(f, first) && get(f, count) && get(f, keep) && get(f, bytes) && bytes + 32 <= room;
+            Raw r;
+            ok = read_raw(f, open.version, true, r) && r.span <= room;
             if (!ok) break;
-            room -= bytes + 32;
-            h.rows_last = (int64_t) (first + keep);
-            ok = std::fseek(f, (long) bytes, SEEK_CUR) == 0;
+            room -= r.span;
+            h.payload += r.bytes;
+            h.rows_last = (int64_t) (r.first + r.keep);
+            ok = skip_payload(f, open.version, r.bytes, r.packed);
         }
         std::fclose(f);
         if (!ok) return std::nullopt;
@@ -337,6 +409,8 @@ public:
         return h;
     }
 
+    // The whole file, unpacked into memory: what a caller that wants the payloads reads.  A caller that wants
+    // them in its own buffers reads them there instead (read_into), so the file's bytes are never held twice.
     static std::optional<SessionView> read(const std::filesystem::path& path) {
         FILE* f = nullptr;
 #if defined(_WIN32)
@@ -359,31 +433,198 @@ public:
         bool ok = !open.n_seq || std::fread(v.seq.data(), 4, (size_t) open.n_seq, f) == (size_t) open.n_seq;
         v.marks.resize((size_t) open.n_marks);
         for (auto& m : v.marks) {
-            uint64_t pos = 0, bytes = 0;
-            ok = ok && get(f, pos) && get(f, bytes) && bytes + 16 <= room;
+            Raw r;
+            ok = ok && read_raw(f, open.version, false, r);
             if (!ok) break;
-            room -= bytes + 16;
-            m.pos = (int64_t) pos;
-            m.state.resize((size_t) bytes);
-            ok = !bytes || std::fread(m.state.data(), 1, (size_t) bytes, f) == (size_t) bytes;
+            room -= r.span;
+            m.pos = (int64_t) r.pos;
+            m.state.resize((size_t) r.bytes);
+            ok = ok && read_payload(f, open.version, m.state.data(), r.bytes, r.packed);
         }
         v.rows.resize((size_t) open.n_rows);
         for (auto& r : v.rows) {
-            uint64_t first = 0, count = 0, keep = 0, bytes = 0;
-            ok = ok && get(f, first) && get(f, count) && get(f, keep) && get(f, bytes) && bytes + 32 <= room;
+            Raw raw;
+            ok = ok && read_raw(f, open.version, true, raw);
             if (!ok) break;
-            room -= bytes + 32;
-            r.first = (int64_t) first;
-            r.count = (int64_t) count;
-            r.keep = (int64_t) keep;
-            r.data.resize((size_t) bytes);
-            ok = !bytes || std::fread(r.data.data(), 1, (size_t) bytes, f) == (size_t) bytes;
+            room -= raw.span;
+            r.first = (int64_t) raw.first;
+            r.count = (int64_t) raw.count;
+            r.keep = (int64_t) raw.keep;
+            r.data.resize((size_t) raw.bytes);
+            ok = ok && read_payload(f, open.version, r.data.data(), raw.bytes, raw.packed);
         }
         std::fclose(f);
         return ok ? std::optional<SessionView>(std::move(v)) : std::nullopt;
     }
 
+    // The file's records, one at a time: the payload of each is unpacked into the buffer the caller names.
+    // `visit` is called with the record and returns where the payload goes; null means the memory for it
+    // is not there and the read fails.  The file's token list and sizes are in `head`.
+    template<class Visit>
+    static bool read_into(const std::filesystem::path& path, Head& head, Visit&& visit) {
+        FILE* f = nullptr;
+#if defined(_WIN32)
+        _wfopen_s(&f, path.c_str(), L"rb");
+#else
+        f = std::fopen(path.c_str(), "rb");
+#endif
+        if (!f) return false;
+        Head0 open;
+        uint64_t room = 0;
+        if (!head_ok(path, f, open, room)) {
+            std::fclose(f);
+            return false;
+        }
+        head.seq.resize((size_t) open.n_seq);
+        bool ok = !open.n_seq || std::fread(head.seq.data(), 4, (size_t) open.n_seq, f) == (size_t) open.n_seq;
+        head.prompt = open.prompt;
+        head.sb = open.sb;
+        head.rb = open.rb;
+        for (uint64_t i = 0; ok && i < open.n_marks; ++i) {
+            Raw raw;
+            ok = read_raw(f, open.version, false, raw);
+            if (!ok) break;
+            room -= raw.span;
+            Record r;
+            r.kind = Record::kMark;
+            r.index = (size_t) i;
+            r.pos = (int64_t) raw.pos;
+            r.raw = raw.bytes;
+            head.mark_pos.push_back(r.pos);
+            uint8_t* dst = visit(r);
+            if (!dst) { ok = false; break; }
+            ok = read_payload(f, open.version, dst, raw.bytes, raw.packed);
+        }
+        for (uint64_t i = 0; ok && i < open.n_rows; ++i) {
+            Raw raw;
+            ok = read_raw(f, open.version, true, raw);
+            if (!ok) break;
+            room -= raw.span;
+            Record r;
+            r.kind = Record::kRows;
+            r.index = (size_t) i;
+            r.first = (int64_t) raw.first;
+            r.count = (int64_t) raw.count;
+            r.keep = (int64_t) raw.keep;
+            r.raw = raw.bytes;
+            head.rows_last = (int64_t) (raw.first + raw.keep);
+            uint8_t* dst = visit(r);
+            if (!dst) { ok = false; break; }
+            ok = read_payload(f, open.version, dst, raw.bytes, raw.packed);
+        }
+        std::fclose(f);
+        return ok;
+    }
+
 private:
+    // A payload's bytes, packed: a run of zeros is a count, the rest is a literal run.  The engine's rows hold a
+    // block's compressed row once per block, so most of a payload is empty positions.
+    class Packer {
+    public:
+        explicit Packer(FILE* f) : f_(f) {}
+
+        void reset() { lit_.clear(); written_ = 0; }
+        uint64_t written() const { return written_; }
+        bool failed() const { return failed_; }
+
+        void put(const uint8_t* p, size_t n) {
+            size_t i = 0;
+            while (i < n) {
+                const uint8_t* z = (const uint8_t*) std::memchr(p + i, 0, n - i);
+                if (!z) { add_literal(p + i, n - i); break; }
+                const size_t lit = (size_t) (z - (p + i));
+                if (lit) add_literal(p + i, lit);
+                size_t run = 1;
+                while (z + run < p + n && z[run] == 0) ++run;
+                add_zeros(run);
+                i += lit + run;
+            }
+        }
+
+        // The last of a payload's bytes.
+        void finish() { flush_lit(); }
+
+    private:
+        static constexpr size_t kMinRun = 16;   // a shorter run of zeros stays literal: a count costs 8 bytes
+        static constexpr size_t kMaxLit = (size_t) 1 << 16;
+
+        void add_literal(const uint8_t* p, size_t n) {
+            lit_.insert(lit_.end(), p, p + n);
+            while (lit_.size() >= kMaxLit) flush_lit();
+        }
+        void add_zeros(size_t n) {
+            if (n < kMinRun) {   // too short to pay for its count
+                lit_.insert(lit_.end(), n, (uint8_t) 0);
+                while (lit_.size() >= kMaxLit) flush_lit();
+                return;
+            }
+            flush_lit();
+            put_u64((uint64_t) n | (1ull << 63));
+        }
+        void flush_lit() {
+            if (lit_.empty()) return;
+            put_u64((uint64_t) lit_.size());
+            if (std::fwrite(lit_.data(), 1, lit_.size(), f_) != lit_.size()) failed_ = true;
+            written_ += lit_.size();
+            lit_.clear();
+        }
+        void put_u64(uint64_t v) {
+            if (std::fwrite(&v, sizeof v, 1, f_) != 1) failed_ = true;
+            written_ += sizeof v;
+        }
+
+        FILE* f_ = nullptr;
+        std::vector<uint8_t> lit_;
+        uint64_t written_ = 0;
+        bool failed_ = false;
+    };
+
+    // The payload of a record, unpacked: a version 2 payload is the bytes as they are, a version 3 payload is
+    // packed.  `dst` may be null: the payload is then skipped.  `packed` is the payload's size in the file, which
+    // the reader checks against the bytes it reads.
+    static bool read_payload(FILE* f, uint32_t version, uint8_t* dst, uint64_t bytes, uint64_t packed) {
+        if (version == kVersion) {
+            if (!bytes) return true;
+            if (!dst) return std::fseek(f, (long) bytes, SEEK_CUR) == 0;
+            return std::fread(dst, 1, (size_t) bytes, f) == (size_t) bytes;
+        }
+        uint64_t left = bytes, read = 0;
+        while (left) {
+            uint64_t h = 0;
+            if (!get(f, h)) return false;
+            read += sizeof h;
+            if (h & (1ull << 63)) {   // a run of zeros
+                const uint64_t run = h & ~(1ull << 63);
+                if (run > left) return false;
+                if (dst) std::memset(dst + (bytes - left), 0, (size_t) run);
+                left -= run;
+                continue;
+            }
+            if (h > left) return false;
+            if (dst) {
+                if (std::fread(dst + (bytes - left), 1, (size_t) h, f) != (size_t) h) return false;
+            } else if (std::fseek(f, (long) h, SEEK_CUR) != 0) {
+                return false;
+            }
+            read += h;
+            left -= h;
+        }
+        return read == packed;
+    }
+
+    // The payload of a record, passed over: what read_head does to reach the next record.
+    static bool skip_payload(FILE* f, uint32_t version, uint64_t bytes, uint64_t packed) {
+        return read_payload(f, version, nullptr, bytes, packed);
+    }
+
+    // Fills in a record's packed size, which is only known once the payload is written.  The file is a
+    // temporary one until it is renamed, so a seek back is safe.
+    static bool patch(FILE* f, long at, uint64_t packed) {
+        if (std::fseek(f, at, SEEK_SET) != 0) return false;
+        if (std::fwrite(&packed, sizeof packed, 1, f) != 1) return false;
+        return std::fseek(f, 0, SEEK_END) == 0;
+    }
+
     template<class T>
     static bool put(FILE* f, T v) {
         return std::fwrite(&v, sizeof v, 1, f) == 1;
