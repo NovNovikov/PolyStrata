@@ -149,6 +149,23 @@ The other two levers, for the record:
   writer runs: the whole 4.38 GB of a 90601-token branch. That is why the disk path streams the
   engine's tail straight into the file instead.
 
+## The restore that streams
+
+The `RESTORE` command (the server's "bring this session file back") does not need the whole conversation in
+the host RAM. The rows live in the engine's VRAM, and the file is where they are between the runs, so the
+file's records are read one at a time: a record is unpacked, handed to the engine, and let go. What the
+host needs is room for one record and the checkpoints' states, not for the whole conversation.
+
+That is what `SessionFile::read_packed` and `SessionFile::unpack` are for, and what `mount()` in
+`src/poly/conversations.hpp` uses when there is a session dir. Without a session dir the host is where a
+parked conversation's rows live, and that path is unchanged: the blobs are read first and the engine is
+written to afterwards, so a refusal there still touches no engine state.
+
+Measured on the small scenario, the same file: SAVE 381.3 ms, RESTORE 312.5 ms, RESTORE after a process
+restart 396.2 ms, and the bench's own check that the restored session's bytes and token ids are the same
+passes. The file the engine writes is the same one as before (652 459 431 bytes at the 89999-token scale,
+the same as the run above).
+
 ## What is not done
 
 - **The save is still synchronous.** The request still waits for the write of the branch it parks.
@@ -160,13 +177,14 @@ The other two levers, for the record:
   a new file holds only the cells added since the parent, and the parent is named in a sidecar
   (`auto_delta_state_filename`, `parent_id`, `range_lo`). That needs a second file format and a
   restore that walks the chain; also not done here.
+- **The park and resume path still holds the rows in the host RAM.** The `parked`/`restored` lines in the
+  log are the conversation cache's own path: a parked conversation's file is read back into blobs by
+  `materialize()`, and the blobs are the rows of the whole conversation (4.4 GB at the 89999-token
+  scale). The `RESTORE` command above does not do that any more, but `materialize()` does, and it is the
+  path a client's next prompt takes. This is the last big thing, and it is what `NEXT-STEPS.md` says
+  how to do.
 - **A 4.38 GB branch is still a 4.38 GB file of rows.** Packing makes it 622 MiB, but the rows
-  themselves are what they are: the engine's compressed attention cache for 90601 positions. The
-  restore still brings those rows into the host RAM (4.4 GB), because the engine's rows are in VRAM
-  and the file is the only other place they are.
-- The host copy of the rows is the last big thing: the restore reads the file (622 MiB now) and unpacks
-  it into 4.4 GB of host memory, which the engine's window does not need. What that would take is in
-  `NEXT-STEPS.md`.
+  themselves are what they are: the engine's compressed attention cache for 90601 positions.
 
 ## Files
 

@@ -113,6 +113,8 @@ public:
         std::vector<int64_t> mark_pos;
         int64_t rows_last = 0;   // the last row the conversation keeps, 0 when none
         uint64_t payload = 0;    // the payloads' size unpacked: what a restore holds in memory
+        uint64_t marks_bytes = 0;   // the checkpoints' states alone: a restore keeps these
+        uint64_t max_record = 0;    // the largest record: a restore that streams needs room for this one
         size_t bytes = 0;        // the payloads plus the header, as the file is sized
     };
 
@@ -390,6 +392,8 @@ public:
             if (!ok) break;
             room -= r.span;
             h.payload += r.bytes;
+            h.marks_bytes += r.bytes;
+            h.max_record = std::max(h.max_record, r.bytes);
             h.mark_pos.push_back((int64_t) r.pos);
             ok = skip_payload(f, open.version, r.bytes, r.packed);
         }
@@ -399,6 +403,7 @@ public:
             if (!ok) break;
             room -= r.span;
             h.payload += r.bytes;
+            h.max_record = std::max(h.max_record, r.bytes);
             h.rows_last = (int64_t) (r.first + r.keep);
             ok = skip_payload(f, open.version, r.bytes, r.packed);
         }
@@ -512,6 +517,114 @@ public:
             uint8_t* dst = visit(r);
             if (!dst) { ok = false; break; }
             ok = read_payload(f, open.version, dst, raw.bytes, raw.packed);
+        }
+        std::fclose(f);
+        return ok;
+    }
+
+    // A payload's bytes, out of the file's packed bytes: a version 2 payload is the bytes as they are, a
+    // version 3 payload is packed.  False: the bytes are not the payload they say.
+    static bool unpack(uint32_t version, const uint8_t* in, size_t in_bytes, uint8_t* dst, uint64_t bytes) {
+        if (version != kVersionPacked) {
+            if (in_bytes != bytes) return false;
+            if (bytes) std::memcpy(dst, in, (size_t) bytes);
+            return true;
+        }
+        size_t at = 0;
+        uint64_t left = bytes;
+        while (left) {
+            if (at + 8 > in_bytes) return false;
+            uint64_t h = 0;
+            std::memcpy(&h, in + at, 8);
+            at += 8;
+            if (h & (1ull << 63)) {   // a run of zeros
+                const uint64_t run = h & ~(1ull << 63);
+                if (run > left) return false;
+                if (dst) std::memset(dst + (bytes - left), 0, (size_t) run);
+                left -= run;
+                continue;
+            }
+            if (h > left || at + h > in_bytes) return false;
+            if (dst) std::memcpy(dst + (bytes - left), in + at, (size_t) h);
+            at += (size_t) h;
+            left -= h;
+        }
+        return true;
+    }
+
+    // The file's records, one at a time, with their payloads packed: the caller unpacks a record when it wants
+    // it, so the payloads never have to be in the host memory all at once.  `visit` gets the record and the
+    // payload's packed bytes in a buffer it takes over; it returns false to stop the read.  A version 2 file's
+    // payloads come as they are.
+    template<class Visit>
+    static bool read_packed(const std::filesystem::path& path, Head& head, Visit&& visit) {
+        FILE* f = nullptr;
+#if defined(_WIN32)
+        _wfopen_s(&f, path.c_str(), L"rb");
+#else
+        f = std::fopen(path.c_str(), "rb");
+#endif
+        if (!f) return false;
+        Head0 open;
+        uint64_t room = 0;
+        if (!head_ok(path, f, open, room)) {
+            std::fclose(f);
+            return false;
+        }
+        head.seq.resize((size_t) open.n_seq);
+        bool ok = !open.n_seq || std::fread(head.seq.data(), 4, (size_t) open.n_seq, f) == (size_t) open.n_seq;
+        head.prompt = open.prompt;
+        head.sb = open.sb;
+        head.rb = open.rb;
+        std::vector<uint8_t> packed;
+        for (uint64_t i = 0; ok && i < open.n_marks; ++i) {
+            Raw raw;
+            ok = read_raw(f, open.version, false, raw);
+            if (!ok) break;
+            room -= raw.span;
+            Record r;
+            r.kind = Record::kMark;
+            r.index = (size_t) i;
+            r.pos = (int64_t) raw.pos;
+            r.raw = raw.bytes;
+            head.mark_pos.push_back(r.pos);
+            head.payload += raw.bytes;
+            head.marks_bytes += raw.bytes;
+            head.max_record = std::max(head.max_record, raw.bytes);
+            packed.assign((size_t) raw.packed, 0);
+            if (raw.packed && std::fread(packed.data(), 1, (size_t) raw.packed, f) != (size_t) raw.packed) {
+                ok = false;
+                break;
+            }
+            if (!visit(r, std::move(packed), open.version)) {
+                ok = false;
+                break;
+            }
+        }
+        for (uint64_t i = 0; ok && i < open.n_rows; ++i) {
+            Raw raw;
+            ok = read_raw(f, open.version, true, raw);
+            if (!ok) break;
+            room -= raw.span;
+            Record r;
+            r.kind = Record::kRows;
+            r.index = (size_t) i;
+            r.first = (int64_t) raw.first;
+            r.count = (int64_t) raw.count;
+            r.keep = (int64_t) raw.keep;
+            r.raw = raw.bytes;
+            head.payload += raw.bytes;
+            head.max_record = std::max(head.max_record, raw.bytes);
+            head.rows_last = (int64_t) (raw.first + raw.keep);
+            packed.assign((size_t) raw.packed, 0);
+            if (raw.packed && std::fread(packed.data(), 1, (size_t) raw.packed, f) != (size_t) raw.packed) {
+                ok = false;
+                break;
+            }
+            if (!visit(r, std::move(packed), open.version)) {
+                ok = false;
+                break;
+            }
         }
         std::fclose(f);
         return ok;

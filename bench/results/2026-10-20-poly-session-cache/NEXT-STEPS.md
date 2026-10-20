@@ -40,19 +40,28 @@ into the file instead, and a background writer would give that up.
 
 ## What I would do next, and why
 
-1 first, in this order:
+The packing (done) makes the file 3.4 times smaller, so the write and the read of the file are smaller.
+The `RESTORE` command (done) reads the file's records one at a time and hands each to the engine, so it
+needs room for one record and not for the whole conversation.
 
-- The packing (done) makes the file 3.4 times smaller, so the write and the read of the file are
-  smaller.
-- 1 then: the host copy of the rows is the only thing left that is large, and it is large because the
-  device already has it. Make the restore load a record, hand it to the device and let it go, and
-  let the file be the home of the rows of a conversation that is not in the device's window. The
-  change is in `mount()`, `load_blobs()` and `park()`, and the parked conversations' file handling
-  has to be able to write a conversation whose rows are in the file and in the device's tail.
-- 2 after that, if the write is still the slower half: the delta file is the format that makes a
-  park cheap, and the fork has one to copy.
+What is left is the conversation cache's own path, which is the one a client's next prompt takes:
 
-3 last, and maybe not at all: a background writer needs the rows in RAM, which is what 1 removes.
+- `materialize()` reads a parked conversation's file into blobs: the rows of the whole conversation (4.4 GB
+  at the 89999-token scale) in the host RAM. `enter()` then copies them into the engine. The rows are
+  already in the engine's VRAM after a restore, and the file is where they are between the runs, so the
+  blobs are a third copy that nothing needs.
+- The fix is the same as for `RESTORE`: read the file's records one at a time and hand each to the
+  engine. The order matters: `enter()` parks the leaving conversation (which reads its rows from the
+  engine) *before* the incoming conversation's rows are loaded, so the incoming rows must be read after
+  that, and the file's checkpoints (the states) must be in the host before it, because `state_at()` wants
+  them.
+- The catch is the same one the `RESTORE` path has: a conversation longer than the engine's window has
+  rows the engine no longer holds, and then the file is the only copy and the blobs are needed. So the
+  change has to ask the engine whether it still holds the rows (`kv_rows_` and the reach), and keep the
+  blobs when it does not.
+
+2 (the delta files) comes after that, if the write is still the slower half. 3 (the background writer)
+needs the rows in RAM, which is what the above removes.
 
 ## The test that says it worked
 

@@ -316,7 +316,7 @@ public:
         file_bytes = (size_t) size;
         const std::string why = std::to_string(size >> 20) + " MiB plus a floor of " +
                                 std::to_string(floor_mib) + " MiB needed";
-        const std::optional<SessionFile::Head> head = SessionFile::read_head(path);
+        std::optional<SessionFile::Head> head = SessionFile::read_head(path);
         if (!head || head->seq.empty()) {
             err = "unreadable: not the format this engine writes";
             return SLoad::unreadable;
@@ -325,17 +325,22 @@ public:
             err = "the model or its shapes have changed since the file was written";
             return SLoad::unreadable;
         }
-        // The host holds the payloads unpacked, which a packed file is smaller than: the ask is the unpacked
-        // size, and the sessions' copies go up to make room for it.
-        if (o_.admit && !o_.admit((size_t) head->payload)) {
+        // The host keeps a conversation's rows only when the host is where a parked conversation's rows live.
+        // With a session dir the rows are in the file and in the engine, so the file's records are read one at a
+        // time and the host lets go of each one as it goes into the engine: a restore then needs room for one
+        // record, not for the whole conversation.
+        const bool keep_rows = o_.session_dir.empty();
+        const size_t ask = keep_rows ? (size_t) head->payload
+                                     : (size_t) (head->marks_bytes + head->max_record);
+        if (o_.admit && !o_.admit(ask)) {
             size_t was = 0;   // the sessions' copies go up; the file replaces the sessions wholesale, as Qwen does
             for (const Slot& z : slots_) was += droppings(z);
             for (Slot& z : slots_) z = Slot{};
             err = "not enough RAM to read it (" + why + ", " + std::to_string(was >> 20) +
                   " MiB of the sessions' copies was given up for it)";
-            if (o_.admit && !o_.admit((size_t) head->payload)) return SLoad::no_ram;
+            if (o_.admit && !o_.admit(ask)) return SLoad::no_ram;
         }
-        return mount(path, err, tokens, (size_t) size, touched);
+        return mount(path, *head, err, tokens, (size_t) size, touched);
     }
 
     /// The bytes the engine holds that the SAVE of the whole session takes: the seq, the rows it did not save
@@ -355,8 +360,93 @@ private:
     // sideload's placement: the conversation's blobs from the file (all the RAM questions answered before),
     // the engine's writes last.  `tokens` is what the engine holds, the file's conversation when its rows reach
     // its end and the deepest checkpoint row-covered when they do not (its tail is the next prompts' to redo).
-    SLoad mount(const std::filesystem::path& path, std::string& err, int64_t& tokens, size_t file_bytes,
-                bool& touched) {
+    SLoad mount(const std::filesystem::path& path, SessionFile::Head& head, std::string& err, int64_t& tokens,
+                size_t file_bytes, bool& touched) {
+        // The host keeps a conversation's rows only when the host is where a parked conversation's rows live.
+        // With a session dir the rows are in the file and in the engine, so the file's records are read one at a
+        // time and the host lets go of each one as it goes into the engine: a restore then needs room for one
+        // record, not for the whole conversation.  Without a session dir the host is where the rows live, and
+        // they are read as they were.
+        if (o_.session_dir.empty()) return mount_blobs(path, err, tokens, file_bytes, touched);
+        const int64_t rows_last = head.rows_last;
+        // the file's rows reach to the deepest checkpoint that the rows cover: the marks past them are dropped
+        int64_t end = 0;
+        for (const int64_t p : head.mark_pos)
+            if (p <= rows_last) end = std::max(end, p);
+        if (!end) {
+            err = "unreadable: the file holds checkpoints no row covers";
+            return SLoad::unreadable;
+        }
+        std::vector<Checkpoint> marks;
+        std::vector<Rows> rows;
+        bool no_ram = false;
+        bool engine_touched = false;
+        const bool ok = SessionFile::read_packed(
+            path, head, [&](const SessionFile::Record& r, std::vector<uint8_t>&& packed, uint32_t version) {
+                if (r.kind == SessionFile::Record::kMark) {
+                    const BlobPtr b = blob(r.raw);
+                    if (!b) {
+                        no_ram = true;
+                        return false;
+                    }
+                    if (!SessionFile::unpack(version, packed.data(), packed.size(), b->p.get(), r.raw)) return false;
+                    marks.push_back({r.pos, b});
+                    return true;
+                }
+                const int64_t a = r.first, b = std::min(r.first + r.keep, end);
+                if (a >= b) return true;   // the rows past the deepest checkpoint are not the conversation's
+                if (!engine_touched) {
+                    // the engine is written to from here on: a failure after this is not this method's to answer
+                    engine_touched = true;
+                    touched = true;
+                    e_.reset();
+                    slots_[cur_] = Slot{};
+                }
+                // the rows go into the engine now, and the host lets go of them: the file is where they live
+                std::vector<uint8_t> tmp((size_t) r.raw);
+                if (!SessionFile::unpack(version, packed.data(), packed.size(), tmp.data(), r.raw)) return false;
+                e_.load_rows(tmp.data(), r.first, r.count, a, b - a);
+                return true;
+            });
+        if (!ok) {
+            err = no_ram ? "not enough RAM to read it: the file's payloads would not stay in RAM"
+                          : "unreadable: not the format this engine writes";
+            return no_ram ? SLoad::no_ram : SLoad::unreadable;
+        }
+        if (!engine_touched) {
+            err = "unreadable: the file holds no rows";
+            return SLoad::unreadable;
+        }
+        Slot s;
+        s.seq = std::move(head.seq);
+        s.prompt = head.prompt;
+        s.stamp = ++clock_;
+        s.marks = std::move(marks);
+        s.rows = std::move(rows);
+        cut(s, rows_last);              // the file's tail past its rows is the next prompts' to read again
+        if (s.marks.empty()) {          // the chain did not reach a row-covered place
+            err = "unreadable: the file holds checkpoints no row covers";
+            return SLoad::unreadable;
+        }
+        const int64_t at = s.marks.back().pos;   // the state at the deepest row-covered checkpoint
+        e_.load_state(s.marks.back().state->p.get(), at);
+        const bool at_end = at == rows_last && at == len(s);   // the rows and the state both reach the last token
+        s.held = at_end;
+        slots_[cur_] = std::move(s);
+        tokens = len(slots_[cur_]);
+        if (o_.log)
+            std::fprintf(o_.log,
+                         "strata-poly: session restored %lld tokens of %zu bytes, %zu marks, the engine at "
+                         "%lld%s\n",
+                         (long long) tokens, file_bytes, slots_[cur_].marks.size(), (long long) at,
+                         at_end ? "" : " (the file's tail is cut where its rows end)");
+        return SLoad::ok;
+    }
+
+    // A restore without a session dir: the host is where a conversation's rows live, so they are all read first
+    // and the engine is written to afterwards, so that a refusal touches no engine state.
+    SLoad mount_blobs(const std::filesystem::path& path, std::string& err, int64_t& tokens, size_t file_bytes,
+                      bool& touched) {
         std::vector<int32_t> seq;
         int64_t prompt = 0;
         uint64_t sb = 0, rb = 0;
