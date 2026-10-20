@@ -97,7 +97,7 @@ class Engine:
         assert len(tokens) == count, (label, len(tokens))
         print(label, 'done', 'prompt_ms', d[3], 'decode_ms', d[4], 'resume', d[8], flush=True)
         return dict(label=label, prompt_tokens=len(ids), generated=count, prompt_ms=float(d[3]),
-                    decode_ms=float(d[4]), resume=int(d[8]))
+                    decode_ms=float(d[4]), resume=int(d[8]), generated_ids=tokens)
 
     def close(self):
         try:
@@ -178,6 +178,10 @@ def main():
         grown = list(ids) + more
         e.generate('A-grown', grown, 64)
         e.generate('B-branch-again', other, 64)
+        # The same prompt as the restore above, now through the chain: the tokens have to be the same.
+        again = e.generate('A-again-through-chain', ids, 64)
+        assert again['generated_ids'] == back['generated_ids'], 'the chain changed the generated tokens'
+        print('the chain generated the same tokens as the whole file', flush=True)
         summary['requests'] = [first, second, back]
         summary['chain'] = [dict(name=p.name, bytes=p.stat().st_size, **(chain_of(p) or {}))
                             for p in sorted(sessions.iterdir())]

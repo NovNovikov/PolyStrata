@@ -1008,6 +1008,9 @@ private:
         }
         s.marks = std::move(marks);
         s.materialized = true;   // the rows are still in the files: enter() reads them
+        // where the rows in the files reach: the deepest checkpoint of the chain, which is where the file
+        // that was written last ended.  A park after this adds to the chain.
+        s.disk_rows_end = s.marks.empty() ? 0 : (uint64_t) s.marks.back().pos;
         return true;
     }
 

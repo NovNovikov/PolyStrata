@@ -282,6 +282,27 @@ The third file (the branch's own, not part of the chain): `32748d4ea32c48f8-8999
 no parent. The user's own log has this case: a conversation of 84462 tokens was parked and then 84553
 tokens, and the second file was written whole (4 070 669 872 B) for 91 new tokens.
 
+**The generation is not hurt by it.** The scale test asks the same prompt twice: once after the whole
+file was read back, and once after the chain (the file and the delta) was read back. The tokens the
+engine produced are the same, both times:
+
+```
+the chain generated the same tokens as the whole file
+```
+
+and the whole run at the 89999-token scale:
+
+| | |
+|---|---:|
+| the first park (the whole file) | 1 920.2 ms |
+| the park after the restore, with the delta | **27.8 ms** |
+| the parks with nothing new (no file at all) | 1.1 ms and 0.9 ms |
+| the restores through the chain | 1 635.8 / 1 655.9 ms |
+| the system's free RAM at its tightest | 2 456 MiB |
+
+The host test says the same at the data level: the chain restores the rows and the state bit for bit
+what a full reread gives.
+
 The traps, and how they are closed:
 - a file another file adds to is not a conversation of its own: the scan of the session dir skips it;
 - the eviction forgets a chain and not only its leaf, and leaves a parent that another file needs;
