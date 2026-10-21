@@ -220,6 +220,7 @@ def main():
     ap.add_argument('--inputs',type=Path,required=True)
     ap.add_argument('--profile-seed',type=Path,required=True)
     ap.add_argument('--coalesce-expert-dma',action='store_true',help='run only the opt-in DMA optimization; no baseline run')
+    ap.add_argument('--retain-decode-dma',action='store_true',help='the decode cache keeps the RAM pages it has registered')
     ap.add_argument('--run',action='store_true',help='explicitly authorize the single model load')
     args = ap.parse_args()
     if not args.run: raise SystemExit('No model started; use --run for the integrated diagnostic sequence')
@@ -245,6 +246,8 @@ def main():
     launch = list(config['args'])
     if args.coalesce_expert_dma and '--coalesce-expert-dma' not in launch:
         launch.append('--coalesce-expert-dma')
+    if args.retain_decode_dma and '--retain-decode-dma' not in launch:
+        launch.append('--retain-decode-dma')
     for flag,value in [('--expert-profile',str(seed)),('--session-dir',str(work/'sessions'))]:
         launch[launch.index(flag)+1]=value
     if '--dump-buffers' not in launch: launch += ['--dump-buffers']
