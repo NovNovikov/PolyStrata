@@ -1,0 +1,5 @@
+strata-poly: loaded in 28.1 s; 3840 of 3840 routed experts in VRAM (8.1 GiB), 12 CPU threads
+strata-poly: decode-costs generated=512 accounted_tokens=4336 wall_ms=1454.953 cpu_expert_ms=0.000 route_wait_ms=484.420 uploads=0 drafts_offered=336 drafts_accepted=328 gpu_experts=124800 cpu_experts=0
+strata-poly: decode-costs generated=512 accounted_tokens=512 wall_ms=1438.286 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=336 drafts_accepted=328 gpu_experts=124800 cpu_experts=0
+strata-poly: decode-costs generated=512 accounted_tokens=512 wall_ms=1436.484 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=336 drafts_accepted=328 gpu_experts=124800 cpu_experts=0
+strata-poly: 7648 of 11475 prompt tokens were not read again (66.6%); 0 conversations parked in 0 MiB, 0 pushed out; 10930 MiB of VRAM free at the end

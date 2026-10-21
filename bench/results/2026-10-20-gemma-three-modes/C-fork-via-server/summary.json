@@ -1,0 +1,11 @@
+{
+  "label": "C-fork-via-server",
+  "via": "serve/server.py",
+  "chunks": 1,
+  "wall_s": 28.81,
+  "tps": null,
+  "done_lines": [],
+  "log_tail": [
+    "[strata] done: 2 tokens in 1 s (128.7 tok/s) (length, cancel=False), expert cache 100.0% hit"
+  ]
+}
