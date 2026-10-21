@@ -4,6 +4,7 @@
 // computes what llama.cpp's CPU backend computes for the same tensor.  The workers are this file's own: the pool
 // in strata/kernels/cpu/pool.hpp is built around the other model's expert blob.
 #pragma once
+#include "transfer_audit.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -36,6 +37,7 @@ public:
 private:
     struct Batch {
         const std::function<void(int)>* fn;
+        audit::Context audit_context;
         int n;
         std::atomic<int> next{0}, left{0};
     };

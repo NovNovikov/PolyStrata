@@ -36,7 +36,7 @@ Dev Engine::upload_resident(const TensorInfo& t, const Dev& d, size_t bytes, siz
         home(t).read(t, first * in_row, source.data(), n * in_row);
         const void* src = source.data();
         if (!raw) {
-            if (t.type == kTypeF32) std::memcpy(floats.data(), src, values * 4);
+            if (t.type == kTypeF32) PA_MEMCPY(floats.data(), src, values * 4);
             else if (traits && traits->to_float) traits->to_float(src, floats.data(), (int64_t) values);
             else throw std::runtime_error("no-disk: cannot convert " + t.name);
             if (fix) for (size_t i = 0; i < values; ++i) floats[i] = fix(floats[i]);
@@ -51,7 +51,7 @@ Dev Engine::upload_resident(const TensorInfo& t, const Dev& d, size_t bytes, siz
             }
         }
         h2d((uint8_t*) d.p + first * out_row, src, n * out_row);
-        ck(cudaStreamSynchronize(cs(st_)), "no-disk: loading a tensor");
+        ck(PA_WAIT_STREAM(cs(st_)), "no-disk: loading a tensor");
     }
     return d;
 }
@@ -89,7 +89,7 @@ void Engine::load_resident_experts() {
     size_t free = 0, total = 0, first_free = 0, previous_free = 0;
     bool first_sample = true;
     const auto sample_vram = [&](const char* phase) {
-        ck(cudaStreamSynchronize(cs(st_)), "no-disk: VRAM diagnostic fence");
+        ck(PA_WAIT_STREAM(cs(st_)), "no-disk: VRAM diagnostic fence");
         ck(cudaMemGetInfo(&free, &total), "no-disk: VRAM diagnostic");
         if (first_sample) { first_free = previous_free = free; first_sample = false; }
         uint64_t tracked = 0;
@@ -187,7 +187,7 @@ void Engine::load_resident_experts() {
             const size_t m = std::min(buffer.size(), n - at);
             home(t).read(t, off + at, buffer.data(), m);
             h2d(dst + at, buffer.data(), m);
-            ck(cudaStreamSynchronize(cs(st_)), "no-disk: loading a permanent expert");
+            ck(PA_WAIT_STREAM(cs(st_)), "no-disk: loading a permanent expert");
             at += m;
         }
     };
@@ -220,7 +220,7 @@ void Engine::load_resident_experts() {
     if (host_at != plan.ram || exp_at_ != plan.vram) throw std::logic_error("no-disk: placement byte mismatch");
     full_bytes_ = exp_at_; full_cached_ = cached_;
     resident_host_bytes_ += (size_t) plan.ram;
-    ck(cudaStreamSynchronize(cs(st_)), "no-disk load");
+    ck(PA_WAIT_STREAM(cs(st_)), "no-disk load");
     sample_vram("after-expert-copy");
     const uint64_t read = gg_->read_bytes() + (dg_ ? dg_->read_bytes() : 0);
     gg_->close_data(); gg_->release_small();

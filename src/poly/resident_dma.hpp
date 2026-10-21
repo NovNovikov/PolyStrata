@@ -2,6 +2,7 @@
 #pragma once
 #include "dma_ranges.hpp"
 #include "dma_cost.hpp"
+#include "transfer_audit_cuda.hpp"
 #include <cuda_runtime.h>
 #include <chrono>
 #include <cstdint>
@@ -27,6 +28,7 @@ class ResidentDma {
     uint64_t age_ = 0;
     uint64_t registered_bytes_ = 0, unregistered_bytes_ = 0;
     DmaCost cost_;
+    bool trace_ = audit::enabled() || std::getenv("STRATA_TRACE_STAGING");
     std::vector<Use> uses_;
     using Clock = std::chrono::steady_clock;
     static double ms_since(Clock::time_point t) {
@@ -38,12 +40,13 @@ class ResidentDma {
         throw std::runtime_error("no-disk: " + what + ": " + cudaGetErrorString(e));
     }
     void drain() {
-        const auto t0 = Clock::now();
+        const auto t0 = trace_ ? Clock::now() : Clock::time_point{};
         for (auto& u : uses_)
-            check(u.pending ? cudaStreamSynchronize(u.stream) : cudaEventSynchronize(u.done), "waiting for source DMA");
-        cost_.drain_ms += ms_since(t0);
+            check(u.pending ? PA_WAIT_STREAM(u.stream) : PA_WAIT_EVENT(u.done), "waiting for source DMA");
+        if (trace_) cost_.drain_ms += ms_since(t0);
     }
     void verify(void* p) {
+        audit::HostSpan audit_span(__FILE__, __LINE__, "registration-verify");
 #ifdef HIP_VERSION
         unsigned flags = 0;
         check(hipHostGetFlags(&flags, p), "verifying HIP-registered RAM");
@@ -73,10 +76,10 @@ public:
     ~ResidentDma() {
         // Also fence a partly issued copy whose exception prevented end() from recording its event.
         for (const auto& u : uses_) {
-            if (u.pending) (void) cudaStreamSynchronize(u.stream);
-            else (void) cudaEventSynchronize(u.done);
+            if (u.pending) (void) PA_WAIT_STREAM(u.stream);
+            else (void) PA_WAIT_EVENT(u.done);
         }
-        for (const auto& r : pinned_) (void) cudaHostUnregister(base_ + r.first);
+        for (const auto& r : pinned_) (void) audit::unreg(__FILE__, __LINE__, base_ + r.first, r.second, r.first);
         for (const auto& u : uses_) (void) cudaEventDestroy(u.done);
         (void) cudaGetLastError();
     }
@@ -88,30 +91,31 @@ public:
     const DmaCost& cost() const { return cost_; }
     void clear() {
         drain();
-        const auto t0 = Clock::now();
+        const auto t0 = trace_ ? Clock::now() : Clock::time_point{};
         while (!pinned_.empty()) {
-            check(cudaHostUnregister(base_ + pinned_.back().first), "unregistering the previous DMA window");
+            check(audit::unreg(__FILE__, __LINE__, base_ + pinned_.back().first, pinned_.back().second, pinned_.back().first), "unregistering the previous DMA window");
             unregistered_bytes_ += pinned_.back().second;
-            cost_.removed += (int64_t) pinned_.back().second;
+            if (trace_) cost_.removed += (int64_t) pinned_.back().second;
             pinned_.pop_back();
         }
-        cost_.unregister_ms += ms_since(t0);
+        if (trace_) cost_.unregister_ms += ms_since(t0);
         ages_.clear();
     }
     void prepare(std::vector<DmaRange> sources) {
+        audit::HostSpan audit_span(__FILE__, __LINE__, "dma-prepare-total");
         const auto wanted = dma_ranges(std::move(sources), arena_, limit_, page_);
-        if (wanted == pinned_) return;
-        ++cost_.calls;
+        if (wanted == pinned_) { audit::count("dma-identical-skip"); return; }
+        if (trace_) ++cost_.calls;
         clear();
-        const auto t0 = Clock::now();
+        const auto t0 = trace_ ? Clock::now() : Clock::time_point{};
         try {
             for (const auto& r : wanted) {
-                check(cudaHostRegister(base_ + r.first, r.second, 0), "CUDA/HIP registration of " +
+                check(audit::reg(__FILE__, __LINE__, base_ + r.first, r.second, 0, r.first), "CUDA/HIP registration of " +
                       std::to_string(r.second) + " RAM bytes (no pageable fallback)");
                 registered_bytes_ += r.second;
-                cost_.added += (int64_t) r.second;
+                if (trace_) cost_.added += (int64_t) r.second;
                 try { pinned_.push_back(r); }
-                catch (...) { (void) cudaHostUnregister(base_ + r.first); throw; }
+                catch (...) { (void) audit::unreg(__FILE__, __LINE__, base_ + r.first, r.second, r.first); throw; }
                 verify(base_ + r.first);
 #ifndef HIP_VERSION
                 verify(base_ + r.first + r.second - 1);
@@ -119,11 +123,12 @@ public:
             }
             peak_ = std::max(peak_, bytes());
         } catch (...) { clear(); throw; }
-        cost_.register_ms += ms_since(t0);
+        if (trace_) cost_.register_ms += ms_since(t0);
     }
     // Exchange mode only: retain useful registrations, add uncovered pages, evict old whole
     // registrations only under budget pressure. All users finish before unregistering any page.
     void retain(std::vector<DmaRange> sources) {
+        audit::HostSpan audit_span(__FILE__, __LINE__, "dma-retain-total");
         const auto wanted = dma_ranges(std::move(sources), arena_, limit_, page_);
         ++age_;
         const auto intersects = [&](const DmaRange& r) {
@@ -134,10 +139,11 @@ public:
         for (const auto& r : pinned_) if (intersects(r)) ages_[r.first] = age_;
         auto missing = dma_missing(wanted, pinned_);
         const auto missing_bytes = [&] { size_t n = 0; for (const auto& r : missing) n += r.second; return n; };
-        if (missing.empty()) return;
-        ++cost_.calls;
+        if (missing.empty()) { audit::count("dma-covered-skip"); return; }
+        if (trace_) ++cost_.calls;
         bool drained = false;
-        auto t_evict = Clock::now();
+        auto t_evict = trace_ ? Clock::now() : Clock::time_point{};
+        const double drain_before = cost_.drain_ms;
         while (bytes() + missing_bytes() > limit_) {
             if (!drained) { drain(); drained = true; }
             if (pinned_.empty()) throw std::logic_error("exchange: DMA window cannot hold requested pages");
@@ -145,27 +151,27 @@ public:
                 if (intersects(a) != intersects(b)) return !intersects(a);
                 return ages_[a.first] < ages_[b.first];
             });
-            check(cudaHostUnregister(base_ + victim->first), "evicting an idle DMA registration");
+            check(audit::unreg(__FILE__, __LINE__, base_ + victim->first, victim->second, victim->first), "evicting an idle DMA registration");
             unregistered_bytes_ += victim->second;
-            cost_.removed += (int64_t) victim->second;
+            if (trace_) cost_.removed += (int64_t) victim->second;
             ages_.erase(victim->first);
             pinned_.erase(victim);
             missing = dma_missing(wanted, pinned_);
         }
-        cost_.unregister_ms += ms_since(t_evict);
-        const auto t0 = Clock::now();
+        if (trace_) cost_.unregister_ms += ms_since(t_evict) - (cost_.drain_ms - drain_before);
+        const auto t0 = trace_ ? Clock::now() : Clock::time_point{};
         for (const auto& r : missing) {
-            check(cudaHostRegister(base_ + r.first, r.second, 0), "registering exchange RAM pages");
+            check(audit::reg(__FILE__, __LINE__, base_ + r.first, r.second, 0, r.first), "registering exchange RAM pages");
             registered_bytes_ += r.second;
-            cost_.added += (int64_t) r.second;
+            if (trace_) cost_.added += (int64_t) r.second;
             try { ages_[r.first] = age_; pinned_.push_back(r); }
-            catch (...) { ages_.erase(r.first); (void) cudaHostUnregister(base_ + r.first); throw; }
+            catch (...) { ages_.erase(r.first); (void) audit::unreg(__FILE__, __LINE__, base_ + r.first, r.second, r.first); throw; }
             std::sort(pinned_.begin(), pinned_.end());
             peak_ = std::max(peak_, bytes());
             try { verify(base_ + r.first); }
             catch (...) { clear(); throw; }
         }
-        cost_.register_ms += ms_since(t0);
+        if (trace_) cost_.register_ms += ms_since(t0);
     }
     void begin(cudaStream_t stream) {
         for (auto& u : uses_) if (u.stream == stream) { u.pending = true; return; }

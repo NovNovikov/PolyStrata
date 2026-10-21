@@ -7,6 +7,7 @@
 // STOP and QUIT in, and RESUME, PP, T, DONE and ERR out.
 #include "conversations.hpp"
 #include "engine.hpp"
+#include "transfer_audit_cuda.hpp"
 #include "guesses.hpp"
 #include "strata/core/conversation_memory.hpp"
 #include "strata/spec/draft_policy.hpp"
@@ -413,6 +414,7 @@ struct Session {
                                  "before do not reach; the expert cache %d -> %d experts\n",
                          double(freed) / double(1ull << 30), had, engine.cached_experts());
         }
+        strata::poly::audit::set_phase("prefill");
         kept.checkpoints_at(checkpoints);
         asked += n;
         reused += r.resume;
@@ -477,6 +479,7 @@ struct Session {
         r.prompt_ms = ms_since(t0);
         if (std::strcmp(r.finish, "cancel") == 0) return r;
 
+        strata::poly::audit::set_phase("decode");
         t0 = Clock::now();
         // Buffer numeric diagnostics until decode_ms is sealed. No prompt or token IDs are logged.
         struct PolicyRound {
@@ -580,6 +583,9 @@ struct Session {
                 bool more = true;
                 t = pick(engine.logits_of(0));
                 while (right < use.t - 1 && t == w[right + 1] && (more = show(t))) t = pick(engine.logits_of(++right));
+                strata::poly::audit::count("speculation-offered", use.t - 1);
+                strata::poly::audit::count("speculation-accepted", right);
+                strata::poly::audit::count("speculation-rejected", use.t - 1 - right);
                 engine.keep(right + 1);
                 kept.read(w, right + 1);
                 r.guessed += use.t - 1;
@@ -1049,6 +1055,7 @@ int serve(Session& ss, const Options& o) {
         }
 
         const auto exchange_before = engine.exchange_stats();
+        strata::poly::audit::begin_request();
         engine.reset_stage_stats();   // the staging counters are per request
         const strata::poly::Stats before = engine.stats();
         const bool trace_decode_costs = std::getenv("STRATA_TRACE_DECODE_COSTS") != nullptr;
@@ -1178,6 +1185,8 @@ int serve(Session& ss, const Options& o) {
                                  "uploads=%lld; prompt work excluded\n", (long long) r.produced, hits, misses,
                          100.0 * double(hits) / double(std::max<long long>(1, hits + misses)),
                          (long long) (now.swapped_experts - answer_before.swapped_experts));
+        strata::poly::audit::collect();
+        strata::poly::audit::report("request");
         engine.print_stage_stats("request");   // the staging and the DMA window over the whole request
         std::printf("DONE %lld %lld %.1f %.1f %s %lld %lld %lld %lld %lld 0 0 0.0 %lld 0\n", (long long) r.produced, n,
                     r.prompt_ms, r.decode_ms, r.finish, (long long) r.guessed_right, (long long) r.guessed,

@@ -1,5 +1,6 @@
 // One in-place exchange. Readers must have finished and RAM must be CUDA/HIP registered.
 #pragma once
+#include "transfer_audit_cuda.hpp"
 #include <cuda_runtime.h>
 #include <algorithm>
 #include <cstdint>
@@ -19,7 +20,7 @@ inline uint64_t exchange_hash(const uint8_t* p, size_t bytes, bool device) {
         const size_t n = std::min(bytes - at, size_t(65536));
         const uint8_t* source = p + at;
         if (device) {
-            const auto e = cudaMemcpy(block.data(), source, n, cudaMemcpyDeviceToHost);
+            const auto e = PA_COPY_SYNC(block.data(), source, n, cudaMemcpyDeviceToHost);
             if (e != cudaSuccess) throw std::runtime_error(cudaGetErrorString(e));
             source = block.data();
         }
@@ -34,8 +35,8 @@ inline void exchange_transfer(uint8_t* gpu, uint8_t* ram, uint8_t* temporary, si
         if (e != cudaSuccess) throw std::runtime_error(cudaGetErrorString(e));
     };
     const auto copy = [&](void* to, const void* from, cudaMemcpyKind kind) {
-        check(cudaMemcpyAsync(to, from, bytes, kind, stream));
-        check(cudaStreamSynchronize(stream));
+        check(PA_COPY(to, from, bytes, kind, stream));
+        check(PA_WAIT_STREAM(stream));
     };
     const uint64_t cold = verify ? exchange_hash(gpu, bytes, true) : 0;
     const uint64_t hot = verify ? exchange_hash(ram, bytes, false) : 0;
@@ -56,7 +57,7 @@ inline void exchange_transfer(uint8_t* gpu, uint8_t* ram, uint8_t* temporary, si
     } catch (const std::exception& e) {
         bool restored = true;
         try {
-            check(cudaStreamSynchronize(stream));
+            check(PA_WAIT_STREAM(stream));
             // After step 2 the hot payload survives in GPU, even if step 3 partly wrote RAM.
             // Before step 2 completed the original hot payload is still intact in RAM.
             if (stage >= 2) copy(ram, gpu, cudaMemcpyDeviceToHost);

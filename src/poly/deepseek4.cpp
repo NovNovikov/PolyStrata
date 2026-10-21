@@ -187,7 +187,7 @@ void DeepSeek4::load_layer(int il) {
             throw std::runtime_error(b->name + " is " + shape_of(*b) + ", expected F32 [" +
                                      std::to_string(n_expert_) + "]");
         home(*b).payload(*b);
-        std::memcpy(B.probs_b.data(), home(*b).data(*b), (size_t) n_expert_ * sizeof(float));
+        PA_MEMCPY(B.probs_b.data(), home(*b).data(*b), (size_t) n_expert_ * sizeof(float));
         B.probs_b_dev = upload(b, blk(il, "exp_probs_b.bias"), n_expert_, 1, kF32);
     }
     if (il < hash_layers_) {
@@ -199,7 +199,7 @@ void DeepSeek4::load_layer(int il) {
                                      "]");
         home(*t).payload(*t);
         B.by_token.resize((size_t) n_used_ * n_vocab_);
-        std::memcpy(B.by_token.data(), home(*t).data(*t), B.by_token.size() * sizeof(int32_t));
+        PA_MEMCPY(B.by_token.data(), home(*t).data(*t), B.by_token.size() * sizeof(int32_t));
         for (int32_t e : B.by_token)
             if (e < 0 || e >= n_expert_) throw std::runtime_error(t->name + " names an expert the layer has not");
         pin_host_weights(B.by_token.data(), B.by_token.size() * sizeof(int32_t));
@@ -335,7 +335,12 @@ void DeepSeek4::out_proj(Block& B, int n) {
     }
     const float* x = att_;
     if (n > 1) {   // a group's tokens together, for its matrix
-        permute_groups(att_, q_, in, o_groups_, n, false, st_);
+        { audit::GpuSpan timing(__FILE__, __LINE__, "permute-att-q", (uint64_t)n*in*o_groups_*sizeof(float), cs(st_));
+          audit::count(audit::capturing(cs(st_)) ? "permute-att-q-read-capture-template" : "permute-att-q-read-bytes", (uint64_t)n*in*o_groups_*sizeof(float));
+          audit::count(audit::capturing(cs(st_)) ? "permute-att-q-write-capture-template" : "permute-att-q-write-bytes", (uint64_t)n*in*o_groups_*sizeof(float));
+          audit::kernel_copy(__FILE__, __LINE__, "permute-att-q-read", (size_t)n*in*o_groups_*sizeof(float), cudaMemcpyDeviceToDevice, cs(st_));
+          audit::kernel_copy(__FILE__, __LINE__, "permute-att-q-write", (size_t)n*in*o_groups_*sizeof(float), cudaMemcpyDeviceToDevice, cs(st_));
+          permute_groups(att_, q_, in, o_groups_, n, false, st_); }
         x = q_;
     }
     for (int g = 0; g < o_groups_; ++g) {
@@ -346,7 +351,12 @@ void DeepSeek4::out_proj(Block& B, int n) {
     }
     const float* y = oa_;
     if (n > 1) {
-        permute_groups(oa_, ob_, o_rank_, o_groups_, n, true, st_);
+        { audit::GpuSpan timing(__FILE__, __LINE__, "permute-oa-ob", (uint64_t)n*o_rank_*o_groups_*sizeof(float), cs(st_));
+          audit::count(audit::capturing(cs(st_)) ? "permute-oa-ob-read-capture-template" : "permute-oa-ob-read-bytes", (uint64_t)n*o_rank_*o_groups_*sizeof(float));
+          audit::count(audit::capturing(cs(st_)) ? "permute-oa-ob-write-capture-template" : "permute-oa-ob-write-bytes", (uint64_t)n*o_rank_*o_groups_*sizeof(float));
+          audit::kernel_copy(__FILE__, __LINE__, "permute-oa-ob-read", (size_t)n*o_rank_*o_groups_*sizeof(float), cudaMemcpyDeviceToDevice, cs(st_));
+          audit::kernel_copy(__FILE__, __LINE__, "permute-oa-ob-write", (size_t)n*o_rank_*o_groups_*sizeof(float), cudaMemcpyDeviceToDevice, cs(st_));
+          permute_groups(oa_, ob_, o_rank_, o_groups_, n, true, st_); }
         y = ob_;
     }
     lin(B.wo_b, y, ao_, n);
@@ -521,6 +531,8 @@ void DeepSeek4::moe_shared(const Layer& L, int il, int n) {
 
 // A layer from its input to its router's copy.  A prompt batch's MoE (moe_rows) does its own routing.
 void DeepSeek4::layer_head(Layer& L, int il, int n) {
+    audit::Scope audit_layer(nullptr, il, -1, n);
+    audit::GpuSpan audit_head(__FILE__, __LINE__, "attention-head-interval", 0, cs(st_));
     Block& B = blocks_[(size_t) il];
 #ifdef STRATA_GPU_PHASE_PROBE
     gpu_probe::state().active_layer = il;
@@ -576,9 +588,9 @@ void DeepSeek4::save_layer(int il, int64_t pos, uint8_t* dst) {
     const Block& B = blocks_[(size_t) il];
     if (!B.raw) return;
     const size_t raw_row = (size_t) head_dim_ * sizeof(uint16_t);
-    std::memset(dst, 0, layer_extra(B));
+    PA_MEMSET(dst, 0, layer_extra(B));
     ring_runs(pos, window_, raw_ring_, [&](size_t slot, size_t at, size_t m) {
-        ck(cudaMemcpy(dst + slot * raw_row, (const uint8_t*) B.raw + at * raw_row, m * raw_row,
+        ck(PA_COPY_SYNC(dst + slot * raw_row, (const uint8_t*) B.raw + at * raw_row, m * raw_row,
                       cudaMemcpyDeviceToHost),
            "save state");
     });
@@ -588,7 +600,7 @@ void DeepSeek4::save_layer(int il, int64_t pos, uint8_t* dst) {
         const size_t row = (size_t) S->width * sizeof(float);
         for (const float* ring : {S->kv, S->score}) {
             ring_runs(pos, keep_rows(B), B.ring, [&](size_t slot, size_t at, size_t m) {
-                ck(cudaMemcpy(dst + slot * row, (const uint8_t*) ring + at * row, m * row, cudaMemcpyDeviceToHost),
+                ck(PA_COPY_SYNC(dst + slot * row, (const uint8_t*) ring + at * row, m * row, cudaMemcpyDeviceToHost),
                    "save state");
             });
             dst += (size_t) keep_rows(B) * row;
@@ -601,7 +613,7 @@ void DeepSeek4::load_extra(const uint8_t* src, int64_t pos) {
     for (const Block& B : blocks_) {
         if (!B.raw) continue;
         ring_runs(pos, window_, raw_ring_, [&](size_t slot, size_t at, size_t m) {
-            ck(cudaMemcpy((uint8_t*) B.raw + at * raw_row, src + slot * raw_row, m * raw_row, cudaMemcpyHostToDevice),
+            ck(PA_COPY_SYNC((uint8_t*) B.raw + at * raw_row, src + slot * raw_row, m * raw_row, cudaMemcpyHostToDevice),
                "load state");
         });
         src += (size_t) window_ * raw_row;
@@ -610,7 +622,7 @@ void DeepSeek4::load_extra(const uint8_t* src, int64_t pos) {
             const size_t row = (size_t) S->width * sizeof(float);
             for (float* ring : {S->kv, S->score}) {
                 ring_runs(pos, keep_rows(B), B.ring, [&](size_t slot, size_t at, size_t m) {
-                    ck(cudaMemcpy((uint8_t*) ring + at * row, src + slot * row, m * row, cudaMemcpyHostToDevice),
+                    ck(PA_COPY_SYNC((uint8_t*) ring + at * row, src + slot * row, m * row, cudaMemcpyHostToDevice),
                        "load state");
                 });
                 src += (size_t) keep_rows(B) * row;
@@ -634,7 +646,7 @@ size_t DeepSeek4::card_row_bytes() const {
 void DeepSeek4::save_card_rows(int64_t first, int64_t n, uint8_t* dst) {
     if (first < 0 || n < 0 || first + n > opt_.max_context)
         throw std::logic_error("save_rows: the rows are outside the context");
-    ck(cudaStreamSynchronize(cs(st_)), "save rows");
+    ck(PA_WAIT_STREAM(cs(st_)), "save rows");
     for (const Block& B : blocks_) {
         if (!B.raw || !B.ratio || n == 0) continue;
         const int64_t r = B.ratio, b0 = (first + r) / r - 1, b1 = (first + n) / r;   // the blocks these rows end
@@ -642,9 +654,9 @@ void DeepSeek4::save_card_rows(int64_t first, int64_t n, uint8_t* dst) {
              {std::pair{(const uint16_t*) B.rows, head_dim_}, std::pair{(const uint16_t*) B.keys, idx_dim_}}) {
             if (!cache) continue;
             const size_t key = (size_t) width * sizeof(uint16_t);
-            std::memset(dst, 0, (size_t) n * key);
+            PA_MEMSET(dst, 0, (size_t) n * key);
             if (b1 > b0)
-                ck(cudaMemcpy2D(dst + (size_t) (b0 * r + r - 1 - first) * key, (size_t) r * key,
+                ck(PA_COPY2D(dst + (size_t) (b0 * r + r - 1 - first) * key, (size_t) r * key,
                                 (const uint8_t*) cache + (size_t) b0 * key, key, key, (size_t) (b1 - b0),
                                 cudaMemcpyDeviceToHost),
                    "save rows");
@@ -657,7 +669,7 @@ void DeepSeek4::load_card_rows(const uint8_t* src, int64_t from, int64_t count, 
     if (from < 0 || first < from || n < 0 || first + n > from + count || first + n > opt_.max_context)
         throw std::logic_error("load_rows: the rows are outside what was saved");
     cover(first + n);
-    ck(cudaStreamSynchronize(cs(st_)), "load rows");
+    ck(PA_WAIT_STREAM(cs(st_)), "load rows");
     for (const Block& B : blocks_) {
         if (!B.raw || !B.ratio) continue;
         const int64_t r = B.ratio, b0 = (first + r) / r - 1, b1 = (first + n) / r;
@@ -665,7 +677,7 @@ void DeepSeek4::load_card_rows(const uint8_t* src, int64_t from, int64_t count, 
             if (!cache) continue;
             const size_t key = (size_t) width * sizeof(uint16_t);
             if (b1 > b0)
-                ck(cudaMemcpy2D((uint8_t*) cache + (size_t) b0 * key, key, src + (size_t) (b0 * r + r - 1 - from) * key,
+                ck(PA_COPY2D((uint8_t*) cache + (size_t) b0 * key, key, src + (size_t) (b0 * r + r - 1 - from) * key,
                                 (size_t) r * key, key, (size_t) (b1 - b0), cudaMemcpyHostToDevice),
                    "load rows");
             src += (size_t) count * key;

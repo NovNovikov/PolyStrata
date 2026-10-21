@@ -114,7 +114,7 @@ void Lfm2Moe::load_layer(int il) {
         throw std::runtime_error(blk(il, "exp_probs_b.bias") + " is " + (b ? shape_of(*b) : "missing") +
                                  ", expected F32 [" + std::to_string(n_expert_) + "]");
     home(*b).payload(*b);
-    std::memcpy(B.probs_b.data(), home(*b).data(*b), (size_t) n_expert_ * sizeof(float));
+    PA_MEMCPY(B.probs_b.data(), home(*b).data(*b), (size_t) n_expert_ * sizeof(float));
     B.probs_b_dev = upload(b, blk(il, "exp_probs_b.bias"), n_expert_, 1, kF32);
 }
 
@@ -160,7 +160,7 @@ void Lfm2Moe::assign_scratch() {
 void Lfm2Moe::save_layer(int il, int64_t, uint8_t* dst) {
     const Block& B = blocks_[(size_t) il];
     if (!B.past) return;
-    ck(cudaMemcpy(dst + (size_t) (B.past - state_) * sizeof(float), B.past, size_t(2) * n_embd_ * sizeof(float),
+    ck(PA_COPY_SYNC(dst + (size_t) (B.past - state_) * sizeof(float), B.past, size_t(2) * n_embd_ * sizeof(float),
                   cudaMemcpyDeviceToHost),
        "save state");
 }
@@ -170,12 +170,12 @@ size_t Lfm2Moe::card_row_bytes() const { return (size_t) n_attn_ * 2 * n_kv_ * h
 void Lfm2Moe::save_card_rows(int64_t first, int64_t n, uint8_t* dst) {
     if (first < 0 || n < 0 || first + n > opt_.max_context)
         throw std::logic_error("save_rows: the rows are outside the context");
-    ck(cudaStreamSynchronize(cs(st_)), "save rows");
+    ck(PA_WAIT_STREAM(cs(st_)), "save rows");
     const size_t row = (size_t) n_kv_ * head_dim_ * sizeof(uint16_t), at = (size_t) first * row, bytes = (size_t) n * row;
     for (const Block& B : blocks_) {
         if (!B.keys || bytes == 0) continue;
         for (const uint16_t* cache : {B.keys, B.vals}) {
-            ck(cudaMemcpy(dst, (const uint8_t*) cache + at, bytes, cudaMemcpyDeviceToHost), "save rows");
+            ck(PA_COPY_SYNC(dst, (const uint8_t*) cache + at, bytes, cudaMemcpyDeviceToHost), "save rows");
             dst += bytes;
         }
     }
@@ -185,13 +185,13 @@ void Lfm2Moe::load_card_rows(const uint8_t* src, int64_t from, int64_t count, in
     if (from < 0 || first < from || n < 0 || first + n > from + count || first + n > opt_.max_context)
         throw std::logic_error("load_rows: the rows are outside what was saved");
     cover(first + n);
-    ck(cudaStreamSynchronize(cs(st_)), "load rows");
+    ck(PA_WAIT_STREAM(cs(st_)), "load rows");
     const size_t row = (size_t) n_kv_ * head_dim_ * sizeof(uint16_t), at = (size_t) first * row, bytes = (size_t) n * row;
     const size_t skip = (size_t) (first - from) * row, all = (size_t) count * row;
     for (const Block& B : blocks_) {
         if (!B.keys || bytes == 0) continue;
         for (uint16_t* cache : {B.keys, B.vals}) {
-            ck(cudaMemcpy((uint8_t*) cache + at, src + skip, bytes, cudaMemcpyHostToDevice), "load rows");
+            ck(PA_COPY_SYNC((uint8_t*) cache + at, src + skip, bytes, cudaMemcpyHostToDevice), "load rows");
             src += all;
         }
     }
@@ -343,7 +343,7 @@ bool Lfm2Moe::route_card(int il, int n, int32_t* ids, float* w) {
 
 // No shared expert: the routed experts' sum starts from nothing.
 void Lfm2Moe::moe_shared(const Layer&, int, int n) {
-    ck(cudaMemsetAsync(fo_, 0, (size_t) n * n_embd_ * sizeof(float), cs(st_)), "experts");
+    ck(PA_ZERO(fo_, 0, (size_t) n * n_embd_ * sizeof(float), cs(st_)), "experts");
 }
 
 }  // namespace strata::poly

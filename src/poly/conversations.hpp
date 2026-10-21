@@ -13,6 +13,7 @@
 //     size_t row_bytes() const;    void save_rows(int64_t first, int64_t n, uint8_t*);
 //     void load_rows(const uint8_t* src, int64_t from, int64_t count, int64_t first, int64_t n);
 #pragma once
+#include "transfer_audit.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -324,9 +325,9 @@ public:
     /// RESTORE <path>: the file's conversation takes the engine whole; the outgoing one is given up, as the
     /// Qwen engine's restore does (the parked ones stay).  `floor` is the RAM floor, the conversation cache's
     /// (`conversation-cache-min-free-mib`).  What is asked before the engine is touched: the parse's peak and
-    /// then the blobs, that copy the payloads — short twice (a first short gives the sessions' copies up, as
+    /// then the blobs, that copy the payloads Р Р†Р вЂљРІР‚Сњ short twice (a first short gives the sessions' copies up, as
     /// Qwen's reclaim does), or the file unknown, not this engine's format any more, or no RAM, is a refusal
-    /// `err` says.  The engine's writes begin after; a failure there is not this method's to answer — the
+    /// `err` says.  The engine's writes begin after; a failure there is not this method's to answer Р Р†Р вЂљРІР‚Сњ the
     /// caller stops the engine, for a device state change began.  `touched` is set once the engine's writes
     /// begin: the caller answers a failure after it with the protocol's fatal line, and refuses before it.
     SLoad sideload(const std::filesystem::path& path, int64_t floor_mib, std::string& err, int64_t& tokens,
@@ -531,6 +532,7 @@ private:
     struct Blob {
         std::unique_ptr<uint8_t[]> p;
         size_t bytes = 0;
+        ~Blob() { if(p) audit::blob_memory(bytes, false); }
     };
     using BlobPtr = std::shared_ptr<const Blob>;
     struct Checkpoint {
@@ -646,6 +648,7 @@ private:
         auto b = std::make_shared<Blob>();
         b->p.reset(new (std::nothrow) uint8_t[bytes]);
         b->bytes = bytes;
+        if(b->p) audit::blob_memory(bytes, true);
         return b->p ? b : nullptr;
     }
 
@@ -735,6 +738,8 @@ private:
     // read after that cannot be come back to and is dropped.  With a session dir the whole conversation goes to a
     // file there instead of the host memory.  False: it cannot be kept.
     bool park(size_t keep) {
+        audit::Scope audit_phase("park");
+        audit::HostSpan audit_span(__FILE__, __LINE__, "session-park-total");
         Slot& s = cur();
         const bool disk = !o_.session_dir.empty();
         if ((o_.park_mib < 1 && !disk) || o_.park_slots < 1 || s.marks.empty() || s.marks.back().pos < o_.park_min)
@@ -1012,6 +1017,8 @@ private:
     // the conversation.  False: a file of the chain is gone or not this engine's any more (the model or its row
     // size changed; the files go, and the caller forgets the conversation), or the host could not take the states.
     bool materialize(size_t i) {
+        audit::Scope audit_phase("restore");
+        audit::HostSpan audit_span(__FILE__, __LINE__, "session-restore-total");
         Slot& s = slots_[i];
         std::vector<std::filesystem::path> chain;
         if (!SessionFile::chain_of(o_.session_dir / s.disk, chain)) {
@@ -1100,6 +1107,8 @@ private:
     // The rows of a parked conversation, from its files, one record at a time: the host holds one record, not
     // the whole conversation.  The files are not walked again for the checkpoints: where their rows begin is known.
     bool load_rows_from_file(size_t i, int64_t need) {
+        audit::Scope audit_phase("restore");
+        audit::HostSpan audit_span(__FILE__, __LINE__, "session-restore-total");
         Slot& s = slots_[i];
         for (size_t k = 0; k < s.chain.size(); ++k) {
             const typename Slot::File& f = s.chain[k];

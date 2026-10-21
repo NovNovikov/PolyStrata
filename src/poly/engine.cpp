@@ -380,12 +380,15 @@ Engine::~Engine() {
         swap_cv_.notify_all();
         follower_.join();
     }
-    if (swap_st_) cudaStreamSynchronize(cs(swap_st_));
-    if (up_) cudaStreamSynchronize(cs(up_));
-    if (rs_) cudaStreamSynchronize(cs(rs_));
-    if (st_) cudaStreamSynchronize(cs(st_));
+    if (swap_st_) PA_WAIT_STREAM(cs(swap_st_));
+    if (up_) PA_WAIT_STREAM(cs(up_));
+    if (rs_) PA_WAIT_STREAM(cs(rs_));
+    if (st_) PA_WAIT_STREAM(cs(st_));
     workers_.reset();
+    audit::set_phase("shutdown");
     expert_dma_.reset();   // unregister sources before their resident RAM is unlocked and freed
+    audit::release();
+    audit::report("shutdown");
     resident_.reset();
     mmq_.reset();
     for (void* p : dev_allocs_) cudaFree(p);
@@ -469,7 +472,7 @@ void Engine::hfree(void* p, const char* what) {
 //
 // They used to be plain cudaMemcpy()/cudaMemset(), which run on the implicit (legacy) stream.  That stream is
 // NOT ordered against this engine's - every one of them is created with cudaStreamNonBlocking - so none of the
-// cudaStreamSynchronize(cs(st_)) that guard VRAM waits for those copies.  The load fills the expert cache with
+// PA_WAIT_STREAM(cs(st_)) that guard VRAM waits for those copies.  The load fills the expert cache with
 // them, and the first request whose prompt is longer than kKvGrow reaches cover() with rows to map: cover()
 // asks shrink_cache() for the VRAM, and shrink_cache() gives pieces back (vmm_unmap, "the card must be done
 // with them") while the load's last copies are still writing them.  The card then says
@@ -477,11 +480,11 @@ void Engine::hfree(void* p, const char* what) {
 // any architecture (LFM2.5 and Qwen3.6 alike), and never for a shorter one, whose cover() has nothing to map
 // and so never gives VRAM back.  On st_ the same copies are behind the syncs that were already there.
 void Engine::h2d(void* dst, const void* src, size_t bytes) {
-    ck(cudaMemcpyAsync(dst, src, bytes, cudaMemcpyHostToDevice, cs(st_)), "a copy into VRAM");
+    ck(PA_COPY(dst, src, bytes, cudaMemcpyHostToDevice, cs(st_)), "a copy into VRAM");
 }
 
 void Engine::zero_vram(void* dst, size_t bytes) {
-    ck(cudaMemsetAsync(dst, 0, bytes, cs(st_)), "zeroing VRAM");
+    ck(PA_ZERO(dst, 0, bytes, cs(st_)), "zeroing VRAM");
 }
 
 // A container whose memory is not much more than the model's files.  The file cache cannot hold them beside
@@ -732,10 +735,10 @@ void Engine::copy_seq(int from, int to) {
         for (size_t i = 0; i < bufs_.size(); ++i) {
             const Buf& b = src[i];
             const size_t bytes = b.per ? (size_t) ((pos + b.per - 1) / b.per) * b.bytes : b.bytes;
-            if (bytes) ck(cudaMemcpyAsync(bufs_[i].p, b.p, bytes, cudaMemcpyDeviceToDevice, cs(st_)), "copy_seq");
+            if (bytes) ck(PA_COPY(bufs_[i].p, b.p, bytes, cudaMemcpyDeviceToDevice, cs(st_)), "copy_seq");
         }
-        ck(cudaMemcpyAsync(state_, state, state_n_ * sizeof(float), cudaMemcpyDeviceToDevice, cs(st_)), "copy_seq");
-        ck(cudaStreamSynchronize(cs(st_)), "copy_seq");
+        ck(PA_COPY(state_, state, state_n_ * sizeof(float), cudaMemcpyDeviceToDevice, cs(st_)), "copy_seq");
+        ck(PA_WAIT_STREAM(cs(st_)), "copy_seq");
         pos_ = pos;
         images_ = images;
         ++images_set_;
@@ -813,7 +816,7 @@ void Engine::settle_swaps() {
     for (int j = 0; j < n_swap_; ++j)
         while (swap_[(size_t) j].at.load() == Swap::kAsked && !failed()) std::this_thread::yield();
     if (failed()) throw std::runtime_error("expert upload: " + swap_error_);
-    ck(cudaStreamSynchronize(cs(swap_st_)), "expert upload");
+    ck(PA_WAIT_STREAM(cs(swap_st_)), "expert upload");
     follow(0);
 }
 
@@ -830,7 +833,7 @@ void Engine::shrink_cache(size_t bytes) {
     size_t cut = arena_.mapped;
     for (size_t i = arena_.pieces.size(); i > 0 && arena_.mapped - cut < bytes; --i) cut -= arena_.pieces[i - 1].second;
     settle_swaps();
-    ck(cudaStreamSynchronize(cs(st_)), "the expert cache");
+    ck(PA_WAIT_STREAM(cs(st_)), "the expert cache");
     const size_t ne = (size_t) n_expert_, end = cut > kTail ? cut - kTail : 0;   // kTail stays past the last slot
     struct Held {
         float recent;
@@ -866,7 +869,7 @@ void Engine::shrink_cache(size_t bytes) {
         size_t& k = next[(size_t) L.trade];
         if (k < l.size() && more(x, l[k])) {
             uint8_t*& to = layers_[(size_t) l[k].il].slot[(size_t) l[k].e];
-            ck(cudaMemcpyAsync(to, from, L.slot_bytes, cudaMemcpyDeviceToDevice, cs(st_)), "the expert cache");
+            ck(PA_COPY(to, from, L.slot_bytes, cudaMemcpyDeviceToDevice, cs(st_)), "the expert cache");
             from = to;
             to = nullptr;
             ++k;
@@ -875,7 +878,7 @@ void Engine::shrink_cache(size_t bytes) {
         }
         --cached_;
     }
-    ck(cudaStreamSynchronize(cs(st_)), "the expert cache");
+    ck(PA_WAIT_STREAM(cs(st_)), "the expert cache");
     vmm_unmap(arena_, cut);
     if (cut > kTail) zero_vram(exp_ + end, kTail);
     exp_at_ = std::min(exp_at_, end);
@@ -1183,7 +1186,7 @@ Dev Engine::upload(const TensorInfo* t, const std::string& name, int64_t n_in, i
 
     std::vector<float> f(count);
     const ggml_type_traits* traits = ggml_get_type_traits((ggml_type) t->type);
-    if (t->type == kTypeF32) std::memcpy(f.data(), home(*t).data(*t), bytes);
+    if (t->type == kTypeF32) PA_MEMCPY(f.data(), home(*t).data(*t), bytes);
     else if (traits && traits->to_float) traits->to_float(home(*t).data(*t), f.data(), (int64_t) count);
     else throw std::runtime_error(t->name + " is " + shape_of(*t) + ", a type this engine cannot read");
     if (fix)
@@ -1211,8 +1214,8 @@ void Engine::print_memory(const char* when) const {
     // Opt-in integration check, outside timed generation: compare every published staging copy and its
     // zero tail with the immutable resident RAM source. No model-file reads and no extra device allocation.
     if (opt_.no_disk && resident_stage_active_ && std::getenv("STRATA_VERIFY_STAGE_CACHE")) {
-        ck(cudaStreamSynchronize(cs(st_)), "checking staging cache readers");
-        ck(cudaStreamSynchronize(cs(swap_st_)), "checking staging cache uploads");
+        ck(PA_WAIT_STREAM(cs(st_)), "checking staging cache readers");
+        ck(PA_WAIT_STREAM(cs(swap_st_)), "checking staging cache uploads");
         std::vector<uint8_t> check(64u << 10);
         size_t checked = 0;
         for (size_t j = 0; j < resident_stage_owners_.size(); ++j) {
@@ -1225,7 +1228,7 @@ void Engine::print_memory(const char* when) const {
             if (L.slot[e] != stage_ + j * slot_max_) throw std::logic_error("staging cache owner mismatch");
             for (size_t at = 0; at < slot_max_;) {
                 const size_t n = std::min(check.size(), (at < raw ? raw : slot_max_) - at);
-                ck(cudaMemcpy(check.data(), L.slot[e] + at, n, cudaMemcpyDeviceToHost), "checking cache bytes");
+                ck(PA_COPY_SYNC(check.data(), L.slot[e] + at, n, cudaMemcpyDeviceToHost), "checking cache bytes");
                 if (at < raw) {
                     if (std::memcmp(check.data(), h.gate + at, n)) throw std::runtime_error("staging cache payload mismatch");
                 } else if (std::any_of(check.begin(), check.begin() + n, [](uint8_t b) { return b != 0; })) {
@@ -1560,7 +1563,7 @@ void Engine::start_swaps() {
     }
     swap_ = std::make_unique<Swap[]>((size_t) opt_.expert_swaps);
     cudaStream_t up = nullptr;
-    ck(cudaStreamCreateWithFlags(&up, cudaStreamNonBlocking), "cudaStreamCreate");
+    ck(PA_CREATE_STREAM(&up, cudaStreamNonBlocking), "cudaStreamCreate");
     swap_st_ = up;
     const int count = opt_.no_disk ? std::min(opt_.expert_swaps, (int) resident_stage_owners_.size()) : opt_.expert_swaps;
     for (; n_swap_ < count; ++n_swap_) {
@@ -1589,7 +1592,7 @@ void Engine::resize_card_cache(int mib) {
     // requests; unfreeze_experts() ends the freeze before one begins).
     if (freeze_experts_) return;
     OnCard here(device_, split_);
-    ck(cudaStreamSynchronize(cs(st_)), "resize");
+    ck(PA_WAIT_STREAM(cs(st_)), "resize");
     const auto failed = [&] {
         std::lock_guard<std::mutex> l(swap_m_);
         return !swap_error_.empty();
@@ -1597,7 +1600,7 @@ void Engine::resize_card_cache(int mib) {
     for (int j = 0; j < n_swap_; ++j)   // one that is asked for is the follower's, now or in a moment
         while (swap_[(size_t) j].at.load() == Swap::kAsked && !failed()) std::this_thread::yield();
     if (failed()) throw std::runtime_error("expert upload: " + swap_error_);
-    if (swap_st_) ck(cudaStreamSynchronize(cs(swap_st_)), "resize");
+    if (swap_st_) ck(PA_WAIT_STREAM(cs(swap_st_)), "resize");
     for (int j = 0; j < n_swap_; ++j) swap_[(size_t) j].at.store(Swap::kFree);
     std::fill(coming_.begin(), coming_.end(), (uint8_t) 0);
     for (Layer& L : layers_) std::fill(L.slot.begin(), L.slot.end(), nullptr);
@@ -1662,8 +1665,8 @@ bool Engine::mind_card_vram() {
 // back.  VRAM the card does not give leaves the buffer as it was.
 void Engine::widen_stage() {
     if (stage_lent_ || stage_wide_ <= stage_narrow_) return;
-    if (up_) ck(cudaStreamSynchronize(cs(up_)), "the expert staging buffer");
-    ck(cudaStreamSynchronize(cs(st_)), "the expert staging buffer");
+    if (up_) ck(PA_WAIT_STREAM(cs(up_)), "the expert staging buffer");
+    ck(PA_WAIT_STREAM(cs(st_)), "the expert staging buffer");
     const size_t want = up_to(stage_wide_ + 256 + kTail, grain_) - stage_map_.mapped;
     size_t free_b = 0, total_b = 0;
     ck(cudaMemGetInfo(&free_b, &total_b), "cudaMemGetInfo");
@@ -1690,8 +1693,8 @@ void Engine::widen_stage() {
 // up for it, the most used experts it lacks.
 void Engine::narrow_stage() {
     if (!stage_lent_) return;
-    if (up_) ck(cudaStreamSynchronize(cs(up_)), "the expert staging buffer");
-    ck(cudaStreamSynchronize(cs(st_)), "the expert staging buffer");
+    if (up_) ck(PA_WAIT_STREAM(cs(up_)), "the expert staging buffer");
+    ck(PA_WAIT_STREAM(cs(st_)), "the expert staging buffer");
     vmm_unmap(stage_map_, stage_narrow_ + 256 + kTail);
     stage_bytes_ = stage_narrow_;
     staged_il_ = -1;
@@ -1741,8 +1744,8 @@ int Engine::grow_cache(size_t bytes) {
     // As shrink_cache(): a frozen answer's cache does not change under it.
     if (freeze_experts_) return 0;
     settle_swaps();
-    ck(cudaStreamSynchronize(cs(st_)), "the expert cache");
-    if (swap_st_) ck(cudaStreamSynchronize(cs(swap_st_)), "the expert cache");
+    ck(PA_WAIT_STREAM(cs(st_)), "the expert cache");
+    if (swap_st_) ck(PA_WAIT_STREAM(cs(swap_st_)), "the expert cache");
     struct Cand {
         int il, e;
         double value;
@@ -1823,10 +1826,10 @@ void Engine::follow_loop() {
         lk.unlock();
         const Layer& L = layers_[(size_t) s->il];
         const size_t e = (size_t) s->e, gu = L.gu_bytes;
-        std::memcpy(s->pinned, L.exp_gate + e * L.gu_stride, gu);
-        std::memcpy(s->pinned + gu, L.exp_up + e * L.gu_stride, gu);
-        std::memcpy(s->pinned + 2 * gu, L.exp_down + e * L.d_bytes, L.d_bytes);
-        cudaError_t err = cudaMemcpyAsync(s->slot, s->pinned, 2 * gu + L.d_bytes, cudaMemcpyHostToDevice, cs(swap_st_));
+        PA_MEMCPY(s->pinned, L.exp_gate + e * L.gu_stride, gu);
+        PA_MEMCPY(s->pinned + gu, L.exp_up + e * L.gu_stride, gu);
+        PA_MEMCPY(s->pinned + 2 * gu, L.exp_down + e * L.d_bytes, L.d_bytes);
+        cudaError_t err = PA_COPY(s->slot, s->pinned, 2 * gu + L.d_bytes, cudaMemcpyHostToDevice, cs(swap_st_));
         if (err == cudaSuccess) err = cudaEventRecord(s->done, cs(swap_st_));
         lk.lock();
         if (err != cudaSuccess) {
@@ -1877,7 +1880,9 @@ void Engine::follow_resident(int available) {
         const Layer& L = layers_[(size_t) in.il];
         const auto h = host_expert(L, (size_t) in.e);
         sources.emplace_back((size_t) (h.gate - expert_dma_->base()), 2 * L.gu_bytes + L.d_bytes);
+        audit::count("cache-upload-requested", 2*L.gu_bytes+L.d_bytes, audit::expert_id(in.il, in.e));
         if (old >= 0) {
+            audit::cache_evict(old / n_expert_, old % n_expert_, "cache-replacement");
             layers_[(size_t) old / n_expert_].slot[(size_t) old % n_expert_] = nullptr;
             --cached_;
             --resident_stage_used_;
@@ -1898,6 +1903,7 @@ void Engine::follow_resident(int available) {
     const DmaCost before = expert_dma_->cost();
     expert_dma_->prepare(std::move(sources));
     if (stage_trace_) add_cost(stage_stats_.reg_decode, expert_dma_->cost(), before);
+    audit::GpuSpan audit_uploads(__FILE__, __LINE__, "cache-upload-interval", 0, cs(swap_st_));
     expert_dma_->begin(cs(swap_st_));
     for (int j = 0; j < n_swap_; ++j) {
         Swap& s = swap_[(size_t) j];
@@ -1905,9 +1911,10 @@ void Engine::follow_resident(int available) {
         const Layer& L = layers_[(size_t) s.il];
         const auto h = host_expert(L, (size_t) s.e);
         const size_t raw = 2 * L.gu_bytes + L.d_bytes;
-        ck(cudaMemcpyAsync(s.slot, h.gate, raw, cudaMemcpyHostToDevice, cs(swap_st_)), "no-disk: cache upload");
-        ck(cudaMemsetAsync(s.slot + raw, 0, slot_max_ - raw, cs(swap_st_)), "no-disk: cache tail");
+        ck(PA_COPY(s.slot, h.gate, raw, cudaMemcpyHostToDevice, cs(swap_st_)), "no-disk: cache upload");
+        ck(PA_ZERO(s.slot + raw, 0, slot_max_ - raw, cs(swap_st_)), "no-disk: cache tail");
         ck(cudaEventRecord(s.done, cs(swap_st_)), "no-disk: cache arrival");
+        audit::count("cache-upload-sent", raw, audit::expert_id(s.il, s.e));
         s.at.store(Swap::kSent);
     }
     expert_dma_->end(cs(swap_st_));
@@ -1918,12 +1925,13 @@ void Engine::follow_resident(int available) {
 void Engine::drop_resident_stage_cache() {
     if (!opt_.no_disk || !resident_stage_active_) return;
     if (!swap_error_.empty()) throw std::runtime_error("expert upload: " + swap_error_);
-    ck(cudaStreamSynchronize(cs(st_)), "no-disk: releasing decode cache readers");
-    ck(cudaStreamSynchronize(cs(swap_st_)), "no-disk: releasing decode cache uploads");
+    ck(PA_WAIT_STREAM(cs(st_)), "no-disk: releasing decode cache readers");
+    ck(PA_WAIT_STREAM(cs(swap_st_)), "no-disk: releasing decode cache uploads");
     const size_t discarded = resident_stage_used_;
     for (size_t j = 0; j < resident_stage_owners_.size(); ++j) {
         const int owner = resident_stage_owners_[j];
         if (owner < 0) continue;
+        audit::cache_evict(owner / n_expert_, owner % n_expert_, "cache-prefill-invalidation");
         Layer& L = layers_[(size_t) owner / n_expert_];
         const size_t e = (size_t) owner % n_expert_;
         if (!L.resident_host[e].gate || L.slot[e] != stage_ + j * slot_max_)
@@ -1933,7 +1941,11 @@ void Engine::drop_resident_stage_cache() {
     }
     for (int j = 0; j < n_swap_; ++j) {
         Swap& s = swap_[(size_t) j];
-        if (s.at.load() != Swap::kFree) coming_[(size_t) s.il * n_expert_ + s.e] = 0;
+        if (s.at.load() != Swap::kFree) {
+            audit::count(s.at.load()==Swap::kSent ? "cache-upload-discarded-before-admission" : "cache-upload-cancelled-before-copy",
+                         2*layers_[(size_t)s.il].gu_bytes+layers_[(size_t)s.il].d_bytes, audit::expert_id(s.il,s.e));
+            coming_[(size_t) s.il * n_expert_ + s.e] = 0;
+        }
         s.at.store(Swap::kFree);
     }
     std::fill(resident_stage_owners_.begin(), resident_stage_owners_.end(), -1);
@@ -1971,6 +1983,7 @@ void Engine::follow(int written) {
             const cudaError_t arrived = cudaEventQuery(s.done);
             if (arrived == cudaErrorNotReady) continue;
             ck(arrived, "expert upload");
+            audit::cache_upload(s.il, s.e, 2*layers_[(size_t)s.il].gu_bytes + layers_[(size_t)s.il].d_bytes);
             layers_[(size_t) s.il].slot[(size_t) s.e] = s.slot;
             if (opt_.no_disk) {
                 resident_stage_owners_.at(s.stage_slot) = s.il * n_expert_ + s.e;
@@ -2133,11 +2146,11 @@ void Engine::load(const Options& o) {
                              "(STRATA_FREEZE_EXPERTS): greedy answers are a function of the request alone, "
                              "and the only cache change after load is the serve VRAM resize\n");
     // the staging counters: what the buffer copied and what it already held. Nothing else changes.
-    stage_trace_ = std::getenv("STRATA_TRACE_STAGING") != nullptr;
+    stage_trace_ = audit::enabled() || std::getenv("STRATA_TRACE_STAGING") != nullptr;
     if (stage_trace_)
         std::fprintf(stderr, "strata-poly: the staging copies are counted (STRATA_TRACE_STAGING)\n");
     cudaStream_t st = nullptr;
-    ck(cudaStreamCreateWithFlags(&st, cudaStreamNonBlocking), "cudaStreamCreate");
+    ck(PA_CREATE_STREAM(&st, cudaStreamNonBlocking), "cudaStreamCreate");
     st_ = st;
     for (void*& row : ev_row_) {
         cudaEvent_t ev = nullptr;
@@ -2228,7 +2241,7 @@ void Engine::load(const Options& o) {
     // The weights and the expert cache are written on st_ now (h2d(), zero_vram()): the load is not over until
     // those are done, so that everything after it - a read of what the cache holds, the first request's cover()
     // mapping the attention caches - finds what it expects.
-    ck(cudaStreamSynchronize(cs(st_)), "the load");
+    ck(PA_WAIT_STREAM(cs(st_)), "the load");
     // A card of a split that has less free beside its layers than the reserve it keeps by default runs out of VRAM
     // in a later request, where one card alone can do nothing else.  It may be that another program held VRAM when
     // the split was made.  A larger reserve asked for (--vram-reserve-mib) only leaves the card without experts.
@@ -2429,7 +2442,7 @@ void Engine::alloc() {
         iota_ = (int32_t*) dmalloc(rr * sizeof(int32_t), "iota_ (row indices)");
         std::vector<int32_t> ramp(rr);
         std::iota(ramp.begin(), ramp.end(), 0);
-        ck(cudaMemcpy(iota_, ramp.data(), rr * sizeof(int32_t), cudaMemcpyHostToDevice), "scratch");
+        ck(PA_COPY_SYNC(iota_, ramp.data(), rr * sizeof(int32_t), cudaMemcpyHostToDevice), "scratch");
 
         // File-backed staging serves one layer at a time. No-disk also uses these bytes as a decode cache
         // spanning layers: an explicit size may exceed one layer. Keep the original automatic/default cap.
@@ -2460,7 +2473,7 @@ void Engine::alloc() {
             *e = ev;
         }
         cudaStream_t up = nullptr;
-        ck(cudaStreamCreateWithFlags(&up, cudaStreamNonBlocking), "cudaStreamCreate");
+        ck(PA_CREATE_STREAM(&up, cudaStreamNonBlocking), "cudaStreamCreate");
         up_ = up;
         ids_.resize(rr);
         first_.resize((size_t) n_expert_);
@@ -2471,7 +2484,7 @@ void Engine::alloc() {
             *e = ev;
         }
         cudaStream_t rs = nullptr;
-        ck(cudaStreamCreateWithFlags(&rs, cudaStreamNonBlocking), "cudaStreamCreate");
+        ck(PA_CREATE_STREAM(&rs, cudaStreamNonBlocking), "cudaStreamCreate");
         rs_ = rs;
     }
     use_.assign(layers_.size() * n_expert_, 0);
@@ -2508,13 +2521,13 @@ void Engine::save_profile() const {
 
 void Engine::reset() {
     OnCard here(device_, split_);
-    ck(cudaMemsetAsync(state_, 0, state_n_ * sizeof(float), cs(st_)), "reset");
+    ck(PA_ZERO(state_, 0, state_n_ * sizeof(float), cs(st_)), "reset");
     pos_ = 0;
     ahead_pos_ = -1;
     if (next_) next_->reset();
 }
 
-// STRATA_FREEZE_EXPERTS: the freeze is for the engine's whole run, not one request — a greedy answer
+// STRATA_FREEZE_EXPERTS: the freeze is for the engine's whole run, not one request Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р Р†РІР‚С›РЎС›Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В Р вЂ№Р В Р Р‹Р РЋРІвЂћСћ a greedy answer
 // has to be a function of the request alone, and with a cache that changes between requests it is
 // not.  The followers' uploads pile up in their slots (kSent) and are claimed by the one call below,
 // which the operator's VRAM resize makes between requests; after it, unfreeze stays off and the
@@ -2531,8 +2544,9 @@ void Engine::refreeze_experts() {
 }
 
 void Engine::save_state(uint8_t* dst) {
+    audit::HostSpan audit_span(__FILE__, __LINE__, "checkpoint-save");
     OnCard here(device_, split_);
-    ck(cudaStreamSynchronize(cs(st_)), "save state");
+    ck(PA_WAIT_STREAM(cs(st_)), "save state");
     for (int il = 0; il < (int) layers_.size(); ++il)
         if (runs(il)) save_layer(il, pos_, dst);
     save_last(dst);
@@ -2543,15 +2557,16 @@ void Engine::save_state(uint8_t* dst) {
 // next one with.  It lies behind the layers' state.
 void Engine::save_last(uint8_t* dst) {
     if (!draft_) return;
-    ck(cudaMemcpy(dst + rec_n_ * sizeof(float), hn_, (size_t) n_embd_ * sizeof(float), cudaMemcpyDeviceToHost),
+    ck(PA_COPY_SYNC(dst + rec_n_ * sizeof(float), hn_, (size_t) n_embd_ * sizeof(float), cudaMemcpyDeviceToHost),
        "save state");
 }
 
 void Engine::load_state(const uint8_t* src, int64_t pos) {
+    audit::HostSpan audit_span(__FILE__, __LINE__, "checkpoint-load");
     if (pos < 0 || pos > opt_.max_context) throw std::logic_error("load_state: the position is outside the context");
     OnCard here(device_, split_);
-    ck(cudaStreamSynchronize(cs(st_)), "load state");
-    ck(cudaMemcpy(state_, src, state_n_ * sizeof(float), cudaMemcpyHostToDevice), "load state");
+    ck(PA_WAIT_STREAM(cs(st_)), "load state");
+    ck(PA_COPY_SYNC(state_, src, state_n_ * sizeof(float), cudaMemcpyHostToDevice), "load state");
     load_extra(src + state_n_ * sizeof(float), pos);
     pos_ = pos;
     ahead_pos_ = -1;
@@ -2559,12 +2574,14 @@ void Engine::load_state(const uint8_t* src, int64_t pos) {
 }
 
 void Engine::save_rows(int64_t first, int64_t n, uint8_t* dst) {
+    audit::HostSpan audit_span(__FILE__, __LINE__, "rows-save");
     OnCard here(device_, split_);
     save_card_rows(first, n, dst);
     if (next_) next_->save_rows(first, n, dst + (size_t) n * card_row_bytes());
 }
 
 void Engine::load_rows(const uint8_t* src, int64_t from, int64_t count, int64_t first, int64_t n) {
+    audit::HostSpan audit_span(__FILE__, __LINE__, "rows-load");
     OnCard here(device_, split_);
     load_card_rows(src, from, count, first, n);
     if (next_) next_->load_rows(src + (size_t) count * card_row_bytes(), from, count, first, n);
@@ -2589,7 +2606,7 @@ const Stats& Engine::stats() const {
 
 void Engine::embed(int32_t token, float* dst) const {
     const uint8_t* row = tok_embd_ + (size_t) token * tok_row_;
-    if (tok_type_ == kTypeF32) std::memcpy(dst, row, (size_t) n_embd_ * sizeof(float));
+    if (tok_type_ == kTypeF32) PA_MEMCPY(dst, row, (size_t) n_embd_ * sizeof(float));
     else ggml_get_type_traits((ggml_type) tok_type_)->to_float(row, dst, n_embd_);
 }
 
@@ -2614,7 +2631,7 @@ const Image* Engine::image_at(int64_t row) const {
 // picture's row, which goes in as the encoder made it (llama.cpp scales token embeddings only).
 bool Engine::input(int32_t token, int64_t row, float* dst) const {
     if (const Image* im = image_at(row)) {
-        std::memcpy(dst, im->rows + (size_t) (row - im->at) * n_embd_, (size_t) n_embd_ * sizeof(float));
+        PA_MEMCPY(dst, im->rows + (size_t) (row - im->at) * n_embd_, (size_t) n_embd_ * sizeof(float));
         return true;
     }
     if (token < 0 || token >= n_vocab_) throw std::runtime_error("a token id is outside the vocabulary");
@@ -2625,8 +2642,8 @@ bool Engine::input(int32_t token, int64_t row, float* dst) const {
 void Engine::dbg(const char* name, int il, const float* dev, int n) {
     if (!opt_.dump) return;
     std::vector<float> h((size_t) n);
-    ck(cudaStreamSynchronize(cs(st_)), "dump");
-    ck(cudaMemcpy(h.data(), dev, (size_t) n * sizeof(float), cudaMemcpyDeviceToHost), "dump");
+    ck(PA_WAIT_STREAM(cs(st_)), "dump");
+    ck(PA_COPY_SYNC(h.data(), dev, (size_t) n * sizeof(float), cudaMemcpyDeviceToHost), "dump");
     double sum = 0, abs = 0;
     for (float v : h) {
         sum += v;
@@ -2678,8 +2695,9 @@ bool Engine::batched(const Layer& L, int n) const { return mmq_ && L.mmq && n >=
 
 // The router's scores, and the copies of them and of the experts' input to the host.
 void Engine::moe_router(const Layer& L, int n) {
+    audit::HostSpan audit_span(__FILE__, __LINE__, "router-submit");
     router_scores(L, n);
-    copy2(rl_, h_rl_, n * n_expert_, xn_, h_x_, n * n_embd_, st_);
+    PA_COPY2_KERNEL(rl_, h_rl_, n * n_expert_, xn_, h_x_, n * n_embd_, st_);
 }
 
 // The routed experts of tokens that come a few at a time.  moe_router() is on its way, with ev_ behind it.  True
@@ -2688,7 +2706,7 @@ void Engine::moe_router(const Layer& L, int n) {
 bool Engine::moe(Layer& L, int il, int n, const std::function<void()>* first) {
     const size_t e_row = (size_t) n_embd_;
     Clock::time_point t0 = Clock::now();
-    ck(cudaEventSynchronize((cudaEvent_t) ev_), "router");
+    ck(PA_WAIT_EVENT((cudaEvent_t) ev_), "router");
     stats_.route_wait_ms += ms_since(t0);
 
     const float limit = clamp_exp_[(size_t) il];
@@ -2719,6 +2737,7 @@ bool Engine::moe(Layer& L, int il, int n, const std::function<void()>* first) {
                 ++use_[(size_t) il * n_expert_ + e];
                 if (n_swap_ > 0 || opt_.no_disk_expert_exchange) recent_[(size_t) il * n_expert_ + e] += 1.f;
                 if (const uint8_t* s = L.slot[e]) {
+                    audit::cache_use(il, (int)e, at+t);
                     cached[n_cached++] = {s, w[k], at + t};
                     continue;
                 }
@@ -2752,6 +2771,7 @@ bool Engine::moe(Layer& L, int il, int n, const std::function<void()>* first) {
             }
             n_host = kept;
         }
+        if(n_host==0) audit::count("router-host-x-unused-payload", (uint64_t)m*n_embd_*sizeof(float));
         stats_.gpu_experts += n_cached;
         stats_.cpu_experts += n_host;
         // The launches cost this thread more than they cost the card, so each one less counts.  The cached experts
@@ -2837,7 +2857,7 @@ bool Engine::card_moe(int n) {
             if (layers_[(size_t) il].moe)
                 std::copy(layers_[(size_t) il].slot.begin(), layers_[(size_t) il].slot.end(),
                           h_slots_.begin() + (ptrdiff_t) il * n_expert_);
-        ck(cudaMemcpy(d_slots_, h_slots_.data(), h_slots_.size() * sizeof(void*), cudaMemcpyHostToDevice),
+        ck(PA_COPY_SYNC(d_slots_, h_slots_.data(), h_slots_.size() * sizeof(void*), cudaMemcpyHostToDevice),
            "expert slots");
     }
     return true;
@@ -2887,6 +2907,7 @@ void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, 
         stage_stats_.layer_bytes[il] += bytes;
         ++stage_stats_.layer_calls[il];
     }
+    audit::Scope audit_stage(nullptr, (int) (&L - &layers_[0]));
     if (opt_.no_disk) {
         if (!expert_dma_) throw std::logic_error("no-disk: no registered DMA window for expert staging");
         std::vector<DmaRange> sources;
@@ -2900,41 +2921,43 @@ void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, 
         else expert_dma_->prepare(std::move(sources));
         if (stage_trace_) add_cost(stage_stats_.reg, expert_dma_->cost(), before);
         expert_dma_->begin(cs(stream));
+        audit::GpuSpan audit_copy(__FILE__, __LINE__, "expert-stage-copy-interval", (uint64_t)m*(gu2+L.d_bytes), cs(stream));
         for (int j = 0; j < m; ++j) {
             const auto h = host_expert(L, (size_t) experts[j]);
-            ck(cudaMemcpyAsync(stage_ + (size_t) j * gu2, h.gate, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
+            ck(PA_COPY(stage_ + (size_t) j * gu2, h.gate, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
                "no-disk: expert gate");
-            ck(cudaMemcpyAsync(stage_ + (size_t) j * gu2 + L.gu_bytes, h.up, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
+            ck(PA_COPY(stage_ + (size_t) j * gu2 + L.gu_bytes, h.up, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
                "no-disk: expert up");
-            ck(cudaMemcpyAsync(stage_ + down_at + (size_t) j * L.d_bytes, h.down, L.d_bytes, cudaMemcpyHostToDevice, cs(stream)),
+            ck(PA_COPY(stage_ + down_at + (size_t) j * L.d_bytes, h.down, L.d_bytes, cudaMemcpyHostToDevice, cs(stream)),
                "no-disk: expert down");
         }
-        ck(cudaMemsetAsync(stage_ + down_at + (size_t) m * L.d_bytes, 0, kTail, cs(stream)), "no-disk: staging tail");
+        ck(PA_ZERO(stage_ + down_at + (size_t) m * L.d_bytes, 0, kTail, cs(stream)), "no-disk: staging tail");
         expert_dma_->end(cs(stream));
         return;
     }
+    audit::GpuSpan audit_copy(__FILE__, __LINE__, "expert-stage-copy-interval", (uint64_t)m*(gu2+L.d_bytes), cs(stream));
     const int per = (int) (chunk_bytes_ / (gu2 + L.d_bytes));
     for (int j0 = 0; j0 < m; j0 += per) {
         const size_t c = (size_t) std::min(per, m - j0);
         stage_turn_ ^= 1;
         uint8_t* h = h_stage_[stage_turn_];
         const cudaEvent_t left = (cudaEvent_t) ev_stage_[stage_turn_];
-        ck(cudaEventSynchronize(left), "expert staging");
+        ck(PA_WAIT_EVENT(left), "expert staging");
         const auto copy = [&](int i) {
             const size_t j = (size_t) i / 3, e = (size_t) experts[(size_t) j0 + j];
-            if (i % 3 == 0) std::memcpy(h + j * gu2, L.exp_gate + e * L.gu_stride, L.gu_bytes);
-            else if (i % 3 == 1) std::memcpy(h + j * gu2 + L.gu_bytes, L.exp_up + e * L.gu_stride, L.gu_bytes);
-            else std::memcpy(h + c * gu2 + j * L.d_bytes, L.exp_down + e * L.d_bytes, L.d_bytes);
+            if (i % 3 == 0) PA_MEMCPY(h + j * gu2, L.exp_gate + e * L.gu_stride, L.gu_bytes);
+            else if (i % 3 == 1) PA_MEMCPY(h + j * gu2 + L.gu_bytes, L.exp_up + e * L.gu_stride, L.gu_bytes);
+            else PA_MEMCPY(h + c * gu2 + j * L.d_bytes, L.exp_down + e * L.d_bytes, L.d_bytes);
         };
         (alone ? *stagers_ : *workers_).run((int) (3 * c), copy);
-        ck(cudaMemcpyAsync(stage_ + (size_t) j0 * gu2, h, c * gu2, cudaMemcpyHostToDevice, cs(stream)),
+        ck(PA_COPY(stage_ + (size_t) j0 * gu2, h, c * gu2, cudaMemcpyHostToDevice, cs(stream)),
            "expert staging");
-        ck(cudaMemcpyAsync(stage_ + down_at + (size_t) j0 * L.d_bytes, h + c * gu2, c * L.d_bytes,
+        ck(PA_COPY(stage_ + down_at + (size_t) j0 * L.d_bytes, h + c * gu2, c * L.d_bytes,
                            cudaMemcpyHostToDevice, cs(stream)),
            "expert staging");
         ck(cudaEventRecord(left, cs(stream)), "expert staging");
     }
-    ck(cudaMemsetAsync(stage_ + down_at + (size_t) m * L.d_bytes, 0, kTail, cs(stream)), "expert staging");
+    ck(PA_ZERO(stage_ + down_at + (size_t) m * L.d_bytes, 0, kTail, cs(stream)), "expert staging");
 }
 
 // A MoE layer for a prompt batch: the experts on the GPU, by llama.cpp's MMQ.  A row is a token and one
@@ -2944,6 +2967,7 @@ void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, 
 // A call that copies only the experts it routes to leaves a share of them to the CPU, which computes them while
 // the others are copied: the share that had the two take about as long (Options::cpu_share).
 void Engine::moe_rows(Layer& L, int il, int n) {
+    audit::Scope audit_layer(nullptr, il, -1, n);
     drop_resident_stage_cache(); // before any cached-slot lookup or prefetch can reuse staging
     const int rr = n * n_used_;
     const size_t cap = (size_t) rows_ * n_used_;
@@ -2963,12 +2987,12 @@ void Engine::moe_rows(Layer& L, int il, int n) {
     // than the card took for its experts.
     const bool on_card = route_card(il, n, d_ids_, d_wts_);
     if (on_card) {
-        copy2(d_ids_, h_ids_, rr, d_wts_, w, rr, st_);
-        if (spare) copy2(xn_, h_x_, n * n_embd_, nullptr, nullptr, 0, st_);
+        PA_COPY2_KERNEL(d_ids_, h_ids_, rr, d_wts_, w, rr, st_);
+        if (spare) PA_COPY2_KERNEL(xn_, h_x_, n * n_embd_, nullptr, nullptr, 0, st_);
     } else if (spare) {
-        copy2(rl_, h_rl_, n * n_expert_, xn_, h_x_, n * n_embd_, st_);
+        PA_COPY2_KERNEL(rl_, h_rl_, n * n_expert_, xn_, h_x_, n * n_embd_, st_);
     } else {
-        ck(cudaMemcpyAsync(h_rl_, rl_, (size_t) n * n_expert_ * sizeof(float), cudaMemcpyDeviceToHost, cs(st_)),
+        ck(PA_COPY(h_rl_, rl_, (size_t) n * n_expert_ * sizeof(float), cudaMemcpyDeviceToHost, cs(st_)),
            "router");
     }
     ck(cudaEventRecord((cudaEvent_t) ev_, cs(st_)), "router");
@@ -3005,7 +3029,7 @@ void Engine::moe_rows(Layer& L, int il, int n) {
     }
 
     const Clock::time_point t0 = Clock::now();
-    ck(cudaEventSynchronize((cudaEvent_t) ev_), "router");
+    ck(PA_WAIT_EVENT((cudaEvent_t) ev_), "router");
     if (ahead && !early && !freeze_experts_) route_ms_ = ms_since(t0);
     stats_.route_wait_ms += ms_since(t0);
 
@@ -3020,6 +3044,7 @@ void Engine::moe_rows(Layer& L, int il, int n) {
     // A token's routing is a softmax over every expert and a search for the largest few.  On one thread it was
     // 0.9 s of the 2.4 s a 7,709-token prompt took with 40 layers of 256 experts, so the host's threads take a
     // stretch of tokens each.
+    const auto audit_groups_at = audit::enabled() ? Clock::now() : Clock::time_point{};
     const int parts = on_card ? 0 : std::min(workers_->threads(), (n + kStageRows - 1) / kStageRows);
     if (on_card) std::copy(h_ids_, h_ids_ + rr, ids_.begin());
     if (parts > 0) workers_->run(parts, [&](int p) {
@@ -3114,7 +3139,12 @@ void Engine::moe_rows(Layer& L, int il, int n) {
         }
         b[n_chan] = at;
     }
-    ck(cudaMemcpyAsync(tab_, h_tab_,
+    if(audit::enabled()) {
+        audit::add(audit::key(__FILE__, __LINE__, "router-group-tables-host"), 0, ms_since(audit_groups_at));
+        audit::count("router-table-capacity-bytes", (3*cap+3*(size_t)n_expert_+3+kClasses*cb_row)*sizeof(int32_t));
+        audit::count("router-table-active-lowerbound-bytes", (3*(size_t)rr+3*(size_t)n_expert_+3+kClasses*cb_row)*sizeof(int32_t));
+    }
+    ck(PA_COPY(tab_, h_tab_,
                        (3 * cap + 3 * (size_t) n_expert_ + 3 + kClasses * cb_row) * sizeof(int32_t),
                        cudaMemcpyHostToDevice, cs(st_)),
        "expert rows");
@@ -3129,7 +3159,7 @@ void Engine::moe_rows(Layer& L, int il, int n) {
     int holds = -1;   // the round in the buffer when this call is done
     // The card's part.  With the CPU's beside it, the rows of its experts' places are left at nothing.
     const auto card = [&] {
-        if (n_cpu > 0) ck(cudaMemsetAsync(dx_, 0, (size_t) rr * n_embd_ * sizeof(float), cs(st_)), "expert rows");
+        if (n_cpu > 0) ck(PA_ZERO(dx_, 0, (size_t) rr * n_embd_ * sizeof(float), cs(st_)), "expert rows");
         if (rg > 0) Mmq::quantize(xn_, d_tok, mq_, gt, n_embd_, n_embd_, rg, st_);
 
         // The cached experts whose slots lie one behind the other are the matrices of one launch, as the experts of
@@ -3209,7 +3239,7 @@ void Engine::moe_rows(Layer& L, int il, int n) {
         behind.go([&] {
             cudaSetDevice(device_);   // a thread starts on card 0
             card();
-            ck(cudaStreamSynchronize(cs(st_)), "expert staging");
+            ck(PA_WAIT_STREAM(cs(st_)), "expert staging");
             done = Clock::now();
         });
         cpu_experts(*workers_, host_.data(), (int) host_.size(), n, gt, dt, n_embd_, n_ff_exp_, h_x_, limit, gelu_,
@@ -3251,7 +3281,7 @@ void* Engine::record(F&& work, const char* kind, int layer, size_t key, int rows
     recorded_ = true;
     size_t before = 0, after = 0, total = 0;
     if (opt_.trace_graphs) {
-        ck(cudaStreamSynchronize(cs(st_)), "graph diagnostic fence before capture");
+        ck(PA_WAIT_STREAM(cs(st_)), "graph diagnostic fence before capture");
         ck(cudaMemGetInfo(&before, &total), "graph diagnostic before capture");
     }
     struct Source {
@@ -3264,6 +3294,7 @@ void* Engine::record(F&& work, const char* kind, int layer, size_t key, int rows
         g = (cudaGraph_t) *source;
         graph.retained = true;
     } else {
+        audit::capture_begin();
         ck(cudaStreamBeginCapture(cs(st_), cudaStreamCaptureModeThreadLocal), "cudaStreamBeginCapture");
         recording_ = recorded_ = true;
         try {
@@ -3276,6 +3307,7 @@ void* Engine::record(F&& work, const char* kind, int layer, size_t key, int rows
         }
         recording_ = false;
         ck(cudaStreamEndCapture(cs(st_), &g), "cudaStreamEndCapture");
+        audit::capture_end(g);
         if (source) { *source = g; graph.retained = true; }
     }
     size_t nodes = 0;
@@ -3295,6 +3327,7 @@ void* Engine::record(F&& work, const char* kind, int layer, size_t key, int rows
         const cudaError_t updated = cudaGraphExecUpdate(exec, g, &error_node, &result);
 #endif
         if (updated == cudaSuccess) {
+            audit::graph(exec, g);
             ++graph_updates_;
             if (opt_.trace_graphs)
                 std::fprintf(stderr, "strata-poly: graph-update kind=%s layer=%d key=%zu rows=%d pos=%lld nodes=%zu\n",
@@ -3311,7 +3344,7 @@ void* Engine::record(F&& work, const char* kind, int layer, size_t key, int rows
         if (owner == graphs_.end()) {
             throw std::logic_error("graph resize has no owner");
         }
-        ck(cudaStreamSynchronize(cs(st_)), "graph replacement fence");
+        ck(PA_WAIT_STREAM(cs(st_)), "graph replacement fence");
         cudaGraphExec_t replacement = nullptr;
         const cudaError_t made = cudaGraphInstantiateWithFlags(&replacement, g, 0);
         if (made != cudaSuccess) {
@@ -3321,6 +3354,7 @@ void* Engine::record(F&& work, const char* kind, int layer, size_t key, int rows
         cudaGraphExecDestroy(exec);
         exec = replacement;
         *owner = exec;
+        audit::graph(exec, g);
         ++graph_replacements_;
         if (opt_.trace_graphs)
             std::fprintf(stderr, "strata-poly: graph-replace kind=%s layer=%d key=%zu rows=%d pos=%lld nodes=%zu\n",
@@ -3331,10 +3365,11 @@ void* Engine::record(F&& work, const char* kind, int layer, size_t key, int rows
     const cudaError_t made = cudaGraphInstantiateWithFlags(&exec, g, 0);
     if (made != cudaSuccess && exec) cudaGraphExecDestroy(exec);
     ck(made, "cudaGraphInstantiate");
+    audit::graph(exec, g);
     try { graphs_.push_back(exec); }
     catch (...) { cudaGraphExecDestroy(exec); throw; }
     if (opt_.trace_graphs) {
-        ck(cudaStreamSynchronize(cs(st_)), "graph diagnostic fence after instantiate");
+        ck(PA_WAIT_STREAM(cs(st_)), "graph diagnostic fence after instantiate");
         ck(cudaMemGetInfo(&after, &total), "graph diagnostic after instantiate");
         auto& cost = graph_cost_[kind];
         ++cost.count; cost.nodes += nodes; cost.device_delta += int64_t(before) - int64_t(after);
@@ -3374,7 +3409,7 @@ void Engine::compact_head(int il, int m, size_t rec, bool launch) {
         if (old && old != made) graph_form_.erase(old);
         graph_form_[made] = head;
     }
-    if (launch) ck(cudaGraphLaunch((cudaGraphExec_t) made, cs(st_)), "compact layer graph");
+    if (launch) ck(PA_GRAPH_LAUNCH((cudaGraphExec_t) made, cs(st_)), "compact layer graph");
     else ck(cudaGraphUpload((cudaGraphExec_t) made, cs(st_)), "prepare compact layer graph");
 #endif
 }
@@ -3386,7 +3421,7 @@ void Engine::prepare_compact_graphs() {
     if (!opt_.compact_graphs || !opt_.graphs || opt_.dump || split_) return;
     for (int il = lo_; il < hi_; ++il)
         if (!layers_[(size_t) il].fixed || !layers_[(size_t) il].moe) return;
-    ck(cudaStreamSynchronize(cs(st_)), "before preparing graphs");
+    ck(PA_WAIT_STREAM(cs(st_)), "before preparing graphs");
     size_t before = 0, after = 0, total = 0;
     ck(cudaMemGetInfo(&before, &total), "before preparing graphs memory");
     const int home = bound_;
@@ -3438,7 +3473,7 @@ void Engine::prepare_compact_graphs() {
     }
     if (bound_ != home) { park_bound(); take_bound(home); }
     recorded_ = false;
-    ck(cudaStreamSynchronize(cs(st_)), "prepared graphs");
+    ck(PA_WAIT_STREAM(cs(st_)), "prepared graphs");
     ck(cudaMemGetInfo(&after, &total), "after preparing graphs memory");
     std::fprintf(stderr, "strata-poly: compact graphs prepared before expert placement: executions=%zu "
                          "templates=%zu global_free_delta=%lld bytes (device-wide, not exclusive ownership)\n",
@@ -3455,7 +3490,7 @@ void Engine::run(const int32_t* tokens, int n) {
     cover(pos_ + n);
 
     // h_r_ and h_cpu_ may still be the source of the previous call's copies
-    ck(cudaStreamSynchronize(cs(st_)), "eval");
+    ck(PA_WAIT_STREAM(cs(st_)), "eval");
 #ifdef STRATA_GPU_PHASE_PROBE
     gpu_probe::state().begin(n, pos_);
 #endif
@@ -3481,17 +3516,17 @@ void Engine::run(const int32_t* tokens, int n) {
     const size_t e_row = (size_t) n_embd_, r_row = (size_t) streams() * e_row;
     const float scale = embed_scale();
     if (pass_) {   // a later card: the card before it left the rows
-        std::memcpy(h_r_, pass_ + (size_t) (pos_ - pass_at_) * r_row, (size_t) n * r_row * sizeof(float));
+        PA_MEMCPY(h_r_, pass_ + (size_t) (pos_ - pass_at_) * r_row, (size_t) n * r_row * sizeof(float));
     } else {
         for (int t = 0; t < n; ++t) {
             float* r = h_r_ + (size_t) t * r_row;
             if (!input(tokens[t], pos_ + t, r) && scale != 1.f)
                 for (size_t i = 0; i < e_row; ++i) r[i] *= scale;
-            for (int h = 1; h < streams(); ++h) std::memcpy(r + (size_t) h * e_row, r, e_row * sizeof(float));
+            for (int h = 1; h < streams(); ++h) PA_MEMCPY(r + (size_t) h * e_row, r, e_row * sizeof(float));
         }
     }
-    if (n < kStageRows) copy2(h_r_, r_, n * (int) r_row, nullptr, nullptr, 0, st_);
-    else ck(cudaMemcpyAsync(r_, h_r_, (size_t) n * r_row * sizeof(float), cudaMemcpyHostToDevice, cs(st_)), "embed");
+    if (n < kStageRows) PA_COPY2_KERNEL(h_r_, r_, n * (int) r_row, nullptr, nullptr, 0, st_);
+    else ck(PA_COPY(r_, h_r_, (size_t) n * r_row * sizeof(float), cudaMemcpyHostToDevice, cs(st_)), "embed");
 
     // A token alone, or a window of guessed ones, hands the card the same launches every time, some thirty a
     // layer up to the router, and they cost this thread more than the card.  They are recorded once, a graph a
@@ -3505,14 +3540,14 @@ void Engine::run(const int32_t* tokens, int n) {
                               const char* kind = "other", int layer = -1, int rows = 0) {
         if (made.size() <= key) made.resize(key + 1, nullptr);
         if (!made[key]) made[key] = record(work, kind, layer, key, rows);
-        ck(cudaGraphLaunch((cudaGraphExec_t) made[key], cs(st_)), "layer graph");
+        ck(PA_GRAPH_LAUNCH((cudaGraphExec_t) made[key], cs(st_)), "layer graph");
     };
     if (replay) {   // a pair a token: a window's tokens may go one by one, each from its own
         for (int t = 0; t < n; ++t) {
             h_at_[2 * t] = pos_ + t;
             h_at_[2 * t + 1] = turn(pos_ + t);
         }
-        copy2(h_at_, at_, n * 2 * (int) (sizeof(long long) / 4), nullptr, nullptr, 0, st_);
+        PA_COPY2_KERNEL(h_at_, at_, n * 2 * (int) (sizeof(long long) / 4), nullptr, nullptr, 0, st_);
     }
     // A layer's launches around its routed experts.  up(): to its router's copy, with the shared expert behind it.
     // tail(): what the layer does with the experts' sum.  `rec` numbers the recording of m tokens' launches: a
@@ -3604,6 +3639,7 @@ void Engine::run(const int32_t* tokens, int n) {
         try {
             for (int k = 0; k < 2; ++k) go_on(k, -1, false);
             for (int il = lo_; il < hi_; ++il) {
+        audit::Scope audit_layer(nullptr, il, -1, n);
                 Layer& L = layers_[(size_t) il];
                 if (!L.moe) continue;
                 for (int k = 0; k < 2; ++k) {
@@ -3656,6 +3692,7 @@ void Engine::run(const int32_t* tokens, int n) {
         if (!pass)
             pass = record([&] {
                 for (int il = lo_; il < hi_; ++il) {
+        audit::Scope audit_layer(nullptr, il, -1, n);
                     Layer& L = layers_[(size_t) il];
                     layer_head(L, il, n);
                     if (!L.moe) continue;
@@ -3664,11 +3701,12 @@ void Engine::run(const int32_t* tokens, int n) {
                     layer_tail(L, il, n);
                 }
             });
-        ck(cudaGraphLaunch((cudaGraphExec_t) pass, cs(st_)), "layer graph");
+        ck(PA_GRAPH_LAUNCH((cudaGraphExec_t) pass, cs(st_)), "layer graph");
         for (int il = lo_; il < hi_; ++il) stats_.gpu_experts += layers_[(size_t) il].moe ? n * n_used_ : 0;
         return;
     }
     for (int il = lo_; il < hi_; ++il) {
+        audit::Scope audit_layer(nullptr, il, -1, n);
         Layer& L = layers_[(size_t) il];
         up(il, n, (size_t) n - 1);
         if (!L.moe) continue;
@@ -3702,7 +3740,7 @@ void Engine::step(const int* seqs, const int32_t* tokens, int n) {
         at[(size_t) i] = pos_;
     }
 
-    ck(cudaStreamSynchronize(cs(st_)), "step");
+    ck(PA_WAIT_STREAM(cs(st_)), "step");
     if (n >= kStageRows && mmq_) drop_resident_stage_cache();
     if (n_swap_ > 0) follow(n);
     if (opt_.no_disk_expert_exchange) follow_exchange(n);
@@ -3711,27 +3749,27 @@ void Engine::step(const int* seqs, const int32_t* tokens, int n) {
     snap_bits_ = 0;
     const size_t e_row = (size_t) n_embd_, r_row = (size_t) streams() * e_row;
     const float scale = embed_scale();
-    if (pass_) std::memcpy(h_r_, pass_, (size_t) n * r_row * sizeof(float));   // a later card
+    if (pass_) PA_MEMCPY(h_r_, pass_, (size_t) n * r_row * sizeof(float));   // a later card
     for (int i = 0; i < n; ++i) {
         use(seqs[i]);
         float* r = h_r_ + (size_t) i * r_row;
         if (!pass_) {
             if (!input(tokens[i], at[(size_t) i], r) && scale != 1.f)
                 for (size_t k = 0; k < e_row; ++k) r[k] *= scale;
-            for (int h = 1; h < streams(); ++h) std::memcpy(r + (size_t) h * e_row, r, e_row * sizeof(float));
+            for (int h = 1; h < streams(); ++h) PA_MEMCPY(r + (size_t) h * e_row, r, e_row * sizeof(float));
         }
         h_at_[2 * i] = at[(size_t) i];
         h_at_[2 * i + 1] = turn(at[(size_t) i]);
     }
-    copy2(h_r_, r_, n * (int) r_row, nullptr, nullptr, 0, st_);
-    copy2(h_at_, at_, n * 2 * (int) (sizeof(long long) / 4), nullptr, nullptr, 0, st_);
+    PA_COPY2_KERNEL(h_r_, r_, n * (int) r_row, nullptr, nullptr, 0, st_);
+    PA_COPY2_KERNEL(h_at_, at_, n * 2 * (int) (sizeof(long long) / 4), nullptr, nullptr, 0, st_);
 
     const size_t wn = (size_t) opt_.window, recs = 3 * wn + (size_t) opt_.batch + 1, rec = (size_t) n - 1;
     const bool replay = opt_.graphs && !opt_.dump;
     const auto replayed = [&](std::vector<void*>& made, size_t key, auto&& work) {
         if (made.size() <= key) made.resize(key + 1, nullptr);
         if (!made[key]) made[key] = record(work);
-        ck(cudaGraphLaunch((cudaGraphExec_t) made[key], cs(st_)), "layer graph");
+        ck(PA_GRAPH_LAUNCH((cudaGraphExec_t) made[key], cs(st_)), "layer graph");
     };
     const bool card = n < kStageRows && card_moe(n);
     // an architecture that takes the rows in one head: their sequences and positions while it does
@@ -3744,6 +3782,7 @@ void Engine::step(const int* seqs, const int32_t* tokens, int n) {
     } clear{rows_of_};
     std::vector<int> key;
     for (int il = lo_; il < hi_; ++il) {
+        audit::Scope audit_layer(nullptr, il, -1, n);
         Layer& L = layers_[(size_t) il];
         if (batch_heads()) {
             const int64_t keep = pos_;
@@ -3759,7 +3798,7 @@ void Engine::step(const int* seqs, const int32_t* tokens, int n) {
             if (replay && L.fixed) {
                 void*& made = L.rows_heads[key];
                 if (!made) made = record([&] { layer_head(L, il, n); });
-                ck(cudaGraphLaunch((cudaGraphExec_t) made, cs(st_)), "layer graph");
+                ck(PA_GRAPH_LAUNCH((cudaGraphExec_t) made, cs(st_)), "layer graph");
             } else {
                 layer_head(L, il, n);
             }
@@ -3798,18 +3837,18 @@ void Engine::step(const int* seqs, const int32_t* tokens, int n) {
 
     if (next_) {
         float* h = pass_rows(n);
-        ck(cudaMemcpyAsync(h, r_, (size_t) n * r_row * sizeof(float), cudaMemcpyDeviceToHost, cs(st_)), "the next card");
-        ck(cudaStreamSynchronize(cs(st_)), "the next card");
+        ck(PA_COPY(h, r_, (size_t) n * r_row * sizeof(float), cudaMemcpyDeviceToHost, cs(st_)), "the next card");
+        ck(PA_WAIT_STREAM(cs(st_)), "the next card");
         next_->pass_ = h;
         next_->step(seqs, tokens, n);
     } else {
         output_rows(0, n, xn_);
         lin(output_, xn_, wlogits_, n);
         finish_logits(wlogits_, n);
-        ck(cudaMemcpyAsync(h_wlogits_, wlogits_, (size_t) n * n_vocab_ * sizeof(float), cudaMemcpyDeviceToHost,
+        ck(PA_COPY(h_wlogits_, wlogits_, (size_t) n * n_vocab_ * sizeof(float), cudaMemcpyDeviceToHost,
                            cs(st_)),
            "logits");
-        ck(cudaStreamSynchronize(cs(st_)), "step");
+        ck(PA_WAIT_STREAM(cs(st_)), "step");
     }
     for (int i = 0; i < n; ++i) {
         use(seqs[i]);
@@ -3850,9 +3889,9 @@ float* Engine::pass_rows(int n) {
 
 // The n rows of the residual a call from `pos` leaves in r_, to the next card, which reads them for its layers.
 void Engine::hand_on(int64_t pos, int n, float* h) {
-    ck(cudaMemcpyAsync(h, r_, (size_t) n * streams() * n_embd_ * sizeof(float), cudaMemcpyDeviceToHost, cs(st_)),
+    ck(PA_COPY(h, r_, (size_t) n * streams() * n_embd_ * sizeof(float), cudaMemcpyDeviceToHost, cs(st_)),
        "the next card");
-    ck(cudaStreamSynchronize(cs(st_)), "the next card");
+    ck(PA_WAIT_STREAM(cs(st_)), "the next card");
     next_->pass_ = h;
     next_->pass_at_ = pos;
 }
@@ -3878,17 +3917,17 @@ void Engine::eval(const int32_t* tokens, int n, bool want_logits) {
             if (!want_logits) return;
             lin(output_, h + (size_t) (m - 1) * n_embd_, logits_, 1);
             finish_logits(logits_, 1);
-            ck(cudaMemcpyAsync(h_logits_, logits_, (size_t) n_vocab_ * sizeof(float), cudaMemcpyDeviceToHost,
+            ck(PA_COPY(h_logits_, logits_, (size_t) n_vocab_ * sizeof(float), cudaMemcpyDeviceToHost,
                                cs(st_)),
                "logits");
         };
         if (replay) {
             if (!tail_) tail_ = record(tail);
-            ck(cudaGraphLaunch((cudaGraphExec_t) tail_, cs(st_)), "logits graph");
+            ck(PA_GRAPH_LAUNCH((cudaGraphExec_t) tail_, cs(st_)), "logits graph");
         } else {
             tail();
         }
-        if (want_logits) ck(cudaStreamSynchronize(cs(st_)), "eval");
+        if (want_logits) ck(PA_WAIT_STREAM(cs(st_)), "eval");
     }
     // behind the logits: the caller has them while the card does this
     if (draft_) draft_rows(tokens, ahead_pos_ == pos_ && tokens[0] == ahead_tok_ ? 1 : 0, n);
@@ -3898,6 +3937,7 @@ void Engine::eval(const int32_t* tokens, int n, bool want_logits) {
 
 // A layer for n tokens, as run() hands it to the card when nothing is replayed or printed.
 void Engine::layer(int il, int n) {
+    audit::Scope audit_layer(nullptr, il, -1, n);
     Layer& L = layers_[(size_t) il];
     layer_head(L, il, n);
     if (!L.moe) return;
@@ -3951,10 +3991,11 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
     if (opt_.no_disk_expert_exchange) exchange_available();
     if (n >= kStageRows && mmq_) drop_resident_stage_cache(); // before all_cached() chooses the read path
     cover(pos_ + n);
-    if (stage_trace_) {   // the read pass this batch is in
+    if (stage_trace_ || audit::enabled()) {   // the read pass this batch is in
         ++stage_pass_;
         ++stage_stats_.passes;
     }
+    audit::Scope audit_read(nullptr, -2, stage_pass_, n);
     // On several cards, each reads through its own layers and hands the rows on, and `turn` hears of a card's
     // turns as its share of the model's layers: [lo_, to).
     const std::function<bool(int, int)>* asked = turn;
@@ -3998,7 +4039,7 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
     if (pos_ + n > opt_.max_context)
         throw std::runtime_error("the context is full (" + std::to_string(opt_.max_context) + " tokens)");
 
-    ck(cudaStreamSynchronize(cs(st_)), "read");
+    ck(PA_WAIT_STREAM(cs(st_)), "read");
     if (n_swap_ > 0) follow(0);
     const size_t e_row = (size_t) n_embd_, r_row = (size_t) streams() * e_row, r_bytes = r_row * sizeof(float);
     const size_t part = (size_t) std::max(streams(), draft_ ? 3 : 1) * rows_ * e_row;   // a call's rows of r_
@@ -4020,7 +4061,7 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
     const auto half = [&](int c) { return r0 + (size_t) (host ? c % 2 : c) * part; };
     // call c's rows back into its half of r_, behind whatever the stream has there of the half's last call
     const auto fetch = [&](int c) {
-        ck(cudaMemcpyAsync(half(c), home(c), (size_t) calls_[(size_t) c].m * r_bytes,
+        ck(PA_COPY(half(c), home(c), (size_t) calls_[(size_t) c].m * r_bytes,
                            card_rows ? cudaMemcpyDeviceToDevice : cudaMemcpyHostToDevice,
                            cs(rs_)),
            "read");
@@ -4030,20 +4071,20 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
         const Call& call = calls_[(size_t) c];
         float* rows = host && !card_rows ? home(c) : h_r_;
         if (pass_)
-            std::memcpy(rows, pass_ + (size_t) (pos0 + call.at - pass_at_) * r_row, (size_t) call.m * r_bytes);
+            PA_MEMCPY(rows, pass_ + (size_t) (pos0 + call.at - pass_at_) * r_row, (size_t) call.m * r_bytes);
         for (int t = 0; t < call.m && !pass_; ++t) {
             float* r = rows + (size_t) t * r_row;
             if (!input(tokens[call.at + t], pos0 + call.at + t, r) && scale != 1.f)
                 for (size_t i = 0; i < e_row; ++i) r[i] *= scale;
-            for (int h = 1; h < streams(); ++h) std::memcpy(r + (size_t) h * e_row, r, e_row * sizeof(float));
+            for (int h = 1; h < streams(); ++h) PA_MEMCPY(r + (size_t) h * e_row, r, e_row * sizeof(float));
         }
         if (card_rows) {
-            ck(cudaMemcpyAsync(home(c), h_r_, (size_t) call.m * r_bytes, cudaMemcpyHostToDevice, cs(st_)), "embed");
-            ck(cudaStreamSynchronize(cs(st_)), "embed");
+            ck(PA_COPY(home(c), h_r_, (size_t) call.m * r_bytes, cudaMemcpyHostToDevice, cs(st_)), "embed");
+            ck(PA_WAIT_STREAM(cs(st_)), "embed");
         }
         if (host) continue;
-        ck(cudaMemcpyAsync(half(c), h_r_, (size_t) call.m * r_bytes, cudaMemcpyHostToDevice, cs(st_)), "embed");
-        ck(cudaStreamSynchronize(cs(st_)), "embed");   // h_r_ is filled again
+        ck(PA_COPY(half(c), h_r_, (size_t) call.m * r_bytes, cudaMemcpyHostToDevice, cs(st_)), "embed");
+        ck(PA_WAIT_STREAM(cs(st_)), "embed");   // h_r_ is filled again
     }
     if (host) {
         fetch(0);
@@ -4058,8 +4099,8 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
             // Between two turns the caller may give the read up.  The layers so far have the read's tokens in
             // their state and the others have not: the sequence cannot go on from here, nor from where it was.
             if (turn && k > 0 && !(*turn)(k, turns)) {
-                if (host) ck(cudaStreamSynchronize(cs(rs_)), "read");
-                ck(cudaStreamSynchronize(cs(st_)), "read");
+                if (host) ck(PA_WAIT_STREAM(cs(rs_)), "read");
+                ck(PA_WAIT_STREAM(cs(st_)), "read");
                 shared_ahead_ = false;
                 r_ = r0;
                 pos_ = pos0;
@@ -4079,7 +4120,7 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
                     ++read_draft_calls_;
                 }
                 if (uint8_t* state = call.mark >= 0 ? marks[call.mark].state : nullptr) {
-                    ck(cudaStreamSynchronize(cs(st_)), "read");
+                    ck(PA_WAIT_STREAM(cs(st_)), "read");
                     const int64_t pos = pos_ + call.m;
                     if (il < n_layer_) save_layer(il, pos, state);
                     if (k == turns - 1) {   // what no turn is for: a layer behind the model's, the last output
@@ -4095,24 +4136,24 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
                 ck(cudaEventRecord((cudaEvent_t) ev_out_[c % 2], cs(st_)), "read");
                 ck(cudaStreamWaitEvent(cs(rs_), (cudaEvent_t) ev_out_[c % 2], 0), "read");
                 if (!last || out)
-                    ck(cudaMemcpyAsync(home(c), half(c), (size_t) call.m * r_bytes,
+                    ck(PA_COPY(home(c), half(c), (size_t) call.m * r_bytes,
                                        card_rows ? cudaMemcpyDeviceToDevice : cudaMemcpyDeviceToHost,
                                        cs(rs_)),
                        "read");
                 if (!last || c + 2 < n_calls) fetch(c + 2 < n_calls ? c + 2 : c % 2);
             }
         }
-        if (host) ck(cudaStreamSynchronize(cs(rs_)), "read");
+        if (host) ck(PA_WAIT_STREAM(cs(rs_)), "read");
         if (next_ && !host) {   // the rows are in r_, a call's in each half
             float* h = pass_rows(n);
             for (int c = 0; c < n_calls; ++c)
-                ck(cudaMemcpyAsync(h + (size_t) calls_[(size_t) c].at * r_row, half(c), calls_[(size_t) c].m * r_bytes,
+                ck(PA_COPY(h + (size_t) calls_[(size_t) c].at * r_row, half(c), calls_[(size_t) c].m * r_bytes,
                                    cudaMemcpyDeviceToHost, cs(st_)),
                    "the next card");
-            ck(cudaStreamSynchronize(cs(st_)), "the next card");
+            ck(PA_WAIT_STREAM(cs(st_)), "the next card");
         }
     } catch (...) {
-        if (host) cudaStreamSynchronize(cs(rs_));
+        if (host) PA_WAIT_STREAM(cs(rs_));
         shared_ahead_ = false;
         r_ = r0;
         pos_ = pos0;
@@ -4149,6 +4190,8 @@ unsigned Engine::snap_tokens(int t) const {
 // written again when the position gets its real token.  So they leave the state as it was after tokens of the
 // window (snap_, snap_tokens()), and keep() puts back the one after the last token that was right.
 void Engine::window(const int32_t* tokens, int t) {
+    audit::Scope audit_window(nullptr, -2, -1, t, "verify");
+    audit::begin_verify();
     if (t < 1 || t > opt_.window) throw std::logic_error("a window takes 1 to max_window() tokens");
     OnCard here(device_, split_);
     end_read();
@@ -4185,9 +4228,9 @@ void Engine::window(const int32_t* tokens, int t) {
     output_rows(0, t, h);
     lin(output_, h, wlogits_, t);
     finish_logits(wlogits_, t);
-    ck(cudaMemcpyAsync(h_wlogits_, wlogits_, (size_t) t * n_vocab_ * sizeof(float), cudaMemcpyDeviceToHost, cs(st_)),
+    ck(PA_COPY(h_wlogits_, wlogits_, (size_t) t * n_vocab_ * sizeof(float), cudaMemcpyDeviceToHost, cs(st_)),
        "logits");
-    ck(cudaStreamSynchronize(cs(st_)), "window");
+    ck(PA_WAIT_STREAM(cs(st_)), "window");
     if (timed && !recorded_ && !freeze_experts_) took_way(t, ms_since(t0));
     recorded_ = recorded_ || recorded;
     win_ = t;
@@ -4217,6 +4260,7 @@ void Engine::took_way(int t, double ms) {
 }
 
 void Engine::keep(int n) {
+    audit::resolve_verify(n);
     if (n < 1 || n > win_) throw std::logic_error("keep takes 1 to the window's tokens");
     OnCard here(device_, split_);
     // The next card reads the window's rows again for the tokens it puts through its layers again: a right token's
@@ -4227,7 +4271,7 @@ void Engine::keep(int n) {
         // did, and the state with them.
         const unsigned left = snap_tokens(win_) & ((1u << n) - 1u);   // the right tokens that left their state
         const int from = (int) std::bit_width(left);                  // the tokens the state at hand is after
-        ck(cudaMemcpyAsync(state_, snap_ + size_t(std::popcount(left) - 1) * rec_n_, rec_n_ * sizeof(float),
+        ck(PA_COPY(state_, snap_ + size_t(std::popcount(left) - 1) * rec_n_, rec_n_ * sizeof(float),
                            cudaMemcpyDeviceToDevice, cs(st_)),
            "keep");
         if (from < n) {
@@ -4264,11 +4308,11 @@ float* Engine::draft_input(const int32_t* tokens, int64_t row, const float* h, i
         ck(cudaEventCreateWithFlags(&ev, cudaEventDisableTiming), "cudaEventCreate");
         ev_hr_ = ev;
     } else {
-        ck(cudaEventSynchronize((cudaEvent_t) ev_hr_), "embed");
+        ck(PA_WAIT_EVENT((cudaEvent_t) ev_hr_), "embed");
     }
     for (int t = 0; t < n; ++t) input(tokens[t], row + t, h_r_ + (size_t) t * e);
-    if (n < kStageRows) copy2(h_r_, cur_, n * n_embd_, nullptr, nullptr, 0, st_);
-    else ck(cudaMemcpyAsync(cur_, h_r_, rows * e * sizeof(float), cudaMemcpyHostToDevice, cs(st_)), "embed");
+    if (n < kStageRows) PA_COPY2_KERNEL(h_r_, cur_, n * n_embd_, nullptr, nullptr, 0, st_);
+    else ck(PA_COPY(cur_, h_r_, rows * e * sizeof(float), cudaMemcpyHostToDevice, cs(st_)), "embed");
     ck(cudaEventRecord((cudaEvent_t) ev_hr_, cs(st_)), "embed");
     rms_norm(cur_, fp(d_enorm_), r_, n_embd_, n, rms_eps_, st_, 2 * n_embd_);
     rms_norm(h, fp(d_hnorm_), r_ + e, n_embd_, n, rms_eps_, st_, 2 * n_embd_);
@@ -4288,7 +4332,7 @@ void Engine::draft_rows(const int32_t* tokens, int first, int n) {
         draft_input(tokens + first, pos_ + first, hn_ + (size_t) first * e, n - first);
         block_rows(pos_ + first, n - first);
     }
-    copy2(hn_ + (size_t) n * e, hn_, n_embd_, nullptr, nullptr, 0, st_);
+    PA_COPY2_KERNEL(hn_ + (size_t) n * e, hn_, n_embd_, nullptr, nullptr, 0, st_);
     ahead_pos_ = -1;
 }
 
@@ -4317,18 +4361,19 @@ void Engine::draft_step(int32_t token, int i) {
 }
 
 int32_t Engine::draft(int32_t token, int i, float* prob) {
+    audit::Scope audit_draft(nullptr, -2, -1, 1, "draft");
     if (next_) return next_->draft(token, i, prob);   // the last card has the draft block
     OnCard here(device_, split_);
     if (!draft_) throw std::logic_error("draft: this model has no block that guesses ahead");
     if (token < 0 || token >= n_vocab_) throw std::runtime_error("a token id is outside the vocabulary");
     if (i < 0 || pos_ + i >= opt_.max_context) throw std::logic_error("draft: the position is outside the context");
     cover(pos_ + i + 1);
-    ck(cudaStreamSynchronize(cs(st_)), "draft");
+    ck(PA_WAIT_STREAM(cs(st_)), "draft");
     draft_step(token, i);
     // The guess and its probability are found on the card.  On the host a vocabulary's softmax takes up to 2 ms
     // where the block is unsure, four times what the block takes.
     likeliest(logits_, draft_rows(), h_guess_, st_);
-    ck(cudaStreamSynchronize(cs(st_)), "draft");
+    ck(PA_WAIT_STREAM(cs(st_)), "draft");
     if (i == 0) {
         ahead_pos_ = pos_;
         ahead_tok_ = token;

@@ -13,7 +13,7 @@ void Engine::init_exchange() {
     coming_.assign(use_.size(), 0);
     exchange_until_.assign(use_.size(), 0);
     cudaStream_t stream = nullptr;
-    ck(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking), "exchange stream");
+    ck(PA_CREATE_STREAM(&stream, cudaStreamNonBlocking), "exchange stream");
     swap_st_ = stream;
     std::fprintf(stderr, "strata-poly: expert exchange enabled: main_gpu=%d, staging copies disabled, "
                          "temporary_bytes=%zu inside staging, max=%d per eval, cooldown=%d evaluated rows, "
@@ -22,6 +22,7 @@ void Engine::init_exchange() {
 }
 
 void Engine::exchange_pair(int il, int hot, int cold, int fault, bool forced_verify) {
+    audit::Scope audit_layer(nullptr, il);
     exchange_available();
     if (il < 0 || il >= (int) layers_.size() || hot < 0 || hot >= n_expert_ || cold < 0 || cold >= n_expert_)
         throw std::invalid_argument("exchange: pair outside expert table");
@@ -41,9 +42,9 @@ void Engine::exchange_pair(int il, int hot, int cold, int fault, bool forced_ver
     auto tick = Clock::now();
     // Workers::run() returns only after every CPU reader finishes. All GPU users of the shared
     // staging/source pages finish here, before any payload can be overwritten.
-    ck(cudaStreamSynchronize(cs(st_)), "exchange readers");
-    if (up_) ck(cudaStreamSynchronize(cs(up_)), "exchange prefill DMA");
-    ck(cudaStreamSynchronize(cs(swap_st_)), "exchange prior transaction");
+    ck(PA_WAIT_STREAM(cs(st_)), "exchange readers");
+    if (up_) ck(PA_WAIT_STREAM(cs(up_)), "exchange prefill DMA");
+    ck(PA_WAIT_STREAM(cs(swap_st_)), "exchange prior transaction");
     exchange_stats_.wait_ms += ms_since(tick);
     tick = Clock::now();
     const DmaCost before = expert_dma_->cost();
@@ -80,6 +81,7 @@ void Engine::exchange_pair(int il, int hot, int cold, int fault, bool forced_ver
     const size_t hi = (size_t) il * n_expert_ + hot, ci = (size_t) il * n_expert_ + cold;
     exchange_until_[hi] = exchange_until_[ci] = exchange_clock_ + opt_.exchange_cooldown;
     exchange_error_.clear(); // both payloads and every published owner are now consistent
+    audit::exchange(il, hot, cold, raw);
     ++exchange_stats_.completed;
     ++stats_.swapped_experts; // the promoted RAM expert arrived in its GPU slot
     exchange_stats_.verified += verify;

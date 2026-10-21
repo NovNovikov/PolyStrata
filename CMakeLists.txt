@@ -2112,6 +2112,9 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
   target_include_directories(poly_resident_dma_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
                                                            ${_strata_gpu_include_directories})
   target_link_libraries(poly_resident_dma_probe PRIVATE ${_strata_gpu_runtime_target})
+  add_executable(poly_transfer_audit_test EXCLUDE_FROM_ALL src/poly/transfer_audit_test.cpp)
+  target_include_directories(poly_transfer_audit_test PRIVATE ${_strata_gpu_include_directories})
+  target_link_libraries(poly_transfer_audit_test PRIVATE ${_strata_gpu_runtime_target} Threads::Threads)
   # needs the model file, so it is run by hand: poly_expert_parity MODEL.gguf
   add_executable(poly_expert_parity src/poly/expert_parity.cpp src/poly/cpu_experts.cpp src/poly/kernels.cu)
   target_include_directories(poly_expert_parity PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include

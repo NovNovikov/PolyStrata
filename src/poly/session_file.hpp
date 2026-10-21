@@ -13,6 +13,7 @@
 // A version 3 record's header is its version 2 header (the same fields, the same sizes) plus the payload's
 // packed size, so the reader knows the record's exact span in the file and can refuse a truncated one.
 #pragma once
+#include "transfer_audit.hpp"
 
 #include <cerrno>
 #include <algorithm>
@@ -102,7 +103,7 @@ public:
         SessionPart part;
         part.bytes = bytes;
         part.fill = [p](void* dst, size_t off, size_t n) {
-            std::memcpy(dst, p + off, n);
+            PA_MEMCPY(dst, p + off, n);
             return true;
         };
         return part;
@@ -270,6 +271,7 @@ public:
                     fail = "the engine would not hand over its payload";
                     return false;
                 }
+                audit::count("session-capture-logical-bytes", n);
                 packer.put(buf.data(), (size_t) n);
                 done += n;
                 mark();
@@ -293,13 +295,13 @@ public:
                 fail = "the parent's name does not fit the header";
                 ok = false;
             } else {
-                std::memcpy(field, parent.data(), parent.size());
-                ok = std::fwrite(field, 1, kParentBytes, f) == kParentBytes;
+                PA_MEMCPY(field, parent.data(), parent.size());
+                ok = PA_FWRITE(field, 1, kParentBytes, f) == kParentBytes;
             }
         }
         if (ok && delta) ok = put(f, branch_at);   // where this file's rows begin
         if (ok && !seq.empty())
-            ok = std::fwrite(seq.data(), 4, seq.size(), f) == seq.size();
+            ok = PA_FWRITE(seq.data(), 4, seq.size(), f) == seq.size();
         // A record's header names its payload's packed size, which is only known once the payload is written:
         // the size is left out and filled in after, and the file is a temporary one until it is renamed.
         for (const auto& [pos, part] : marks) {
@@ -360,7 +362,7 @@ public:
             return false;
         }
         // the name holds the new bytes; a folder flush on POSIX is what carries them through a power loss, and
-        // its refusal is a failed save of a file the name already published — the server knows `published`
+        // its refusal is a failed save of a file the name already published РІР‚вЂќ the server knows `published`
         const int flushed = flush_dir();
         if (st) {
             st->published = true;
@@ -384,7 +386,7 @@ public:
         uint64_t head_bytes = 56;
         if (version == kVersionDelta || version == kVersionBranch) {   // the parent's name follows the counts
             char name[kParentBytes];
-            if (std::fread(name, 1, kParentBytes, f) != kParentBytes) return false;
+            if (PA_FREAD(name, 1, kParentBytes, f) != kParentBytes) return false;
             const void* nul = std::memchr(name, 0, kParentBytes);
             const size_t at = nul ? (size_t) ((const char*) nul - name) : kParentBytes;
             v.parent.assign(name, at);
@@ -422,7 +424,7 @@ public:
         }
         Head h;
         h.seq.resize((size_t) open.n_seq);
-        if (open.n_seq && std::fread(h.seq.data(), 4, (size_t) open.n_seq, f) != (size_t) open.n_seq) {
+        if (open.n_seq && PA_FREAD(h.seq.data(), 4, (size_t) open.n_seq, f) != (size_t) open.n_seq) {
             std::fclose(f);
             return std::nullopt;
         }
@@ -485,7 +487,7 @@ public:
         v.sb = open.sb;
         v.rb = open.rb;
         v.seq.resize((size_t) open.n_seq);
-        bool ok = !open.n_seq || std::fread(v.seq.data(), 4, (size_t) open.n_seq, f) == (size_t) open.n_seq;
+        bool ok = !open.n_seq || PA_FREAD(v.seq.data(), 4, (size_t) open.n_seq, f) == (size_t) open.n_seq;
         v.marks.resize((size_t) open.n_marks);
         for (auto& m : v.marks) {
             Raw r;
@@ -531,7 +533,7 @@ public:
             return false;
         }
         head.seq.resize((size_t) open.n_seq);
-        bool ok = !open.n_seq || std::fread(head.seq.data(), 4, (size_t) open.n_seq, f) == (size_t) open.n_seq;
+        bool ok = !open.n_seq || PA_FREAD(head.seq.data(), 4, (size_t) open.n_seq, f) == (size_t) open.n_seq;
         head.prompt = open.prompt;
         head.sb = open.sb;
         head.rb = open.rb;
@@ -576,9 +578,10 @@ public:
     // A payload's bytes, out of the file's packed bytes: a version 2 payload is the bytes as they are, a
     // version 3 payload is packed.  False: the bytes are not the payload they say.
     static bool unpack(uint32_t version, const uint8_t* in, size_t in_bytes, uint8_t* dst, uint64_t bytes) {
+        audit::HostSpan audit_unpack(__FILE__, __LINE__, "session-unpack", bytes);
         if (version != kVersionPacked && version != kVersionDelta && version != kVersionBranch) {
             if (in_bytes != bytes) return false;
-            if (bytes) std::memcpy(dst, in, (size_t) bytes);
+            if (bytes) PA_MEMCPY(dst, in, (size_t) bytes);
             return true;
         }
         size_t at = 0;
@@ -586,17 +589,17 @@ public:
         while (left) {
             if (at + 8 > in_bytes) return false;
             uint64_t h = 0;
-            std::memcpy(&h, in + at, 8);
+            PA_MEMCPY(&h, in + at, 8);
             at += 8;
             if (h & (1ull << 63)) {   // a run of zeros
                 const uint64_t run = h & ~(1ull << 63);
                 if (run > left) return false;
-                if (dst) std::memset(dst + (bytes - left), 0, (size_t) run);
+                if (dst) PA_MEMSET(dst + (bytes - left), 0, (size_t) run);
                 left -= run;
                 continue;
             }
             if (h > left || at + h > in_bytes) return false;
-            if (dst) std::memcpy(dst + (bytes - left), in + at, (size_t) h);
+            if (dst) PA_MEMCPY(dst + (bytes - left), in + at, (size_t) h);
             at += (size_t) h;
             left -= h;
         }
@@ -624,7 +627,7 @@ public:
             return false;
         }
         head.seq.resize((size_t) open.n_seq);
-        bool ok = !open.n_seq || std::fread(head.seq.data(), 4, (size_t) open.n_seq, f) == (size_t) open.n_seq;
+        bool ok = !open.n_seq || PA_FREAD(head.seq.data(), 4, (size_t) open.n_seq, f) == (size_t) open.n_seq;
         head.prompt = open.prompt;
         head.sb = open.sb;
         head.rb = open.rb;
@@ -648,7 +651,7 @@ public:
             head.marks_bytes += raw.bytes;
             head.max_record = std::max(head.max_record, raw.bytes);
             packed.assign((size_t) raw.packed, 0);
-            if (raw.packed && std::fread(packed.data(), 1, (size_t) raw.packed, f) != (size_t) raw.packed) {
+            if (raw.packed && PA_FREAD(packed.data(), 1, (size_t) raw.packed, f) != (size_t) raw.packed) {
                 ok = false;
                 break;
             }
@@ -681,7 +684,7 @@ public:
             head.rows_last = (int64_t) (raw.first + raw.keep);
             if (!i) head.rows_at = (uint64_t) std::ftell(f) - raw.header;   // where the rows' records start
             packed.assign((size_t) raw.packed, 0);
-            if (raw.packed && std::fread(packed.data(), 1, (size_t) raw.packed, f) != (size_t) raw.packed) {
+            if (raw.packed && PA_FREAD(packed.data(), 1, (size_t) raw.packed, f) != (size_t) raw.packed) {
                 ok = false;
                 break;
             }
@@ -724,7 +727,7 @@ public:
             r.keep = (int64_t) raw.keep;
             r.raw = raw.bytes;
             packed.assign((size_t) raw.packed, 0);
-            if (raw.packed && std::fread(packed.data(), 1, (size_t) raw.packed, f) != (size_t) raw.packed) {
+            if (raw.packed && PA_FREAD(packed.data(), 1, (size_t) raw.packed, f) != (size_t) raw.packed) {
                 ok = false;
                 break;
             }
@@ -788,6 +791,7 @@ private:
         bool failed() const { return failed_; }
 
         void put(const uint8_t* p, size_t n) {
+            audit::HostSpan audit_pack(__FILE__, __LINE__, "session-pack-scan", n);
             size_t i = 0;
             while (i < n) {
                 const uint8_t* z = (const uint8_t*) std::memchr(p + i, 0, n - i);
@@ -812,6 +816,8 @@ private:
             size_t at = 0;
             while (at + 8 <= n) {
                 uint64_t w;
+                // An alias-safe scalar word load, not a bulk copy. Packer::put accounts the scan
+                // once per chunk; probing every word would dominate serialization itself.
                 std::memcpy(&w, p + at, 8);
                 if (w) {
                     for (size_t k = 0; k < 8; ++k)
@@ -842,12 +848,12 @@ private:
         void flush_lit() {
             if (lit_.empty()) return;
             put_u64((uint64_t) lit_.size());
-            if (std::fwrite(lit_.data(), 1, lit_.size(), f_) != lit_.size()) failed_ = true;
+            if (PA_FWRITE(lit_.data(), 1, lit_.size(), f_) != lit_.size()) failed_ = true;
             written_ += lit_.size();
             lit_.clear();
         }
         void put_u64(uint64_t v) {
-            if (std::fwrite(&v, sizeof v, 1, f_) != 1) failed_ = true;
+            if (PA_FWRITE(&v, sizeof v, 1, f_) != 1) failed_ = true;
             written_ += sizeof v;
         }
 
@@ -864,7 +870,7 @@ private:
         if (version == kVersion) {
             if (!bytes) return true;
             if (!dst) return std::fseek(f, (long) bytes, SEEK_CUR) == 0;
-            return std::fread(dst, 1, (size_t) bytes, f) == (size_t) bytes;
+            return PA_FREAD(dst, 1, (size_t) bytes, f) == (size_t) bytes;
         }
         // The packed bytes come in blocks and the decode runs out of the block, not out of the file: a read for
         // every run would be hundreds of thousands of small reads, and a cold file then costs more than the
@@ -884,7 +890,7 @@ private:
                 if ((uint64_t) (need - end) > packed - read) return false;
                 const size_t want = (size_t) std::min<uint64_t>(buf.size() - end, packed - read);
                 if (!want) return false;
-                if (std::fread(buf.data() + end, 1, want, f) != want) return false;
+                if (PA_FREAD(buf.data() + end, 1, want, f) != want) return false;
                 end += want;
                 read += want;
             }
@@ -893,21 +899,21 @@ private:
         while (left) {
             if (!more(8)) return false;
             uint64_t h = 0;
-            std::memcpy(&h, buf.data() + pos, 8);
+            PA_MEMCPY(&h, buf.data() + pos, 8);
             pos += 8;
             if (h & (1ull << 63)) {   // a run of zeros
                 const uint64_t run = h & ~(1ull << 63);
                 if (run > left) return false;
-                if (dst) std::memset(dst + (bytes - left), 0, (size_t) run);
+                if (dst) PA_MEMSET(dst + (bytes - left), 0, (size_t) run);
                 left -= run;
                 continue;
             }
             if (h > left) return false;
             if (h <= buf.size() && more((size_t) h)) {
-                if (dst) std::memcpy(dst + (bytes - left), buf.data() + pos, (size_t) h);
+                if (dst) PA_MEMCPY(dst + (bytes - left), buf.data() + pos, (size_t) h);
                 pos += (size_t) h;
             } else if (dst) {   // a literal longer than the block: it comes straight from the file
-                if (std::fread(dst + (bytes - left), 1, (size_t) h, f) != (size_t) h) return false;
+                if (PA_FREAD(dst + (bytes - left), 1, (size_t) h, f) != (size_t) h) return false;
                 read += h;
             } else if (std::fseek(f, (long) h, SEEK_CUR) != 0) {
                 return false;
@@ -926,17 +932,17 @@ private:
     // temporary one until it is renamed, so a seek back is safe.
     static bool patch(FILE* f, long at, uint64_t packed) {
         if (std::fseek(f, at, SEEK_SET) != 0) return false;
-        if (std::fwrite(&packed, sizeof packed, 1, f) != 1) return false;
+        if (PA_FWRITE(&packed, sizeof packed, 1, f) != 1) return false;
         return std::fseek(f, 0, SEEK_END) == 0;
     }
 
     template<class T>
     static bool put(FILE* f, T v) {
-        return std::fwrite(&v, sizeof v, 1, f) == 1;
+        return PA_FWRITE(&v, sizeof v, 1, f) == 1;
     }
     template<class T>
     static bool get(FILE* f, T& v) {
-        return std::fread(&v, sizeof v, 1, f) == 1;
+        return PA_FREAD(&v, sizeof v, 1, f) == 1;
     }
 };
 

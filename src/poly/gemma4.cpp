@@ -176,7 +176,7 @@ void Gemma4::load_drafter() {
         if (!s) continue;
         if (s->type != kTypeF32 || s->elements() != 1 || g.payload(*s) != sizeof(float))
             throw std::runtime_error(s->name + " is " + shape_of(*s) + ", expected F32 [1]");
-        std::memcpy(&G.out_scale, g.data(*s), sizeof(float));
+        PA_MEMCPY(&G.out_scale, g.data(*s), sizeof(float));
     }
 }
 
@@ -214,7 +214,7 @@ void Gemma4::load_layer(int il) {
     if (const TensorInfo* s = tensor(il, "layer_output_scale.weight")) {
         if (s->type != kTypeF32 || s->elements() != 1 || home(*s).payload(*s) != sizeof(float))
             throw std::runtime_error(s->name + " is " + shape_of(*s) + ", expected F32 [1]");
-        std::memcpy(&B.out_scale, home(*s).data(*s), sizeof(float));
+        PA_MEMCPY(&B.out_scale, home(*s).data(*s), sizeof(float));
     }
     if (!has("ffn_gate_inp.weight")) return;   // a layer with the MLP alone
 
@@ -230,7 +230,7 @@ void Gemma4::load_layer(int il) {
             home(*s).payload(*s) != (size_t) n_expert_ * sizeof(float))
             throw std::runtime_error(s->name + " is " + shape_of(*s) + ", expected F32 [" +
                                      std::to_string(n_expert_) + "]");
-        std::memcpy(B.escale.data(), home(*s).data(*s), (size_t) n_expert_ * sizeof(float));
+        PA_MEMCPY(B.escale.data(), home(*s).data(*s), (size_t) n_expert_ * sizeof(float));
     }
     for (const char* other : {"ffn_gate_exps.scale", "ffn_up_exps.scale", "ffn_gate_up_exps.scale"})
         if (has(other)) throw std::runtime_error(blk(il, other) + ": a scale this engine does not apply");
@@ -301,12 +301,12 @@ size_t Gemma4::card_row_bytes() const {
 void Gemma4::save_card_rows(int64_t first, int64_t n, uint8_t* dst) {
     if (first < 0 || n < 0 || first + n > opt_.max_context)
         throw std::logic_error("save_rows: the rows are outside the context");
-    ck(cudaStreamSynchronize(cs(st_)), "save rows");
+    ck(PA_WAIT_STREAM(cs(st_)), "save rows");
     for (const Block& B : blocks_) {
         const size_t row = (size_t) B.n_kv * B.dim * sizeof(uint16_t), bytes = (size_t) n * row;
         if (B.swa || bytes == 0) continue;
         for (const uint16_t* cache : {B.keys, B.vals}) {
-            ck(cudaMemcpy(dst, (const uint8_t*) cache + (size_t) first * row, bytes, cudaMemcpyDeviceToHost),
+            ck(PA_COPY_SYNC(dst, (const uint8_t*) cache + (size_t) first * row, bytes, cudaMemcpyDeviceToHost),
                "save rows");
             dst += bytes;
         }
@@ -317,12 +317,12 @@ void Gemma4::load_card_rows(const uint8_t* src, int64_t from, int64_t count, int
     if (from < 0 || first < from || n < 0 || first + n > from + count || first + n > opt_.max_context)
         throw std::logic_error("load_rows: the rows are outside what was saved");
     cover(first + n);
-    ck(cudaStreamSynchronize(cs(st_)), "load rows");
+    ck(PA_WAIT_STREAM(cs(st_)), "load rows");
     for (const Block& B : blocks_) {
         const size_t row = (size_t) B.n_kv * B.dim * sizeof(uint16_t), bytes = (size_t) n * row;
         if (B.swa || bytes == 0) continue;
         for (uint16_t* cache : {B.keys, B.vals}) {
-            ck(cudaMemcpy((uint8_t*) cache + (size_t) first * row, src + (size_t) (first - from) * row, bytes,
+            ck(PA_COPY_SYNC((uint8_t*) cache + (size_t) first * row, src + (size_t) (first - from) * row, bytes,
                           cudaMemcpyHostToDevice),
                "load rows");
             src += (size_t) count * row;
@@ -361,9 +361,9 @@ void Gemma4::save_layer(int il, int64_t pos, uint8_t* dst) {
     const Block& B = blocks_[(size_t) il];
     const size_t row = (size_t) B.n_kv * B.dim * sizeof(uint16_t);
     for (const uint16_t* cache : {B.keys, B.vals}) {
-        std::memset(dst, 0, (size_t) keep_ * row);   // the places of positions before the sequence's start
+        PA_MEMSET(dst, 0, (size_t) keep_ * row);   // the places of positions before the sequence's start
         window_runs(pos, [&](size_t slot, size_t at, size_t m) {
-            ck(cudaMemcpy(dst + slot * row, (const uint8_t*) cache + at * row, m * row, cudaMemcpyDeviceToHost),
+            ck(PA_COPY_SYNC(dst + slot * row, (const uint8_t*) cache + at * row, m * row, cudaMemcpyDeviceToHost),
                "save state");
         });
         dst += (size_t) keep_ * row;
@@ -376,7 +376,7 @@ void Gemma4::load_extra(const uint8_t* src, int64_t pos) {
         const size_t row = (size_t) B.n_kv * B.dim * sizeof(uint16_t);
         for (uint16_t* cache : {B.keys, B.vals}) {
             window_runs(pos, [&](size_t slot, size_t at, size_t m) {
-                ck(cudaMemcpy((uint8_t*) cache + at * row, src + slot * row, m * row, cudaMemcpyHostToDevice),
+                ck(PA_COPY_SYNC((uint8_t*) cache + at * row, src + slot * row, m * row, cudaMemcpyHostToDevice),
                    "load state");
             });
             src += (size_t) keep_ * row;
@@ -533,7 +533,7 @@ void Gemma4::mlp(const Layer& L, int il, int n, float* out) {
 // No expert is shared: the routed experts' sum starts from nothing.  The MLP beside them goes here, after the
 // router's copy: the card has it to do while the host routes and computes its experts.
 void Gemma4::moe_shared(const Layer& L, int il, int n) {
-    ck(cudaMemsetAsync(fo_, 0, (size_t) n * n_embd_ * sizeof(float), cs(st_)), "experts");
+    ck(PA_ZERO(fo_, 0, (size_t) n * n_embd_ * sizeof(float), cs(st_)), "experts");
     mlp(L, il, n, cur_);
     rms_norm(cur_, fp(blocks_[(size_t) il].post_mlp), mlp_, n_embd_, n, rms_eps_, st_);
     dbg("mlp", il, mlp_, n_embd_);
@@ -577,7 +577,7 @@ void Gemma4::draft_step(int32_t token, int i) {
     embed(token, h_r_);
     const float scale = embed_scale();
     for (int k = 0; k < e; ++k) h_r_[k] *= scale;
-    copy2(h_r_, dxh_, e, i == 0 ? hn_ : own, dxh_ + e, e, st_);
+    PA_COPY2_KERNEL(h_r_, dxh_, e, i == 0 ? hn_ : own, dxh_ + e, e, st_);
     float* x = r_;
     lin(d_pre_, dxh_, x, 1);
     for (const Guess& G : guess_) {

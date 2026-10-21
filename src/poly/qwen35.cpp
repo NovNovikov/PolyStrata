@@ -190,7 +190,7 @@ void Qwen35::save_layer(int il, int64_t, uint8_t* dst) {
     const Block& B = blocks_[(size_t) il];
     if (!B.past) return;
     const size_t n = size_t(3) * conv_dim_ + size_t(v_heads_) * s_dim_ * s_dim_;
-    ck(cudaMemcpy(dst + (size_t) (B.past - state_) * sizeof(float), B.past, n * sizeof(float),
+    ck(PA_COPY_SYNC(dst + (size_t) (B.past - state_) * sizeof(float), B.past, n * sizeof(float),
                   cudaMemcpyDeviceToHost),
        "save state");
 }
@@ -205,7 +205,7 @@ size_t Qwen35::card_row_bytes() const {
 void Qwen35::save_card_rows(int64_t first, int64_t n, uint8_t* dst) {
     if (first < 0 || n < 0 || first + n > opt_.max_context)
         throw std::logic_error("save_rows: the rows are outside the context");
-    ck(cudaStreamSynchronize(cs(st_)), "save rows");
+    ck(PA_WAIT_STREAM(cs(st_)), "save rows");
     if (opt_.kv_format == KvFmt::kQ8_0) {
         // q8_0: each attention block writes k_codes, k_scales, v_codes, v_scales, in that order, so that a load
         // can walk the same runs back.  Same layout as card_row_bytes() sums to (n * card_row_bytes() / n_attn_).
@@ -215,13 +215,13 @@ void Qwen35::save_card_rows(int64_t first, int64_t n, uint8_t* dst) {
         const size_t n_c = (size_t) n * crow, n_s = (size_t) n * srow;
         for (const Block& B : blocks_) {
             if (!B.k_codes || n == 0) continue;
-            ck(cudaMemcpy(dst, (const uint8_t*) B.k_codes + at_c, n_c, cudaMemcpyDeviceToHost), "save rows");
+            ck(PA_COPY_SYNC(dst, (const uint8_t*) B.k_codes + at_c, n_c, cudaMemcpyDeviceToHost), "save rows");
             dst += n_c;
-            ck(cudaMemcpy(dst, (const uint8_t*) B.k_scales + at_s, n_s, cudaMemcpyDeviceToHost), "save rows");
+            ck(PA_COPY_SYNC(dst, (const uint8_t*) B.k_scales + at_s, n_s, cudaMemcpyDeviceToHost), "save rows");
             dst += n_s;
-            ck(cudaMemcpy(dst, (const uint8_t*) B.v_codes + at_c, n_c, cudaMemcpyDeviceToHost), "save rows");
+            ck(PA_COPY_SYNC(dst, (const uint8_t*) B.v_codes + at_c, n_c, cudaMemcpyDeviceToHost), "save rows");
             dst += n_c;
-            ck(cudaMemcpy(dst, (const uint8_t*) B.v_scales + at_s, n_s, cudaMemcpyDeviceToHost), "save rows");
+            ck(PA_COPY_SYNC(dst, (const uint8_t*) B.v_scales + at_s, n_s, cudaMemcpyDeviceToHost), "save rows");
             dst += n_s;
         }
         return;
@@ -230,7 +230,7 @@ void Qwen35::save_card_rows(int64_t first, int64_t n, uint8_t* dst) {
     for (const Block& B : blocks_) {
         if (!B.keys || bytes == 0) continue;
         for (const uint16_t* cache : {B.keys, B.vals}) {
-            ck(cudaMemcpy(dst, (const uint8_t*) cache + at, bytes, cudaMemcpyDeviceToHost), "save rows");
+            ck(PA_COPY_SYNC(dst, (const uint8_t*) cache + at, bytes, cudaMemcpyDeviceToHost), "save rows");
             dst += bytes;
         }
     }
@@ -240,7 +240,7 @@ void Qwen35::load_card_rows(const uint8_t* src, int64_t from, int64_t count, int
     if (from < 0 || first < from || n < 0 || first + n > from + count || first + n > opt_.max_context)
         throw std::logic_error("load_rows: the rows are outside what was saved");
     cover(first + n);
-    ck(cudaStreamSynchronize(cs(st_)), "load rows");
+    ck(PA_WAIT_STREAM(cs(st_)), "load rows");
     if (opt_.kv_format == KvFmt::kQ8_0) {
         // q8_0: mirror save_card_rows run for run, advancing by each run's own saved size (count * row) so
         // multi-layer blobs line up; the rows wanted start `first - from` rows into the run.
@@ -252,13 +252,13 @@ void Qwen35::load_card_rows(const uint8_t* src, int64_t from, int64_t count, int
         const size_t all_c = (size_t) count * crow, all_s = (size_t) count * srow;
         for (const Block& B : blocks_) {
             if (!B.k_codes || n == 0) continue;
-            ck(cudaMemcpy((uint8_t*) B.k_codes + at_c, src + sk_c, n_c, cudaMemcpyHostToDevice), "load rows");
+            ck(PA_COPY_SYNC((uint8_t*) B.k_codes + at_c, src + sk_c, n_c, cudaMemcpyHostToDevice), "load rows");
             src += all_c;
-            ck(cudaMemcpy((uint8_t*) B.k_scales + at_s, src + sk_s, n_s, cudaMemcpyHostToDevice), "load rows");
+            ck(PA_COPY_SYNC((uint8_t*) B.k_scales + at_s, src + sk_s, n_s, cudaMemcpyHostToDevice), "load rows");
             src += all_s;
-            ck(cudaMemcpy((uint8_t*) B.v_codes + at_c, src + sk_c, n_c, cudaMemcpyHostToDevice), "load rows");
+            ck(PA_COPY_SYNC((uint8_t*) B.v_codes + at_c, src + sk_c, n_c, cudaMemcpyHostToDevice), "load rows");
             src += all_c;
-            ck(cudaMemcpy((uint8_t*) B.v_scales + at_s, src + sk_s, n_s, cudaMemcpyHostToDevice), "load rows");
+            ck(PA_COPY_SYNC((uint8_t*) B.v_scales + at_s, src + sk_s, n_s, cudaMemcpyHostToDevice), "load rows");
             src += all_s;
         }
         return;
@@ -268,7 +268,7 @@ void Qwen35::load_card_rows(const uint8_t* src, int64_t from, int64_t count, int
     for (const Block& B : blocks_) {
         if (!B.keys || bytes == 0) continue;
         for (uint16_t* cache : {B.keys, B.vals}) {
-            ck(cudaMemcpy((uint8_t*) cache + at, src + skip, bytes, cudaMemcpyHostToDevice), "load rows");
+            ck(PA_COPY_SYNC((uint8_t*) cache + at, src + skip, bytes, cudaMemcpyHostToDevice), "load rows");
             src += all;
         }
     }
@@ -331,8 +331,8 @@ const int32_t* Qwen35::turns(int64_t pos, int n, int64_t* first) {
     if (axes_pos_ != pos || axes_n_ != n || axes_set_ != images_set_) {
         for (int t = 0; t < n; ++t) turn_of(pos + t, h_axes_.data() + (size_t) t * 3);
         // the launches that read the positions of the call before this one have to be through
-        ck(cudaStreamSynchronize(cs(st_)), "rotary positions");
-        ck(cudaMemcpy(axes_, h_axes_.data(), (size_t) n * 3 * sizeof(int32_t), cudaMemcpyHostToDevice),
+        ck(PA_WAIT_STREAM(cs(st_)), "rotary positions");
+        ck(PA_COPY_SYNC(axes_, h_axes_.data(), (size_t) n * 3 * sizeof(int32_t), cudaMemcpyHostToDevice),
            "rotary positions");
         axes_pos_ = pos;
         axes_n_ = n;

@@ -6,6 +6,8 @@
 #include "strata/artifact/gguf_reader.hpp"
 
 #include <cuda_runtime.h>
+#include "transfer_audit_cuda.hpp"
+#include "strata/poly/kernels.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -83,6 +85,16 @@ inline std::string blk(int il, const char* name) { return "blk." + std::to_strin
 
 inline const float* fp(const Dev& d) { return (const float*) d.p; }
 inline cudaStream_t cs(void* s) { return (cudaStream_t) s; }
+
+inline void audited_copy2(const char* file,int line,const void* x0,void* y0,int n0,
+                          const void* x1,void* y1,int n1,void* stream) {
+    if(!audit::enabled()){copy2(x0,y0,n0,x1,y1,n1,stream);return;}
+    audit::GpuSpan timing(file,line,"copy2-kernel-interval",size_t(n0+n1)*4,cs(stream));
+    copy2(x0,y0,n0,x1,y1,n1,stream);
+    if(n0) audit::kernel_copy(file,line,"copy2",size_t(n0)*4,audit::pointer_direction(x0,y0),cs(stream));
+    if(n1) audit::kernel_copy(file,line,"copy2",size_t(n1)*4,audit::pointer_direction(x1,y1),cs(stream));
+}
+#define PA_COPY2_KERNEL(...) ::strata::poly::audited_copy2(__FILE__,__LINE__,__VA_ARGS__)
 
 inline std::string shape_of(const TensorInfo& t) {
     std::string s = "[";

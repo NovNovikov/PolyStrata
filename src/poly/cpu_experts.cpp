@@ -51,6 +51,7 @@ Workers::~Workers() {
 // Whether it ran a task.  next is read before it is counted up, so it stops near n however often a worker comes
 // back to a batch whose tasks are taken.
 bool Workers::drain(Batch& b) {
+    audit::Scope audit_scope(b.audit_context);
     bool ran = false;
     while (b.next.load(std::memory_order_relaxed) < b.n) {
         const int i = b.next.fetch_add(1, std::memory_order_relaxed);
@@ -116,6 +117,7 @@ void Workers::run(int n, const std::function<void(int)>& fn) {
     const std::lock_guard<std::mutex> one(one_);
     Batch b;
     b.fn = &fn;
+    if (audit::enabled()) b.audit_context = audit::context();
     b.n = n;
     b.left.store(n);
     cur_.store(&b);

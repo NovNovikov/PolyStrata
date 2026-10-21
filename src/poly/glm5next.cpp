@@ -214,7 +214,7 @@ void Glm5Next::load_layer(int il) {
         const TensorInfo* a = tensor(il, "ssm_a");
         float first = -1.f;
         if (a && a->type == kTypeF32 && home(*a).payload(*a) >= sizeof(first))
-            std::memcpy(&first, home(*a).data(*a), sizeof(first));
+            PA_MEMCPY(&first, home(*a).data(*a), sizeof(first));
         float (*fix)(float) = nullptr;
         if (a && a->name.find("a_log") != std::string::npos) fix = [](float v) { return -std::exp(v); };
         else if (first > 0.f) fix = [](float v) { return -v; };
@@ -239,7 +239,7 @@ void Glm5Next::load_layer(int il) {
                                      std::to_string(n_expert_) + "]");
         B.probs_b_dev = upload(b, blk(il, "exp_probs_b.bias"), n_expert_, 1, kF32);
         home(*b).payload(*b);
-        std::memcpy(B.probs_b.data(), home(*b).data(*b), (size_t) n_expert_ * sizeof(float));
+        PA_MEMCPY(B.probs_b.data(), home(*b).data(*b), (size_t) n_expert_ * sizeof(float));
     }
 }
 
@@ -328,7 +328,7 @@ void Glm5Next::load_extra(const uint8_t* src, int64_t pos) {
     for (const Block& B : blocks_) {
         if (!B.dsa) continue;
         for (int64_t p = pos - pos % kpool_; p < pos; ++p)
-            ck(cudaMemcpy(B.ring + (size_t) (p % ring_) * 2 * idx_dim_, src + (size_t) (p % kpool_) * row, row,
+            ck(PA_COPY_SYNC(B.ring + (size_t) (p % ring_) * 2 * idx_dim_, src + (size_t) (p % kpool_) * row, row,
                           cudaMemcpyHostToDevice),
                "load state");
         src += (size_t) (kpool_ - 1) * row;
@@ -342,15 +342,15 @@ void Glm5Next::save_layer(int il, int64_t pos, uint8_t* dst) {
         const size_t row = size_t(2) * idx_dim_ * sizeof(float), part = (size_t) (kpool_ - 1) * row;
         dst += state_n_ * sizeof(float);
         for (int j = 0; j < il; ++j) dst += blocks_[(size_t) j].dsa ? part : 0;
-        std::memset(dst, 0, part);
+        PA_MEMSET(dst, 0, part);
         for (int64_t p = pos - pos % kpool_; p < pos; ++p)
-            ck(cudaMemcpy(dst + (size_t) (p % kpool_) * row, B.ring + (size_t) (p % ring_) * 2 * idx_dim_, row,
+            ck(PA_COPY_SYNC(dst + (size_t) (p % kpool_) * row, B.ring + (size_t) (p % ring_) * 2 * idx_dim_, row,
                           cudaMemcpyDeviceToHost),
                "save state");
         return;
     }
     const size_t n = size_t(3) * d_inner_ * (kConv - 1) + size_t(n_head_) * kda_dim_ * kda_dim_;
-    ck(cudaMemcpy(dst + (size_t) (B.conv - state_) * sizeof(float), B.conv, n * sizeof(float),
+    ck(PA_COPY_SYNC(dst + (size_t) (B.conv - state_) * sizeof(float), B.conv, n * sizeof(float),
                   cudaMemcpyDeviceToHost),
        "save state");
 }
@@ -363,17 +363,17 @@ size_t Glm5Next::card_row_bytes() const {
 void Glm5Next::save_card_rows(int64_t first, int64_t n, uint8_t* dst) {
     if (first < 0 || n < 0 || first + n > opt_.max_context)
         throw std::logic_error("save_rows: the rows are outside the context");
-    ck(cudaStreamSynchronize(cs(st_)), "save rows");
+    ck(PA_WAIT_STREAM(cs(st_)), "save rows");
     const size_t lat = (size_t) kv_rank_ * sizeof(uint16_t), key = (size_t) idx_dim_ * sizeof(float);
     const size_t at = (size_t) first, rows = (size_t) n;
     const int64_t p0 = first / kpool_, p1 = (first + n) / kpool_;   // the pools that end in these rows
     for (const Block& B : blocks_) {
         if (!B.dsa || rows == 0) continue;
-        ck(cudaMemcpy(dst, (const uint8_t*) B.lat + at * lat, rows * lat, cudaMemcpyDeviceToHost), "save rows");
+        ck(PA_COPY_SYNC(dst, (const uint8_t*) B.lat + at * lat, rows * lat, cudaMemcpyDeviceToHost), "save rows");
         dst += rows * lat;
-        std::memset(dst, 0, rows * key);
+        PA_MEMSET(dst, 0, rows * key);
         if (p1 > p0)
-            ck(cudaMemcpy2D(dst + (size_t) (p0 * kpool_ + kpool_ - 1 - first) * key, kpool_ * key,
+            ck(PA_COPY2D(dst + (size_t) (p0 * kpool_ + kpool_ - 1 - first) * key, kpool_ * key,
                             B.pool + (size_t) p0 * idx_dim_, key, key, (size_t) (p1 - p0), cudaMemcpyDeviceToHost),
                "save rows");
         dst += rows * key;
@@ -384,16 +384,16 @@ void Glm5Next::load_card_rows(const uint8_t* src, int64_t from, int64_t count, i
     if (from < 0 || first < from || n < 0 || first + n > from + count || first + n > opt_.max_context)
         throw std::logic_error("load_rows: the rows are outside what was saved");
     cover(first + n);
-    ck(cudaStreamSynchronize(cs(st_)), "load rows");
+    ck(PA_WAIT_STREAM(cs(st_)), "load rows");
     const size_t lat = (size_t) kv_rank_ * sizeof(uint16_t), key = (size_t) idx_dim_ * sizeof(float);
     const size_t at = (size_t) first, rows = (size_t) n, skip = (size_t) (first - from), all = (size_t) count;
     const int64_t p0 = first / kpool_, p1 = (first + n) / kpool_;
     for (const Block& B : blocks_) {
         if (!B.dsa || rows == 0) continue;
-        ck(cudaMemcpy((uint8_t*) B.lat + at * lat, src + skip * lat, rows * lat, cudaMemcpyHostToDevice), "load rows");
+        ck(PA_COPY_SYNC((uint8_t*) B.lat + at * lat, src + skip * lat, rows * lat, cudaMemcpyHostToDevice), "load rows");
         src += all * lat;
         if (p1 > p0)
-            ck(cudaMemcpy2D(B.pool + (size_t) p0 * idx_dim_, key,
+            ck(PA_COPY2D(B.pool + (size_t) p0 * idx_dim_, key,
                             src + (size_t) (p0 * kpool_ + kpool_ - 1 - from) * key, kpool_ * key, key,
                             (size_t) (p1 - p0), cudaMemcpyHostToDevice),
                "load rows");
@@ -422,7 +422,7 @@ void Glm5Next::kda(Block& B, int n) {
         for (int i = 0; i < n; ++i) {
             const int s = rows_of_[i].seq;
             for (int p = 0; p < 3; ++p)
-                ck(cudaMemcpyAsync(one + p * row, proj_ + p * d + i * row, row * sizeof(float), cudaMemcpyDeviceToDevice,
+                ck(PA_COPY(one + p * row, proj_ + p * d + i * row, row * sizeof(float), cudaMemcpyDeviceToDevice,
                                    cs(st_)),
                    "kda rows");
             float* out = qkv_ + 3 * i * row;
