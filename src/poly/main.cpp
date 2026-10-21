@@ -473,6 +473,7 @@ struct Session {
             }
         }
         engine.end_read();
+        engine.print_stage_stats("prompt");   // what the staging buffer copied, and what it already held
         kept.prompt_was(n);
         r.prompt_ms = ms_since(t0);
         if (std::strcmp(r.finish, "cancel") == 0) return r;

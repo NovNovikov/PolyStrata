@@ -167,6 +167,17 @@ struct Stats {
     double cpu_ms = 0, route_wait_ms = 0;
 };
 
+/// What the staging buffer carried during a prompt batch: the copies themselves, and what the buffer already
+/// held.  The bytes are the experts' own, so the sum over the layers is what the read moved for the experts.
+struct StageStats {
+    int64_t ahead_calls = 0, ahead_bytes = 0;    ///< the copies made before the routing was known
+    int64_t routed_calls = 0, routed_bytes = 0;  ///< the copies made after it, for the experts the call routed to
+    int64_t reused_rounds = 0, reused_experts = 0;  ///< rounds the buffer already held
+    int64_t passes = 0;                          ///< the read passes the batch went through
+    std::vector<int64_t> layer_bytes;            ///< per layer: the experts' bytes moved
+    std::vector<int64_t> layer_calls;
+};
+
 /// The most likely token of n logits: the first of the largest.
 int most_likely(const float* logits, int n);
 
@@ -191,6 +202,9 @@ public:
     const ExchangeStats& exchange_stats() const { return exchange_stats_; }
     void print_exchange_stats(const ExchangeStats& before) const;
     void exchange_test(int fault = 0); // gated by STRATA_EXCHANGE_TEST_MODE in the serve protocol
+    /// What the staging buffer copied during the prompt, and what it already held. Printed with
+    /// STRATA_TRACE_STAGING=1; without it nothing is counted and nothing is printed.
+    void print_stage_stats(const char* when) const;
 
     Engine();
     virtual ~Engine();
@@ -523,7 +537,10 @@ protected:
     size_t compact_slot(int rows, size_t rec) const;
     void prepare_compact_graphs();
     void moe_rows(Layer& L, int il, int n);
-    void stage(const Layer& L, const int32_t* experts, int m, void* stream, bool alone = false);
+    /// The kind of copy: before the routing was known (ahead), or after it, for the experts the call routed to.
+    enum class StageCopy { ahead, routed };
+    void stage(const Layer& L, const int32_t* experts, int m, void* stream, bool alone = false,
+               StageCopy kind = StageCopy::routed);
     void mind_memory();
     void follow(int written);
     void follow_loop();
@@ -839,6 +856,10 @@ protected:
     std::string exchange_error_; // poisoned only if rollback could not restore both payloads
     double exchange_eval_ms_ = 0;
     std::vector<int> resident_stage_owners_;
+    // what the staging buffer carried: the copies, and what it already held. Off unless STRATA_TRACE_STAGING is set.
+    StageStats stage_stats_;
+    int stage_pass_ = 0;          // the read pass the batch is in
+    bool stage_trace_ = false;    // the counters are printed
     size_t resident_stage_used_ = 0;
     bool resident_stage_active_ = false;
 

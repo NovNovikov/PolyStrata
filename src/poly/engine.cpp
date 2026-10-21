@@ -1418,6 +1418,28 @@ void Engine::dump_buffers(const char* when) const {
                      (unsigned long long) entry.second.nodes, (long long) entry.second.device_delta);
 }
 
+// What the staging buffer carried, and what it already held.  The bytes are the experts' own, so the sum over the
+// layers is what the read moved for the experts.  Printed with STRATA_TRACE_STAGING=1.
+void Engine::print_stage_stats(const char* when) const {
+    if (!stage_trace_) return;
+    const auto mib = [](int64_t n) { return double(n) / double(1 << 20); };
+    std::fprintf(stderr, "strata-poly: staging[%s]: passes=%lld ahead_calls=%lld ahead_bytes=%lld (%.2f MiB) "
+                         "routed_calls=%lld routed_bytes=%lld (%.2f MiB) reused_rounds=%lld reused_experts=%lld; "
+                         "total moved=%.2f MiB\n",
+                 when, (long long) stage_stats_.passes, (long long) stage_stats_.ahead_calls,
+                 (long long) stage_stats_.ahead_bytes, mib(stage_stats_.ahead_bytes),
+                 (long long) stage_stats_.routed_calls, (long long) stage_stats_.routed_bytes,
+                 mib(stage_stats_.routed_bytes), (long long) stage_stats_.reused_rounds,
+                 (long long) stage_stats_.reused_experts,
+                 mib(stage_stats_.ahead_bytes + stage_stats_.routed_bytes));
+    for (size_t il = 0; il < stage_stats_.layer_bytes.size(); ++il) {
+        if (!stage_stats_.layer_bytes[il]) continue;
+        std::fprintf(stderr, "strata-poly: staging[%s] layer=%zu calls=%lld bytes=%lld (%.2f MiB)\n", when, il,
+                     (long long) stage_stats_.layer_calls[il], (long long) stage_stats_.layer_bytes[il],
+                     mib(stage_stats_.layer_bytes[il]));
+    }
+}
+
 // Experts go to VRAM by use per byte when there are counts, the profile's and this run's, and otherwise the same
 // number from every layer.
 //
@@ -2101,6 +2123,10 @@ void Engine::load(const Options& o) {
         std::fprintf(stderr, "strata-poly: the experts' split is frozen for the engine's whole run "
                              "(STRATA_FREEZE_EXPERTS): greedy answers are a function of the request alone, "
                              "and the only cache change after load is the serve VRAM resize\n");
+    // the staging counters: what the buffer copied and what it already held. Nothing else changes.
+    stage_trace_ = std::getenv("STRATA_TRACE_STAGING") != nullptr;
+    if (stage_trace_)
+        std::fprintf(stderr, "strata-poly: the staging copies are counted (STRATA_TRACE_STAGING)\n");
     cudaStream_t st = nullptr;
     ck(cudaStreamCreateWithFlags(&st, cudaStreamNonBlocking), "cudaStreamCreate");
     st_ = st;
@@ -2837,9 +2863,21 @@ bool Engine::moe_card(Layer& L, int il, int n) {
 // m experts from the mapped file into the staging buffer: gate and up of each back to back from the start, the
 // downs after them.  The two pinned buffers take turns, so the workers fill one while the other uploads.  `alone`:
 // stagers_ fill them, while the workers compute experts.
-void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, bool alone) {
+void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, bool alone, StageCopy kind) {
     staged_il_ = -1;   // whatever the buffer held
     const size_t gu2 = 2 * L.gu_bytes, down_at = pad((size_t) m * gu2);
+    if (stage_trace_) {   // the experts' own bytes: what the read moved for them
+        const int64_t bytes = (int64_t) m * (int64_t) (gu2 + L.d_bytes);
+        if (kind == StageCopy::ahead) { ++stage_stats_.ahead_calls; stage_stats_.ahead_bytes += bytes; }
+        else { ++stage_stats_.routed_calls; stage_stats_.routed_bytes += bytes; }
+        const size_t il = (size_t) (&L - &layers_[0]);
+        if (stage_stats_.layer_bytes.size() <= il) {
+            stage_stats_.layer_bytes.resize(il + 1, 0);
+            stage_stats_.layer_calls.resize(il + 1, 0);
+        }
+        stage_stats_.layer_bytes[il] += bytes;
+        ++stage_stats_.layer_calls[il];
+    }
     if (opt_.no_disk) {
         if (!expert_dma_) throw std::logic_error("no-disk: no registered DMA window for expert staging");
         std::vector<DmaRange> sources;
@@ -2946,7 +2984,7 @@ void Engine::moe_rows(Layer& L, int il, int n) {
         const Clock::time_point t = Clock::now();
         // the buffer is free once the layer before has read it
         ck(cudaStreamWaitEvent(cs(up_), (cudaEvent_t) ev_free_, 0), "expert staging");
-        stage(L, L.ahead.data(), n_ahead, up_);
+        stage(L, L.ahead.data(), n_ahead, up_, false, StageCopy::ahead);
         ck(cudaEventRecord((cudaEvent_t) ev_ahead_, cs(up_)), "expert staging");
         if (!freeze_experts_) {   // the measured times are the machine's, not the request's: keep them out of a freeze
             ahead_ms_ = ms_since(t);
@@ -3128,10 +3166,14 @@ void Engine::moe_rows(Layer& L, int il, int n) {
             const int r0 = bounds[g0], rows = bounds[g0 + m] - r0;
             if (r == kept) {
                 // the buffer has it
+                if (stage_trace_) {
+                    ++stage_stats_.reused_rounds;
+                    stage_stats_.reused_experts += m;
+                }
             } else if (r == 0 && early) {
                 ck(cudaStreamWaitEvent(cs(st_), (cudaEvent_t) ev_ahead_, 0), "expert staging");
             } else if (rows > 0) {
-                stage(L, group_.data() + g0, m, st_, n_cpu > 0);
+                stage(L, group_.data() + g0, m, st_, n_cpu > 0, StageCopy::routed);
                 holds = r;
             }
             if (rows == 0) continue;   // nothing routed to the experts that go ahead
@@ -3898,6 +3940,10 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
     if (opt_.no_disk_expert_exchange) exchange_available();
     if (n >= kStageRows && mmq_) drop_resident_stage_cache(); // before all_cached() chooses the read path
     cover(pos_ + n);
+    if (stage_trace_) {   // the read pass this batch is in
+        ++stage_pass_;
+        ++stage_stats_.passes;
+    }
     // On several cards, each reads through its own layers and hands the rows on, and `turn` hears of a card's
     // turns as its share of the model's layers: [lo_, to).
     const std::function<bool(int, int)>* asked = turn;
