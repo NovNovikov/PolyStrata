@@ -28,6 +28,36 @@ offers the same steps as tools.
 - Keep the docs' style: plain words, measured numbers with what they were measured on, no claims without a
   measurement.
 
+## Running a command that takes a while
+
+Before starting a command that blocks the session and leaves the user without an answer for more than a few
+seconds — a model load, a benchmark, a build, a download — write in the chat what is started and how long the
+reply will take (for example "starting the server, about 2 minutes"). Only then run it. A command that takes
+minutes is started with the wait said out loud, never silently.
+
+- Every long command is announced before it starts, with what it is and how long it will take. A command
+  that is not announced is not started.
+- A wait between checks is at most 120 seconds (`Start-Sleep -Seconds 120` at most). A longer sleep wastes
+  the user's time: the answer arrives when it is needed, not when the sleep ends. Wake up sooner, look, and
+  if the command is still running, sleep again.
+- The wait is never the answer: after every wait, report what the run has produced so far, even if it is
+  only that the run is still going.
+
+## Never destroy work in progress
+
+- A running command, experiment or test is never stopped, killed, restarted or rerun because a message
+  arrived. A long command is interrupted only when that message explicitly says to stop, cancel, kill or
+  delete it.
+- A message that only points out a preference — the wrong disk, the wrong flag, a better way — does not
+  authorize stopping, deleting or restarting anything. It applies to the next run, not to the one already
+  in flight or already finished.
+- Results are never deleted or overwritten: `bench/results/**`, its logs, `summary.json`, `results.json`,
+  status files, raw traces and experiment work directories. A run is redone only when the user asks for
+  that exact run to be redone, and the previous result is not deleted to make room without an explicit
+  order.
+- When a remark could read either as "change the next run" or "redo this one", read it as the former and
+  ask before touching anything that has already run.
+
 ## Contributing a change or report
 
 - Search the open issues and pull requests first, and add to a thread that already covers your point.
