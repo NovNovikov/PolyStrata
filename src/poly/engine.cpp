@@ -1045,11 +1045,6 @@ void Engine::load_moe(int il, bool shared) {
 std::unique_ptr<Engine> Engine::open(const Options& o) {
     if (o.coalesce_expert_dma && !o.no_disk)
         throw std::runtime_error("--coalesce-expert-dma requires --no-disk");
-    if (o.retain_decode_dma && !o.no_disk)
-        throw std::runtime_error("--retain-decode-dma requires --no-disk");
-    // The exchange transactions own the same window and must keep their own policy.
-    if (o.retain_decode_dma && o.no_disk_expert_exchange)
-        throw std::runtime_error("--retain-decode-dma cannot be combined with --no-disk-expert-exchange");
     if (o.no_disk_expert_exchange && !o.no_disk)
         throw std::runtime_error("--no-disk-expert-exchange requires --no-disk");
     if (o.no_disk_expert_exchange && (o.exchange_max < 1 || o.exchange_max > 64 || o.exchange_cooldown < 0 ||
@@ -1908,11 +1903,7 @@ void Engine::follow_resident(int available) {
     resident_stage_active_ = true;
     staged_il_ = -1;
     const DmaCost before = expert_dma_->cost();
-    // The decode cache's own policy: the pages the upload needs stay registered, and the pages it does
-    // not need are released once their readers are done.  The rating, the threshold, the slots and the
-    // adaptation are untouched.
-    if (opt_.retain_decode_dma) expert_dma_->prepare_keep(std::move(sources));
-    else expert_dma_->prepare(std::move(sources));
+    expert_dma_->prepare(std::move(sources));
     if (stage_trace_) add_cost(stage_stats_.reg_decode, expert_dma_->cost(), before);
     audit::GpuSpan audit_uploads(__FILE__, __LINE__, "cache-upload-interval", 0, cs(swap_st_));
     expert_dma_->begin(cs(swap_st_));

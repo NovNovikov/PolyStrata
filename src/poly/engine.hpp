@@ -57,7 +57,6 @@ struct Options {
     float exchange_budget_pct = 10.f; ///< soft budget for further exchanges vs preceding eval; always allow first
     bool no_disk = false;        ///< all weights resident in locked RAM or fixed VRAM; model files close at load
     bool coalesce_expert_dma = false; ///< opt-in: bounded contiguous prefill registration before attention, two H2D per expert
-    bool retain_decode_dma = false;  ///< opt-in: the decode cache keeps the registered RAM pages it already has
     int no_disk_vram_margin_mib = 512; ///< extra headroom for loading, separate from the runtime reserve
     bool rows_vram = false;      ///< reserve intermediate read rows in VRAM
     int read_chunk_tokens = 0;   ///< prompt tokens in one read() pass at most; 0: context / RAM limit

@@ -154,47 +154,6 @@ int main(int argc, char** argv) {
                         try { kept.retain({{bytes + 1, 1}}); } catch (const std::runtime_error&) { invalid = true; }
                         check(invalid && kept.bytes() == 3 * page, "an invalid source changed the window");
                     }
-                    // The decode cache's policy: the pages the upload needs stay registered, the pages it
-                    // does not need are released, and the window does not grow.
-                    {
-                        ResidentDma keep(base, bytes, 8 * page);
-                        keep.prepare({{0, page}});
-                        const uint64_t reg0 = keep.registered_bytes(), unreg0 = keep.unregistered_bytes();
-                        // A batch that covers the old page and two more: the old page is not registered again.
-                        keep.prepare_keep({{0, 3 * page}});
-                        check(keep.bytes() == 3 * page, "the kept policy did not keep the covered page");
-                        check(keep.registered_bytes() == reg0 + 2 * page && keep.unregistered_bytes() == unreg0,
-                              "the covered page was registered again");
-                        // The next batch needs none of them: they are released and the window is small again.
-                        keep.prepare_keep({{3 * page, page}});
-                        check(keep.bytes() == page, "the window grew instead of releasing what is not needed");
-#ifndef HIP_VERSION
-                        {
-                            cudaPointerAttributes a{};
-                            ck(cudaPointerGetAttributes(&a, base));
-                            check(a.type == cudaMemoryTypeUnregistered, "a page the cache does not need stayed registered");
-                            ck(cudaPointerGetAttributes(&a, base + 3 * page));
-                            check(a.type == cudaMemoryTypeHost, "the page the cache needs is not registered");
-                        }
-#endif
-                        // The data of the page the policy added must arrive unchanged.
-                        std::memset(base + 3 * page, 0x3c, page);
-                        keep.begin(streams[0]);
-                        ck(cudaMemcpyAsync(dev[0], base + 3 * page, page, cudaMemcpyHostToDevice, streams[0]));
-                        keep.end(streams[0]);
-                        std::array<uint8_t, 4096> kept_got{};
-                        ck(cudaMemcpy(kept_got.data(), dev[0], kept_got.size(), cudaMemcpyDeviceToHost));
-                        for (uint8_t v : kept_got) check(v == 0x3c, "the page the policy added has the wrong data");
-                    }
-                    // The window stays inside its budget: the pages we keep go when they do not fit.
-                    {
-                        ResidentDma tight(base, bytes, 4 * page);
-                        tight.prepare({{0, 3 * page}});
-                        check(tight.bytes() == 3 * page, "the window did not hold what was prepared");
-                        tight.prepare_keep({{page, 4 * page}});
-                        check(tight.bytes() <= 4 * page, "the window grew past its budget");
-                        check(tight.bytes() == 4 * page, "the window did not hold the wanted pages");
-                    }
                     // The budget: a new source that does not fit evicts the oldest registration, and the
                     // wanted pages stay.
                     {
