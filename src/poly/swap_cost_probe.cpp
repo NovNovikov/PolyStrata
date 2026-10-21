@@ -41,12 +41,15 @@ int main(int argc, char** argv) {
         ck(cudaMemset(vram_cold, 0x11, expert_bytes * slots));
         ck(cudaMemset(vram_target, 0x22, expert_bytes * slots));
 
-        // the RAM arena: a source and a target per exchange, in one locked buffer
+        // the RAM arena, as big as the window: a source and a target per exchange at its start, the rest of the
+        // window is the room the engine's arena has around them
         ResidentMemory memory;
-        const size_t ram_bytes = expert_bytes * slots * 2;
+        const size_t ram_bytes = window_mib << 20;
+        const size_t used_bytes = expert_bytes * slots * 2;
+        if (used_bytes > ram_bytes) { std::fprintf(stderr, "the window of %llu MiB is smaller than %d exchanges\n", (unsigned long long) window_mib, slots); return 2; }
         auto* ram = (uint8_t*) memory.allocate(ram_bytes, "swap cost probe");
         std::memset(ram, 0x5A, ram_bytes);
-        // the pages of the arena are registered, as the engine's are: the D2H writes into a registered page
+        // the window's pages are registered, as the engine's are: the D2H writes into a registered page
         ResidentDma dma(ram, ram_bytes, ram_bytes);
         auto t = Clock::now();
         dma.prepare({{0, ram_bytes}});
@@ -116,10 +119,47 @@ int main(int argc, char** argv) {
             }
         }
 
-        // 3. the registration: adding a range to a live window, and dropping it
+        // 3. the full transaction: the three copies between the same two places, the wait for the readers, and the
+        //    publication of the owners.  This is what the planner's budget is made of, not the copies alone.
         {
+            // the two places of every exchange: a VRAM place and a RAM place.  The places do not move; what moves
+            // is what lives in them, so the addresses stay the same from round to round.
+            std::vector<void*> vram_place((size_t) slots), ram_place((size_t) slots);
+            std::vector<int> owner_vram((size_t) slots), owner_ram((size_t) slots);
+            for (int i = 0; i < slots; ++i) {
+                vram_place[(size_t) i] = (uint8_t*) vram_cold + (size_t) i * expert_bytes;
+                ram_place[(size_t) i] = ram + (size_t) i * 2 * expert_bytes;
+                owner_vram[(size_t) i] = 1000 + i;   // the cold expert
+                owner_ram[(size_t) i] = 2000 + i;    // the hot expert
+            }
+            const int rounds_tx = 20;
+            t = Clock::now();
+            for (int round = 0; round < rounds_tx; ++round) {
+                for (int i = 0; i < slots; ++i) {
+                    cudaStream_t s = streams[i % 4];
+                    // the readers of the old contents are finished before the swap starts
+                    ck(cudaStreamSynchronize(s));
+                    ck(cudaMemcpyAsync((uint8_t*) staging + (size_t) i * expert_bytes, vram_place[(size_t) i],
+                                       expert_bytes, cudaMemcpyDeviceToDevice, s));
+                    ck(cudaMemcpyAsync(vram_place[(size_t) i], ram_place[(size_t) i], expert_bytes,
+                                       cudaMemcpyHostToDevice, s));
+                    ck(cudaMemcpyAsync(ram_place[(size_t) i], (uint8_t*) staging + (size_t) i * expert_bytes,
+                                       expert_bytes, cudaMemcpyDeviceToHost, s));
+                }
+                for (int j = 0; j < 4; ++j) ck(cudaStreamSynchronize(streams[j]));
+                // the publication of the owners: the experts swap places, the places stay
+                for (int i = 0; i < slots; ++i) std::swap(owner_vram[(size_t) i], owner_ram[(size_t) i]);
+            }
+            const double tx = ms_since(t) / rounds_tx;
+            std::printf("полная транзакция %d обменов (те же два места, ожидание читателей, публикация "
+                        "владельцев): %.3f мс на обмен\n", slots, tx / slots);
+        }
+
+        // 4. the registration: adding a range to a live window, and dropping it
+        {
+            // a second arena, so the range measured is not one the live window already holds
             ResidentMemory other;
-            void* spare = other.allocate(ram_bytes, "swap cost probe spare");
+            void* spare = other.allocate(expert_bytes, "swap cost probe spare");
             t = Clock::now();
             ck(cudaHostRegister(spare, expert_bytes, 0));
             const double add_ms = ms_since(t);
@@ -127,8 +167,7 @@ int main(int argc, char** argv) {
             ck(cudaHostUnregister(spare));
             const double drop_ms = ms_since(t);
             std::printf("регистрация %zu МиБ: добавить %.3f мс, снять %.3f мс\n", expert_mib, add_ms, drop_ms);
-        }
-        t = Clock::now();
+        }        t = Clock::now();
         dma.clear();
         const double clear_ms = ms_since(t);
         std::printf("снятие окна %zu МиБ: %.3f мс (%.0f МиБ/с)\n", ram_bytes / (1 << 20), clear_ms,
@@ -139,6 +178,7 @@ int main(int argc, char** argv) {
         std::printf("регистрация окна %zu МиБ заново: %.3f мс (%.0f МиБ/с); первая регистрация была %.3f мс\n",
                     ram_bytes / (1 << 20), again, ram_bytes / (1 << 20) / (again / 1000.0), register_ms);
     } catch (const std::exception& e) { std::fprintf(stderr, "swap cost probe: %s\n", e.what()); result = 1; }
+    catch (...) { std::fprintf(stderr, "swap cost probe: unknown error\n"); result = 1; }
     for (int j = 0; j < 4; ++j) { if (streams[j]) cudaStreamDestroy(streams[j]); }
     if (vram_cold) cudaFree(vram_cold);
     if (vram_target) cudaFree(vram_target);
