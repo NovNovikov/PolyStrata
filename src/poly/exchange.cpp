@@ -48,6 +48,9 @@ void Engine::exchange_pair(int il, int hot, int cold, int fault, bool forced_ver
     tick = Clock::now();
     expert_dma_->retain({{at, raw}});
     exchange_stats_.registration_ms += ms_since(tick);
+    // Poison before touching the only weight copies. Unexpected exceptions (including a failed
+    // end event after successful DMA) must not allow a later request to use unpublished owners.
+    exchange_error_ = "expert exchange did not publish consistent owners; engine disabled";
     expert_dma_->begin(cs(swap_st_));
     tick = Clock::now();
     try {
@@ -57,6 +60,7 @@ void Engine::exchange_pair(int il, int hot, int cold, int fault, bool forced_ver
         if (e.restored) ++exchange_stats_.restored;
         else exchange_error_ = std::string("exchange cannot restore weights; engine disabled: ") + e.what();
         expert_dma_->end(cs(swap_st_));
+        if (e.restored) exchange_error_.clear();
         exchange_stats_.copy_ms += ms_since(tick);
         exchange_stats_.wall_ms += ms_since(started);
         throw;
@@ -73,6 +77,7 @@ void Engine::exchange_pair(int il, int hot, int cold, int fault, bool forced_ver
     staged_il_ = -1;
     const size_t hi = (size_t) il * n_expert_ + hot, ci = (size_t) il * n_expert_ + cold;
     exchange_until_[hi] = exchange_until_[ci] = exchange_clock_ + opt_.exchange_cooldown;
+    exchange_error_.clear(); // both payloads and every published owner are now consistent
     ++exchange_stats_.completed;
     ++stats_.swapped_experts; // the promoted RAM expert arrived in its GPU slot
     exchange_stats_.verified += verify;

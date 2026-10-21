@@ -138,7 +138,8 @@ public:
             catch (...) { ages_.erase(r.first); (void) cudaHostUnregister(base_ + r.first); throw; }
             std::sort(pinned_.begin(), pinned_.end());
             peak_ = std::max(peak_, bytes());
-            verify(base_ + r.first);
+            try { verify(base_ + r.first); }
+            catch (...) { clear(); throw; }
         }
     }
     void begin(cudaStream_t stream) {
