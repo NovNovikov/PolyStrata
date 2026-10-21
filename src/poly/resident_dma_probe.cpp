@@ -125,6 +125,144 @@ int main(int argc, char** argv) {
                     check(std::memcmp(merged.data() + e * 2 * gu, base + e * 8192, 2 * gu) == 0, "gate/up data");
                     check(std::memcmp(merged.data() + down_at + e * down, base + e * 8192 + 2 * gu, down) == 0, "down data");
                 }
+                if (bytes >= 4u * 1024 * 1024) {
+                    // The decode cache's own policy: the pages that are registered stay registered, only the
+                    // missing ones are added, and an old whole registration goes only when the budget needs it.
+                    const size_t page = ResidentDma::page_size();
+                    {
+                        ResidentDma kept(base, bytes, 4 * page);
+                        // A fully covered batch must not touch the CUDA registration at all.
+                        kept.prepare({{0, page}});
+                        const uint64_t reg0 = kept.registered_bytes(), unreg0 = kept.unregistered_bytes();
+                        kept.retain({{0, page}});
+                        check(kept.registered_bytes() == reg0 && kept.unregistered_bytes() == unreg0,
+                              "a covered retain changed the registration");
+                        check(kept.bytes() == page, "a covered retain changed the window");
+                        // A partial intersection keeps the old range and adds what is missing.
+                        kept.retain({{page, 2 * page}});
+                        check(kept.bytes() == 3 * page, "a partial intersection did not add the missing page");
+                        // The page the retain added must carry its data.
+                        std::memset(base + page, 0x5a, page);
+                        kept.begin(streams[0]);
+                        ck(cudaMemcpyAsync(dev[0], base + page, page, cudaMemcpyHostToDevice, streams[0]));
+                        kept.end(streams[0]);
+                        std::array<uint8_t, 4096> got{};
+                        ck(cudaMemcpy(got.data(), dev[0], got.size(), cudaMemcpyDeviceToHost));
+                        for (uint8_t v : got) check(v == 0x5a, "the page a retain added has the wrong data");
+                        // An invalid source must not change the window.
+                        bool invalid = false;
+                        try { kept.retain({{bytes + 1, 1}}); } catch (const std::runtime_error&) { invalid = true; }
+                        check(invalid && kept.bytes() == 3 * page, "an invalid source changed the window");
+                    }
+                    // The budget: a new source that does not fit evicts the oldest registration, and the
+                    // wanted pages stay.
+                    {
+                        ResidentDma tight(base, bytes, 3 * page);
+                        tight.prepare({{0, page}});
+                        tight.retain({{0, 3 * page}});
+                        check(tight.bytes() == 3 * page, "the retained window is not the budget");
+                        tight.retain({{3 * page, page}});
+                        check(tight.bytes() == 3 * page, "the budget was exceeded");
+#ifndef HIP_VERSION
+                        {
+                            cudaPointerAttributes a{};
+                            ck(cudaPointerGetAttributes(&a, base));
+                            check(a.type == cudaMemoryTypeUnregistered, "the evicted page is still registered");
+                            ck(cudaPointerGetAttributes(&a, base + 3 * page));
+                            check(a.type == cudaMemoryTypeHost, "the wanted page is not registered");
+                        }
+#endif
+                    }
+                    // An eviction must wait for the readers of the pages it removes.
+                    {
+                        ResidentDma fenced(base, bytes, page);
+                        std::array<uint8_t, 4096> got{};
+                        fenced.prepare({{0, page}});
+                        std::memset(base, 0x6b, page);
+                        fenced.begin(streams[0]);
+                        ck(cudaMemcpyAsync(dev[0], base, page, cudaMemcpyHostToDevice, streams[0]));
+                        fenced.retain({{page, page}});
+                        ck(cudaMemcpy(got.data(), dev[0], got.size(), cudaMemcpyDeviceToHost));
+                        for (uint8_t v : got) check(v == 0x6b, "the fenced reader's data mismatch");
+                    }
+                    // A real partial registration failure must roll back and leave nothing registered.
+                    {
+                        ResidentDma roll(base, bytes, 4 * page);
+                        roll.prepare({{0, page}});
+                        ck(cudaHostRegister(base + bytes - page, page, 0));
+                        bool refused = false;
+                        try { roll.retain({{0, page}, {bytes - page, page}}); }
+                        catch (const std::runtime_error&) { refused = true; }
+                        const bool rolled_back = refused && roll.bytes() == page;
+                        ck(cudaHostUnregister(base + bytes - page));
+                        check(rolled_back, "a partial registration failure did not roll back the window");
+                    }
+                    // Cleanup, and the same policy applied again.
+                    {
+                        ResidentDma again(base, bytes, 4 * page);
+                        again.retain({{0, page}});
+                        check(again.bytes() == page, "the policy did not apply to a fresh window");
+                        again.clear();
+                        check(again.bytes() == 0, "the cleanup left pages registered");
+                        again.retain({{0, page}});
+                        check(again.bytes() == page, "the policy did not apply after a cleanup");
+                        again.clear();
+                    }
+                    // The engine's fallback: the gate and the up are not adjacent in RAM, so they are copied
+                    // separately. The staging bytes must be the same as the original three-copy layout.
+                    {
+                        constexpr size_t fgu = 333, fdown = 777, fcount = 2;
+                        constexpr size_t fdown_at = (fcount * 2 * fgu + 255) & ~size_t(255);
+                        constexpr size_t fout = fdown_at + fcount * fdown + 256;
+                        static_assert(fout <= 4096);
+                        const size_t gate_at = 0, up_at = 8192, down_src = 16384;
+                        for (size_t e = 0; e < fcount; ++e) {
+                            uint8_t* gate = base + gate_at + e * 1024;
+                            uint8_t* up = base + up_at + e * 1024;
+                            uint8_t* dn = base + down_src + e * 1024;
+                            for (size_t i = 0; i < fgu; ++i) { gate[i] = (uint8_t) (i * 31 + e * 17); up[i] = (uint8_t) (i * 7 + e * 3); }
+                            for (size_t i = 0; i < fdown; ++i) dn[i] = (uint8_t) (i * 13 + e * 5);
+                        }
+                        ck(cudaMemsetAsync(dev[0], 0, fout, streams[0]));
+                        ResidentDma split(base, bytes, 64 * 1024);
+                        split.prepare({{gate_at, 1024}, {up_at, 1024}, {down_src, 1024}});
+                        split.begin(streams[0]);
+                        for (size_t e = 0; e < fcount; ++e) {
+                            uint8_t* dst = (uint8_t*) dev[0] + e * 2 * fgu;
+                            ck(cudaMemcpyAsync(dst, base + gate_at + e * 1024, fgu, cudaMemcpyHostToDevice, streams[0]));
+                            ck(cudaMemcpyAsync(dst + fgu, base + up_at + e * 1024, fgu, cudaMemcpyHostToDevice, streams[0]));
+                            ck(cudaMemcpyAsync((uint8_t*) dev[0] + fdown_at + e * fdown, base + down_src + e * 1024,
+                                               fdown, cudaMemcpyHostToDevice, streams[0]));
+                        }
+                        split.end(streams[0]);
+                        std::array<uint8_t, fout> apart{};
+                        ck(cudaMemcpy(apart.data(), dev[0], apart.size(), cudaMemcpyDeviceToHost));
+                        for (size_t e = 0; e < fcount; ++e) {
+                            check(std::memcmp(apart.data() + e * 2 * fgu, base + gate_at + e * 1024, fgu) == 0, "the split gate");
+                            check(std::memcmp(apart.data() + e * 2 * fgu + fgu, base + up_at + e * 1024, fgu) == 0, "the split up");
+                            check(std::memcmp(apart.data() + fdown_at + e * fdown, base + down_src + e * 1024, fdown) == 0,
+                                  "the split down");
+                        }
+                        split.clear();
+                    }
+                    // The last expert at the end of the arena: the registered range must cover both full GU
+                    // halves of it, and the copy of them must be exact.
+                    {
+                        constexpr size_t lgu = 333, ldown = 777;
+                        const size_t at = bytes - (2 * lgu + ldown);
+                        uint8_t* src = base + at;
+                        for (size_t i = 0; i < 2 * lgu + ldown; ++i) src[i] = (uint8_t) (i * 11 + 3);
+                        ResidentDma last(base, bytes, 64 * 1024);
+                        last.prepare({{at, 2 * lgu + ldown}});
+                        last.begin(streams[0]);
+                        ck(cudaMemcpyAsync(dev[0], src, 2 * lgu, cudaMemcpyHostToDevice, streams[0]));
+                        last.end(streams[0]);
+                        std::array<uint8_t, 2 * lgu> tail{};
+                        ck(cudaMemcpy(tail.data(), dev[0], tail.size(), cudaMemcpyDeviceToHost));
+                        check(std::memcmp(tail.data(), src, 2 * lgu) == 0, "the merged GU at the arena's end changed the bytes");
+                        last.clear();
+                    }
+                }
                 if (bytes > window) {
                     dma.prepare_stage({{0, 4096}, {bytes - 4096, 4096}});
                     check(dma.bytes() == 8192, "stage span exceeded budget rather than falling back");
