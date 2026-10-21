@@ -108,6 +108,7 @@ public:
             check(audit::unreg(__FILE__, __LINE__, base_ + pinned_.back().first, pinned_.back().second, pinned_.back().first), "unregistering the previous DMA window");
             unregistered_bytes_ += pinned_.back().second;
             if (trace_) cost_.removed += (int64_t) pinned_.back().second;
+            audit::count("dma-window-replaced", pinned_.back().second, pinned_.back().first);
             pinned_.pop_back();
         }
         if (trace_) cost_.unregister_ms += ms_since(t0);
@@ -120,11 +121,13 @@ public:
         if (trace_) ++cost_.calls;
         clear();
         const auto t0 = trace_ ? Clock::now() : Clock::time_point{};
+        size_t added = 0;
         try {
             for (const auto& r : wanted) {
                 check(audit::reg(__FILE__, __LINE__, base_ + r.first, r.second, 0, r.first), "CUDA/HIP registration of " +
                       std::to_string(r.second) + " RAM bytes (no pageable fallback)");
                 registered_bytes_ += r.second;
+                added += r.second;
                 if (trace_) cost_.added += (int64_t) r.second;
                 try { pinned_.push_back(r); }
                 catch (...) { (void) audit::unreg(__FILE__, __LINE__, base_ + r.first, r.second, r.first); throw; }
@@ -136,6 +139,9 @@ public:
             peak_ = std::max(peak_, bytes());
         } catch (...) { clear(); throw; }
         if (trace_) cost_.register_ms += ms_since(t0);
+        audit::count("dma-prepare-added", added);
+        audit::count("dma-window", bytes());
+        audit::count("dma-window-peak", peak_);
     }
     // Exchange mode only: retain useful registrations, add uncovered pages, evict old whole
     // registrations only under budget pressure. All users finish before unregistering any page.
@@ -151,7 +157,16 @@ public:
         for (const auto& r : pinned_) if (intersects(r)) ages_[r.first] = age_;
         auto missing = dma_missing(wanted, pinned_);
         const auto missing_bytes = [&] { size_t n = 0; for (const auto& r : missing) n += r.second; return n; };
-        if (missing.empty()) { audit::count("dma-covered-skip"); return; }
+        size_t wanted_bytes = 0;
+        for (const auto& r : wanted) wanted_bytes += r.second;
+        if (missing.empty()) {
+            audit::count("dma-covered-skip");
+            audit::count("dma-retain-kept", wanted_bytes);
+            audit::count("dma-window", bytes());
+            return;
+        }
+        // The pages the window already holds and keeps: the wanted ones that are covered.
+        audit::count("dma-retain-kept", wanted_bytes - missing_bytes());
         if (trace_) ++cost_.calls;
         bool drained = false;
         auto t_evict = trace_ ? Clock::now() : Clock::time_point{};
@@ -166,24 +181,45 @@ public:
             check(audit::unreg(__FILE__, __LINE__, base_ + victim->first, victim->second, victim->first), "evicting an idle DMA registration");
             unregistered_bytes_ += victim->second;
             if (trace_) cost_.removed += (int64_t) victim->second;
+            audit::count("dma-retain-removed", victim->second, victim->first);
             ages_.erase(victim->first);
             pinned_.erase(victim);
             missing = dma_missing(wanted, pinned_);
         }
         if (trace_) cost_.unregister_ms += ms_since(t_evict) - (cost_.drain_ms - drain_before);
         const auto t0 = trace_ ? Clock::now() : Clock::time_point{};
-        for (const auto& r : missing) {
-            check(audit::reg(__FILE__, __LINE__, base_ + r.first, r.second, 0, r.first), "registering exchange RAM pages");
-            registered_bytes_ += r.second;
-            if (trace_) cost_.added += (int64_t) r.second;
-            try { ages_[r.first] = age_; pinned_.push_back(r); }
-            catch (...) { ages_.erase(r.first); (void) audit::unreg(__FILE__, __LINE__, base_ + r.first, r.second, r.first); throw; }
-            std::sort(pinned_.begin(), pinned_.end());
-            peak_ = std::max(peak_, bytes());
-            try { verify(base_ + r.first); }
-            catch (...) { clear(); throw; }
+        size_t added = 0;
+        std::vector<DmaRange> added_ranges;
+        try {
+            for (const auto& r : missing) {
+                check(audit::reg(__FILE__, __LINE__, base_ + r.first, r.second, 0, r.first), "registering exchange RAM pages");
+                registered_bytes_ += r.second;
+                added += r.second;
+                if (trace_) cost_.added += (int64_t) r.second;
+                try { ages_[r.first] = age_; pinned_.push_back(r); }
+                catch (...) { ages_.erase(r.first); (void) audit::unreg(__FILE__, __LINE__, base_ + r.first, r.second, r.first); throw; }
+                added_ranges.push_back(r);
+                std::sort(pinned_.begin(), pinned_.end());
+                peak_ = std::max(peak_, bytes());
+                verify(base_ + r.first);
+            }
+        } catch (...) {
+            // The call failed: the pages it added are released, and the window that was there before it
+            // stays registered and usable.  A registration that was not ours is not touched.
+            for (const auto& r : added_ranges) {
+                (void) audit::unreg(__FILE__, __LINE__, base_ + r.first, r.second, r.first);
+                unregistered_bytes_ += r.second;
+                if (trace_) cost_.removed += (int64_t) r.second;
+                ages_.erase(r.first);
+                const auto it = std::find(pinned_.begin(), pinned_.end(), r);
+                if (it != pinned_.end()) pinned_.erase(it);
+            }
+            throw;
         }
         if (trace_) cost_.register_ms += ms_since(t0);
+        audit::count("dma-retain-added", added);
+        audit::count("dma-window", bytes());
+        audit::count("dma-window-peak", peak_);
     }
     void begin(cudaStream_t stream) {
         for (auto& u : uses_) if (u.stream == stream) { u.pending = true; return; }
