@@ -1432,6 +1432,13 @@ void Engine::print_stage_stats(const char* when) const {
                  mib(stage_stats_.routed_bytes), (long long) stage_stats_.reused_rounds,
                  (long long) stage_stats_.reused_experts,
                  mib(stage_stats_.ahead_bytes + stage_stats_.routed_bytes));
+    const auto reg_line = [&](const char* what, const DmaCost& r) {
+        std::fprintf(stderr, "strata-poly: staging[%s] dma %s: calls=%lld added=%.2f MiB removed=%.2f MiB "
+                             "drain_ms=%.3f unregister_ms=%.3f register_ms=%.3f\n", when, what,
+                     (long long) r.calls, mib(r.added), mib(r.removed), r.drain_ms, r.unregister_ms, r.register_ms);
+    };
+    reg_line("prefill", stage_stats_.reg);
+    reg_line("decode", stage_stats_.reg_decode);
     for (size_t il = 0; il < stage_stats_.layer_bytes.size(); ++il) {
         if (!stage_stats_.layer_bytes[il]) continue;
         std::fprintf(stderr, "strata-poly: staging[%s] layer=%zu calls=%lld bytes=%lld (%.2f MiB)\n", when, il,
@@ -1888,7 +1895,9 @@ void Engine::follow_resident(int available) {
     // Previous evals have finished reading destinations before this function is called.
     resident_stage_active_ = true;
     staged_il_ = -1;
+    const DmaCost before = expert_dma_->cost();
     expert_dma_->prepare(std::move(sources));
+    if (stage_trace_) add_cost(stage_stats_.reg_decode, expert_dma_->cost(), before);
     expert_dma_->begin(cs(swap_st_));
     for (int j = 0; j < n_swap_; ++j) {
         Swap& s = swap_[(size_t) j];
@@ -2886,8 +2895,10 @@ void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, 
             const auto h = host_expert(L, (size_t) experts[j]);
             sources.emplace_back((size_t) (h.gate - expert_dma_->base()), gu2 + L.d_bytes);
         }
+        const DmaCost before = expert_dma_->cost();
         if (opt_.no_disk_expert_exchange) expert_dma_->retain(std::move(sources));
         else expert_dma_->prepare(std::move(sources));
+        if (stage_trace_) add_cost(stage_stats_.reg, expert_dma_->cost(), before);
         expert_dma_->begin(cs(stream));
         for (int j = 0; j < m; ++j) {
             const auto h = host_expert(L, (size_t) experts[j]);

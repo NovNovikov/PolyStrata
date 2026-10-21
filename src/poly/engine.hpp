@@ -16,6 +16,7 @@
 
 #include "cpu_experts.hpp"
 #include "exchange.hpp"
+#include "dma_cost.hpp"
 
 #include <condition_variable>
 #include <cstddef>
@@ -176,6 +177,8 @@ struct StageStats {
     int64_t passes = 0;                          ///< the read passes the batch went through
     std::vector<int64_t> layer_bytes;            ///< per layer: the experts' bytes moved
     std::vector<int64_t> layer_calls;
+    DmaCost reg;                                 ///< the DMA window's own cost, in the prefill
+    DmaCost reg_decode;                          ///< and in the decode
 };
 
 /// The most likely token of n logits: the first of the largest.
@@ -205,6 +208,8 @@ public:
     /// What the staging buffer copied during the prompt, and what it already held. Printed with
     /// STRATA_TRACE_STAGING=1; without it nothing is counted and nothing is printed.
     void print_stage_stats(const char* when) const;
+    /// The counters are per request: the caller starts them over.
+    void reset_stage_stats() { stage_stats_ = StageStats(); }
 
     Engine();
     virtual ~Engine();

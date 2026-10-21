@@ -46,8 +46,10 @@ void Engine::exchange_pair(int il, int hot, int cold, int fault, bool forced_ver
     ck(cudaStreamSynchronize(cs(swap_st_)), "exchange prior transaction");
     exchange_stats_.wait_ms += ms_since(tick);
     tick = Clock::now();
+    const DmaCost before = expert_dma_->cost();
     expert_dma_->retain({{at, raw}});
     exchange_stats_.registration_ms += ms_since(tick);
+    if (stage_trace_) add_cost(stage_stats_.reg_decode, expert_dma_->cost(), before);
     // Poison before touching the only weight copies. Unexpected exceptions (including a failed
     // end event after successful DMA) must not allow a later request to use unpublished owners.
     exchange_error_ = "expert exchange did not publish consistent owners; engine disabled";
