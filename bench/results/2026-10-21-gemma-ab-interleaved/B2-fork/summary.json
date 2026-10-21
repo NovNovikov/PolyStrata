@@ -1,0 +1,38 @@
+{
+  "label": "B2-fork",
+  "exe": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+  "load_s": 27.84,
+  "results": [
+    {
+      "number": 1,
+      "prompt_ms": 714.2,
+      "decode_ms": 1671.4,
+      "generated": 512,
+      "prompt_tokens": 3824
+    },
+    {
+      "number": 2,
+      "prompt_ms": 19.6,
+      "decode_ms": 1615.2,
+      "generated": 512,
+      "prompt_tokens": 3824
+    },
+    {
+      "number": 3,
+      "prompt_ms": 20.3,
+      "decode_ms": 1614.5,
+      "generated": 512,
+      "prompt_tokens": 3824
+    }
+  ],
+  "tps_warm": [
+    316.37,
+    316.51
+  ],
+  "median_tps_warm": 316.44,
+  "decode_costs": [
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=1671.385 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=471 drafts_accepted=310 gpu_experts=161520 cpu_experts=0",
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=1615.201 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=469 drafts_accepted=310 gpu_experts=161040 cpu_experts=0",
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=1614.476 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=467 drafts_accepted=310 gpu_experts=160560 cpu_experts=0"
+  ]
+}

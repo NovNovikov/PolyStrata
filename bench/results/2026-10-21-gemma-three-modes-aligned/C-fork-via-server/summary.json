@@ -1,0 +1,76 @@
+{
+  "label": "C-fork-via-server",
+  "via": "serve/server.py",
+  "results": [
+    {
+      "number": 1,
+      "chunks": 512,
+      "wall_s": 2.45,
+      "tps": 306.26,
+      "ttft_s": 0.777,
+      "usage": {
+        "prompt_tokens": 3824,
+        "completion_tokens": 512,
+        "total_tokens": 4336,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "text_sha": "948d53f8511cc431"
+    },
+    {
+      "number": 2,
+      "chunks": 512,
+      "wall_s": 1.67,
+      "tps": 311.97,
+      "ttft_s": 0.029,
+      "usage": {
+        "prompt_tokens": 3824,
+        "completion_tokens": 512,
+        "total_tokens": 4336,
+        "prompt_tokens_details": {
+          "cached_tokens": 3823
+        }
+      },
+      "text_sha": "948d53f8511cc431"
+    },
+    {
+      "number": 3,
+      "chunks": 512,
+      "wall_s": 1.68,
+      "tps": 310.53,
+      "ttft_s": 0.03,
+      "usage": {
+        "prompt_tokens": 3824,
+        "completion_tokens": 512,
+        "total_tokens": 4336,
+        "prompt_tokens_details": {
+          "cached_tokens": 3823
+        }
+      },
+      "text_sha": "948d53f8511cc431"
+    }
+  ],
+  "median_tps_warm": 311.25,
+  "decode_costs": [
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=1672.226 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=471 drafts_accepted=310 gpu_experts=161520 cpu_experts=0",
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=1641.546 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=469 drafts_accepted=310 gpu_experts=161040 cpu_experts=0",
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=1649.226 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=468 drafts_accepted=310 gpu_experts=160800 cpu_experts=0"
+  ],
+  "ram": {
+    "rss_gib_med": 0.0,
+    "avail_gib_min": 102.48
+  },
+  "gpu": {
+    "sm_mhz_med": 2437.5,
+    "power_w_med": 240.27,
+    "temp_c_med": 52.5,
+    "util_med": 94.5
+  },
+  "log_tail": [
+    "[strata] answering: 283 of max 512 tokens, 287.5 tok/s, 1 s, VRAM 12.2 of 24.0 GB (asked 13.5 GB, 1.4 GB moved to the system's RAM), engine RAM 11.9 of 127.8 GB",
+    "[strata] done: 512 tokens in 2 s (311.2 tok/s) (length, cancel=False), expert cache 100.0% hit",
+    "[strata] answering: 281 of max 512 tokens, 286.8 tok/s, 1 s, VRAM 12.2 of 24.0 GB (asked 13.5 GB, 1.4 GB moved to the system's RAM), engine RAM 11.9 of 127.8 GB",
+    "[strata] done: 512 tokens in 2 s (309.7 tok/s) (length, cancel=False), expert cache 100.0% hit"
+  ]
+}

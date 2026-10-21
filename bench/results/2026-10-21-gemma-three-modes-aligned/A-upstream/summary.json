@@ -1,0 +1,68 @@
+{
+  "label": "A-upstream",
+  "exe": "L:\\AI_pictures_generate\\PolyStrata-upstream-glm-20261020\\build-20\\strata-poly.exe",
+  "args": [
+    "--model",
+    "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\gemma-4-26B-A4B-it-UD-Q2_K_XL.gguf",
+    "--max-context",
+    "32768",
+    "--prompt-batch",
+    "1024",
+    "--stage-mib",
+    "2048",
+    "--conversation-cache-mib",
+    "0",
+    "--prompt-cache",
+    "6",
+    "--conversation-cache-min-free-mib",
+    "512",
+    "--expert-profile",
+    "L:\\Temp\\opencode\\gemma-three-modes-20261021\\profile.txt"
+  ],
+  "load_s": 25.24,
+  "results": [
+    {
+      "number": 1,
+      "prompt_ms": 805.7,
+      "decode_ms": 1635.2,
+      "generated": 512,
+      "hits": 161760,
+      "experts": 161760
+    },
+    {
+      "number": 2,
+      "prompt_ms": 20.2,
+      "decode_ms": 1609.5,
+      "generated": 512,
+      "hits": 161520,
+      "experts": 161520
+    },
+    {
+      "number": 3,
+      "prompt_ms": 19.7,
+      "decode_ms": 1612.3,
+      "generated": 512,
+      "hits": 161040,
+      "experts": 161040
+    }
+  ],
+  "median_tps_warm": 317.21,
+  "decode_costs": [
+    "strata-poly: decode-costs generated=512 accounted_tokens=4335 wall_ms=1635.235 cpu_expert_ms=0.000 route_wait_ms=528.566 uploads=0 drafts_offered=471 drafts_accepted=310 gpu_experts=161760 cpu_experts=0",
+    "strata-poly: decode-costs generated=512 accounted_tokens=512 wall_ms=1609.514 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=470 drafts_accepted=310 gpu_experts=161520 cpu_experts=0",
+    "strata-poly: decode-costs generated=512 accounted_tokens=512 wall_ms=1612.293 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=468 drafts_accepted=310 gpu_experts=161040 cpu_experts=0"
+  ],
+  "ram": {
+    "rss_gib_med": 12.1,
+    "avail_gib_min": 102.64
+  },
+  "gpu": {
+    "sm_mhz_med": 2430.0,
+    "power_w_med": 228.21,
+    "temp_c_med": 52.0,
+    "util_med": 96.0
+  },
+  "engine_lines": [
+    "strata-poly: loaded in 25.1 s; 3840 of 3840 routed experts in VRAM (8.1 GiB), 12 CPU threads"
+  ]
+}

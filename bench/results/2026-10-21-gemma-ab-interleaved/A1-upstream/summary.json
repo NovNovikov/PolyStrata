@@ -1,0 +1,38 @@
+{
+  "label": "A1-upstream",
+  "exe": "L:\\AI_pictures_generate\\PolyStrata-upstream-glm-20261020\\build-20\\strata-poly.exe",
+  "load_s": 25.44,
+  "results": [
+    {
+      "number": 1,
+      "prompt_ms": 688.1,
+      "decode_ms": 1635.6,
+      "generated": 512,
+      "prompt_tokens": 3824
+    },
+    {
+      "number": 2,
+      "prompt_ms": 19.7,
+      "decode_ms": 1606.8,
+      "generated": 512,
+      "prompt_tokens": 3824
+    },
+    {
+      "number": 3,
+      "prompt_ms": 19.8,
+      "decode_ms": 1610.8,
+      "generated": 512,
+      "prompt_tokens": 3824
+    }
+  ],
+  "tps_warm": [
+    318.02,
+    317.23
+  ],
+  "median_tps_warm": 317.62,
+  "decode_costs": [
+    "strata-poly: decode-costs generated=512 accounted_tokens=4335 wall_ms=1635.638 cpu_expert_ms=0.000 route_wait_ms=439.209 uploads=0 drafts_offered=471 drafts_accepted=310 gpu_experts=161760 cpu_experts=0",
+    "strata-poly: decode-costs generated=512 accounted_tokens=512 wall_ms=1606.844 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=469 drafts_accepted=310 gpu_experts=161280 cpu_experts=0",
+    "strata-poly: decode-costs generated=512 accounted_tokens=512 wall_ms=1610.832 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=468 drafts_accepted=310 gpu_experts=161040 cpu_experts=0"
+  ]
+}

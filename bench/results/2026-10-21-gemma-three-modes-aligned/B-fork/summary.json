@@ -1,0 +1,71 @@
+{
+  "label": "B-fork",
+  "exe": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+  "args": [
+    "--model",
+    "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\gemma-4-26B-A4B-it-UD-Q2_K_XL.gguf",
+    "--max-context",
+    "32768",
+    "--prompt-batch",
+    "1024",
+    "--stage-mib",
+    "2048",
+    "--conversation-cache-mib",
+    "0",
+    "--prompt-cache",
+    "6",
+    "--conversation-cache-min-free-mib",
+    "512",
+    "--expert-profile",
+    "L:\\Temp\\opencode\\gemma-three-modes-20261021\\profile.txt"
+  ],
+  "load_s": 28.04,
+  "results": [
+    {
+      "number": 1,
+      "prompt_ms": 710.5,
+      "decode_ms": 1644.7,
+      "generated": 512,
+      "hits": 161760,
+      "experts": 161760
+    },
+    {
+      "number": 2,
+      "prompt_ms": 20.5,
+      "decode_ms": 1617.1,
+      "generated": 512,
+      "hits": 161280,
+      "experts": 161280
+    },
+    {
+      "number": 3,
+      "prompt_ms": 19.6,
+      "decode_ms": 1615.3,
+      "generated": 512,
+      "hits": 161280,
+      "experts": 161280
+    }
+  ],
+  "median_tps_warm": 316.17,
+  "decode_costs": [
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=1644.723 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=471 drafts_accepted=310 gpu_experts=161520 cpu_experts=0",
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=1617.068 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=469 drafts_accepted=310 gpu_experts=161040 cpu_experts=0",
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=1615.336 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=469 drafts_accepted=310 gpu_experts=161040 cpu_experts=0"
+  ],
+  "ram": {
+    "rss_gib_med": 11.9,
+    "avail_gib_min": 102.82
+  },
+  "gpu": {
+    "sm_mhz_med": 2430.0,
+    "power_w_med": 232.01,
+    "temp_c_med": 56.0,
+    "util_med": 94.5
+  },
+  "engine_lines": [
+    "strata-poly: loaded in 27.9 s; 3840 of 3840 routed experts in VRAM (8.1 GiB), 12 CPU threads",
+    "rata-poly: memory[request] card=0 VRAM allocations total=11982.63 MiB: dense=1717.08, experts=8330.00, KV=640.00, staging=321.41, rows=0.00, other=974.15; reserve=767 MiB",
+    "rata-poly: memory[request] card=0 VRAM allocations total=11982.63 MiB: dense=1717.08, experts=8330.00, KV=640.00, staging=321.41, rows=0.00, other=974.15; reserve=767 MiB",
+    "rata-poly: memory[request] card=0 VRAM allocations total=11982.63 MiB: dense=1717.08, experts=8330.00, KV=640.00, staging=321.41, rows=0.00, other=974.15; reserve=767 MiB"
+  ]
+}

@@ -1,5 +1,11 @@
 # Gemma, three modes: the clean upstream, the fork, and the fork through our server
 
+**Superseded by `2026-10-21-gemma-three-modes-aligned/`.** The three modes of this run did not get the same
+prompt: the server encodes with `parse_special=True` (`serve/server.py:4580`), the direct modes did not, so
+the leading `[gMASK]` was one token longer (3825 against 3824) and the answers and the routing differed. The
+numbers below are kept as they were measured, but they compare different work; the 2026-10-21 run has the
+same prompt in all three modes.
+
 2026-10-20, RTX 4090 24 GiB, i5-13600KF, 128 GiB RAM, Windows. Model
 `gemma-4-26B-A4B-it-UD-Q2_K_XL.gguf` (9.82 GiB), the poly engine of both trees. The prompt is the public
 `docs/GLM.md` rendered with the model's own chat template (`llama_cpp/gemma_chat_template.jinja`) and the

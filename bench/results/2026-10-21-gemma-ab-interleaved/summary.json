@@ -1,0 +1,43 @@
+{
+  "runs": [
+    {
+      "label": "A1-upstream",
+      "median_tps_warm": 317.62,
+      "tps_warm": [
+        318.02,
+        317.23
+      ],
+      "load_s": 25.44
+    },
+    {
+      "label": "B1-fork",
+      "median_tps_warm": 316.6,
+      "tps_warm": [
+        316.98,
+        316.21
+      ],
+      "load_s": 30.65
+    },
+    {
+      "label": "B2-fork",
+      "median_tps_warm": 316.44,
+      "tps_warm": [
+        316.37,
+        316.51
+      ],
+      "load_s": 27.84
+    },
+    {
+      "label": "A2-upstream",
+      "median_tps_warm": 317.13,
+      "tps_warm": [
+        317.69,
+        316.57
+      ],
+      "load_s": 30.45
+    }
+  ],
+  "upstream_median": 317.38,
+  "fork_median": 316.52,
+  "difference_pct": -0.27
+}
