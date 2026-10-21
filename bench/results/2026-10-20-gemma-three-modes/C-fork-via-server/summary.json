@@ -1,11 +1,45 @@
 {
   "label": "C-fork-via-server",
   "via": "serve/server.py",
-  "chunks": 1,
-  "wall_s": 28.81,
-  "tps": null,
+  "port": 8081,
+  "results": [
+    {
+      "number": 1,
+      "chunks": 512,
+      "wall_s": 2.36,
+      "tps": 311.22,
+      "ttft_s": 0.706
+    },
+    {
+      "number": 2,
+      "chunks": 512,
+      "wall_s": 1.65,
+      "tps": 315.68,
+      "ttft_s": 0.028
+    },
+    {
+      "number": 3,
+      "chunks": 512,
+      "wall_s": 1.65,
+      "tps": 315.84,
+      "ttft_s": 0.029
+    }
+  ],
   "done_lines": [],
-  "log_tail": [
-    "[strata] done: 2 tokens in 1 s (128.7 tok/s) (length, cancel=False), expert cache 100.0% hit"
-  ]
+  "decode_costs": [
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=1645.585 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=471 drafts_accepted=310 gpu_experts=161520 cpu_experts=0",
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=1622.300 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=469 drafts_accepted=310 gpu_experts=161040 cpu_experts=0",
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=1621.441 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=468 drafts_accepted=310 gpu_experts=160800 cpu_experts=0"
+  ],
+  "ram": {
+    "rss_gib_med": 11.9,
+    "avail_gib_min": 102.61
+  },
+  "gpu": {
+    "sm_mhz_med": 2430.0,
+    "power_w_med": 248.0,
+    "temp_c_med": 57.0,
+    "util_med": 96.0
+  },
+  "samples": 6
 }

@@ -15,16 +15,17 @@ the installed 12.4 untouched) and without a source change of any kind.
 
 | | clean upstream, direct | the fork, direct | the fork through our server |
 |---|---:|---:|---:|
-| answer 1 | 351.2 tok/s | 338.7 tok/s | 316.6 tok/s |
-| answer 2 | 355.3 | 344.0 | 324.2 |
-| answer 3 | 355.7 | 343.7 | 319.7 |
-| median of the two warm | **355.5** | **343.8** | **321.9** |
-| load to READY | 28.25 s | 25.64 s | (the server's own) |
-| process RSS (median) | 12.08 GiB | 11.89 GiB | — |
-| free RAM (minimum) | 103.64 GiB | 103.70 GiB | — |
-| SM clock (median) | 2430 MHz | 2430 MHz | — |
-| GPU power (median) | 218.19 W | 198.40 W | — |
-| GPU utilization (median) | 94% | 94% | — |
+| answer 1 | 351.2 tok/s | 338.7 tok/s | 311.2 tok/s |
+| answer 2 | 355.3 | 344.0 | 315.7 |
+| answer 3 | 355.7 | 343.7 | 315.8 |
+| median of the two warm | **355.5** | **343.8** | **315.8** |
+| load to READY | 28.25 s | 25.64 s | 30.0 s (the port opened) |
+| process RSS (median) | 12.08 GiB | 11.89 GiB | 11.90 GiB |
+| free RAM (minimum) | 103.64 GiB | 103.70 GiB | 102.61 GiB |
+| SM clock (median) | 2430 MHz | 2430 MHz | 2430 MHz |
+| GPU power (median) | 218.19 W | 198.40 W | 248.0 W |
+| GPU temperature (median) | — | — | 57 °C |
+| GPU utilization (median) | 94% | 94% | 96% |
 
 The engine's own counters on the last answer: the upstream `generated=512 accounted_tokens=512
 wall_ms=1436.484 cpu_expert_ms=0.000 route_wait_ms=0.000 uploads=0 drafts_offered=336
@@ -42,7 +43,7 @@ gpu_experts=160800`.
 - **The direct modes are equal**: 355.5 against 343.8, and the run-to-run spread of one mode is 2.4-3.3%
   (the same two trees measured 288.64/288.34 on the earlier prompt and 355.5/343.84 on this one), so a
   single run of each does not settle the difference; the alternating repeats do.
-- **The server's path costs about 9%** against the direct modes (321.9 against 355.5) — but its counters
+- **The server's path costs about 11%** against the direct modes (315.8 against 355.5) — but its counters
   differ (161 520 experts against 124 800, 468 drafts against 336), so the two are not the same work yet:
   the server's own rendering of the same messages is one id longer in the engine's count, and the answer's
   routing follows from it. The exact difference is not isolated yet.

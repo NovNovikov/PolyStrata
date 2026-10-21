@@ -1,0 +1,12 @@
+loading the model (the first start takes a minute or two) ...
+[strata] starting the engine: reading the model's weights ...
+[strata] still starting (20 s) - please wait ...
+ready: http://127.0.0.1:8081/v1  (OpenAI: /v1/chat/completions, Anthropic: /v1/messages, context 32768 tokens)
+       open http://127.0.0.1:8081/ in a browser to chat; close this window to stop the model
+[strata] answering: 81 of max 512 tokens, 246.2 tok/s, 1 s, VRAM 12.1 of 24.0 GB (asked 13.5 GB, 1.4 GB moved to the system's RAM), engine RAM 11.6 of 127.8 GB
+[strata] answering: 398 of max 512 tokens, 299.1 tok/s, 2 s, VRAM 12.2 of 24.0 GB (asked 13.5 GB, 1.4 GB moved to the system's RAM), engine RAM 11.9 of 127.8 GB
+[strata] done: 512 tokens in 2 s (310.4 tok/s) (length, cancel=False), expert cache 100.0% hit
+[strata] answering: 284 of max 512 tokens, 289.8 tok/s, 1 s, VRAM 12.2 of 24.0 GB (asked 13.5 GB, 1.4 GB moved to the system's RAM), engine RAM 11.9 of 127.8 GB
+[strata] done: 512 tokens in 2 s (314.9 tok/s) (length, cancel=False), expert cache 100.0% hit
+[strata] answering: 284 of max 512 tokens, 289.9 tok/s, 1 s, VRAM 12.2 of 24.0 GB (asked 13.5 GB, 1.4 GB moved to the system's RAM), engine RAM 11.9 of 127.8 GB
+[strata] done: 512 tokens in 2 s (315.0 tok/s) (length, cancel=False), expert cache 100.0% hit
