@@ -1908,9 +1908,10 @@ void Engine::follow_resident(int available) {
     resident_stage_active_ = true;
     staged_il_ = -1;
     const DmaCost before = expert_dma_->cost();
-    // The decode cache's own policy: the pages it already has registered stay registered, and only the
-    // missing ones are added.  The rating, the threshold, the slots and the adaptation are untouched.
-    if (opt_.retain_decode_dma) expert_dma_->retain(std::move(sources));
+    // The decode cache's own policy: the pages the upload needs stay registered, and the pages it does
+    // not need are released once their readers are done.  The rating, the threshold, the slots and the
+    // adaptation are untouched.
+    if (opt_.retain_decode_dma) expert_dma_->prepare_keep(std::move(sources));
     else expert_dma_->prepare(std::move(sources));
     if (stage_trace_) add_cost(stage_stats_.reg_decode, expert_dma_->cost(), before);
     audit::GpuSpan audit_uploads(__FILE__, __LINE__, "cache-upload-interval", 0, cs(swap_st_));
