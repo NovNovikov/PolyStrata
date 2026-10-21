@@ -1040,6 +1040,11 @@ void Engine::load_moe(int il, bool shared) {
 
 // The engine for a model file: its general.architecture says which.
 std::unique_ptr<Engine> Engine::open(const Options& o) {
+    if (o.no_disk_expert_exchange && !o.no_disk)
+        throw std::runtime_error("--no-disk-expert-exchange requires --no-disk");
+    if (o.no_disk_expert_exchange && (o.exchange_max < 1 || o.exchange_max > 64 || o.exchange_cooldown < 0 ||
+        !std::isfinite(o.exchange_budget_pct) || o.exchange_budget_pct <= 0 || o.exchange_budget_pct > 100))
+        throw std::runtime_error("exchange: max must be 1..64, cooldown nonnegative, budget 0..100 percent");
     if (o.no_disk && !o.layer_split.empty())
         throw std::runtime_error("--no-disk currently requires one card (no --layer-split)");
     if (o.rows_vram && !o.layer_split.empty())
@@ -1278,7 +1283,12 @@ void Engine::print_memory(const char* when) const {
                          "experts=%.2f, KV=%.2f, staging=%.2f, rows=%.2f, other=%.2f; reserve=%d MiB\n",
                  when, device_, mib(device), mib(dense), mib(experts), mib(kv), mib(staging), mib(rows), mib(other),
                  opt_.vram_reserve_mib >= 0 ? std::max(opt_.vram_reserve_mib, 256) : reserve_mib_);
-    if (opt_.no_disk)
+    if (opt_.no_disk_expert_exchange)
+        std::fprintf(stderr, "strata-poly: memory[%s] expert placement: adaptive_main=%d, staging_cache=disabled, "
+                             "temporary_capacity=%zu bytes inside staging; exchanges=%llu verified=%llu\n",
+                     when, full_cached_, slot_max_, (unsigned long long) exchange_stats_.completed,
+                     (unsigned long long) exchange_stats_.verified);
+    else if (opt_.no_disk)
         std::fprintf(stderr, "strata-poly: memory[%s] expert placement: permanent=%d, staging_cache=%zu/%zu "
                              "slots (%.2f MiB used inside existing staging); uploads=%lld\n", when, full_cached_,
                      resident_stage_used_, resident_stage_owners_.size(), mib(resident_stage_used_ * slot_max_),
@@ -1513,6 +1523,7 @@ void Engine::fill_expert_cache() {
 
 // The thread and the stream that bring experts into the cache while an answer is written (follow()).
 void Engine::start_swaps() {
+    if (opt_.no_disk_expert_exchange) { init_exchange(); return; }
     if (swap_ || (!opt_.no_disk && cached_ == 0) || opt_.expert_swaps == 0) return;
     if (opt_.no_disk) {
         if (!expert_dma_ || !stage_ || !slot_max_ || stage_bytes_ < slot_max_) return;
@@ -2671,7 +2682,7 @@ bool Engine::moe(Layer& L, int il, int n, const std::function<void()>* first) {
                 host_rel[n_host] = w_all > 0.f ? w[k] / w_all : 1.f;
                 const size_t e = (size_t) ids[k];
                 ++use_[(size_t) il * n_expert_ + e];
-                if (n_swap_ > 0) recent_[(size_t) il * n_expert_ + e] += 1.f;
+                if (n_swap_ > 0 || opt_.no_disk_expert_exchange) recent_[(size_t) il * n_expert_ + e] += 1.f;
                 if (const uint8_t* s = L.slot[e]) {
                     cached[n_cached++] = {s, w[k], at + t};
                     continue;
@@ -2837,7 +2848,8 @@ void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, 
             const auto h = host_expert(L, (size_t) experts[j]);
             sources.emplace_back((size_t) (h.gate - expert_dma_->base()), gu2 + L.d_bytes);
         }
-        expert_dma_->prepare(std::move(sources));
+        if (opt_.no_disk_expert_exchange) expert_dma_->retain(std::move(sources));
+        else expert_dma_->prepare(std::move(sources));
         expert_dma_->begin(cs(stream));
         for (int j = 0; j < m; ++j) {
             const auto h = host_expert(L, (size_t) experts[j]);
@@ -3386,6 +3398,7 @@ void Engine::run(const int32_t* tokens, int n) {
     if (n < 1 || n > rows_) throw std::logic_error("eval takes 1 to max_rows() tokens");
     if (pos_ + n > opt_.max_context)
         throw std::runtime_error("the context is full (" + std::to_string(opt_.max_context) + " tokens)");
+    if (opt_.no_disk_expert_exchange) exchange_available();
     cover(pos_ + n);
 
     // h_r_ and h_cpu_ may still be the source of the previous call's copies
@@ -3406,6 +3419,11 @@ void Engine::run(const int32_t* tokens, int n) {
         settle_swaps();
         follow(n < kStageRows ? n : 0);
     }
+    if (opt_.no_disk_expert_exchange) follow_exchange(n < kStageRows ? n : 0);
+    // Measure CPU submission/compute plus the next boundary's GPU-reader wait, not server idle time.
+    const auto exchange_eval_at = opt_.no_disk_expert_exchange ? Clock::now() : Clock::time_point{};
+    struct EvalTimer { double* ms; Clock::time_point at; ~EvalTimer() { if (ms) *ms = ms_since(at); } };
+    EvalTimer exchange_timer{opt_.no_disk_expert_exchange && n < kStageRows ? &exchange_eval_ms_ : nullptr, exchange_eval_at};
     tok_ = tokens;
     const size_t e_row = (size_t) n_embd_, r_row = (size_t) streams() * e_row;
     const float scale = embed_scale();
@@ -3634,6 +3652,7 @@ void Engine::step(const int* seqs, const int32_t* tokens, int n) {
     ck(cudaStreamSynchronize(cs(st_)), "step");
     if (n >= kStageRows && mmq_) drop_resident_stage_cache();
     if (n_swap_ > 0) follow(n);
+    if (opt_.no_disk_expert_exchange) follow_exchange(n);
     tok_ = tokens;
     windowed_ = false;
     snap_bits_ = 0;
@@ -3876,6 +3895,7 @@ bool Engine::read(const int32_t* tokens, int n, const Mark* marks, int n_marks,
     }
     const int n_calls = (int) calls_.size();
     OnCard here(device_, split_);
+    if (opt_.no_disk_expert_exchange) exchange_available();
     if (n >= kStageRows && mmq_) drop_resident_stage_cache(); // before all_cached() chooses the read path
     cover(pos_ + n);
     // On several cards, each reads through its own layers and hands the rows on, and `turn` hears of a card's

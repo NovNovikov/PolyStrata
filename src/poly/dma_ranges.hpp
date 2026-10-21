@@ -9,6 +9,25 @@
 
 namespace strata::poly {
 using DmaRange = std::pair<size_t, size_t>;   // offset, bytes
+// Both inputs are sorted, disjoint page ranges. Return only uncovered pages, never overlapping
+// an existing CUDA registration (a registration can be removed only as a whole).
+inline std::vector<DmaRange> dma_missing(const std::vector<DmaRange>& wanted,
+                                         const std::vector<DmaRange>& held) {
+    std::vector<DmaRange> out;
+    for (const auto& w : wanted) {
+        size_t at = w.first, end = w.first + w.second;
+        for (const auto& h : held) {
+            const size_t he = h.first + h.second;
+            if (he <= at) continue;
+            if (h.first >= end) break;
+            if (h.first > at) out.emplace_back(at, h.first - at);
+            at = std::max(at, he);
+            if (at >= end) break;
+        }
+        if (at < end) out.emplace_back(at, end - at);
+    }
+    return out;
+}
 inline std::vector<DmaRange> dma_ranges(std::vector<DmaRange> ranges, size_t arena, size_t limit, size_t page) {
     if (!page || (page & (page - 1)) || arena > SIZE_MAX - (page - 1))
         throw std::runtime_error("no-disk: invalid DMA page geometry");

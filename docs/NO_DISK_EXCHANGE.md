@@ -1,0 +1,57 @@
+# Adaptive main expert placement in no-disk mode
+
+`--no-disk-expert-exchange` enables an experimental exchange of expert ownership between locked RAM
+and the main GPU expert arena. It requires `--no-disk`. Without this flag the existing staging copy
+cache and its policy are retained. Configuration JSON files and launch scripts are not changed.
+
+A frequently selected RAM expert takes the main GPU slot of a less frequently selected expert of
+the same layer. The displaced GPU expert takes the former RAM slot. Gate, up and down remain in
+their original quantized format. Model files remain closed. The exchange borrows temporary bytes
+inside the existing staging buffer and does not allocate another weight arena.
+
+In this mode staging is used for prefill and temporary exchange storage; it does not also keep
+the old persistent decode copies. Thus the initial number of main GPU slots stays fixed and can
+be smaller than the old main slots plus staging copies. Exchange changes their composition, not
+their capacity. A layer with no initial GPU slots cannot gain one in this first implementation.
+
+Options (all opt-in through the main flag):
+
+| Option | Default | Meaning |
+|---|---:|---|
+| `--no-disk-exchange-max N` | 1 | Maximum completed exchanges per eval boundary, 1 through 64 |
+| `--no-disk-exchange-cooldown N` | 0 | Evaluated decode rows before either expert may exchange again |
+| `--no-disk-exchange-budget-pct F` | 10 | Soft time budget for additional exchanges relative to the preceding eval |
+
+The first transaction is always allowed so a cold registration or diagnostic measurement cannot
+permanently stop adaptation. Further transactions stop when the budget is consumed. The budget
+is a soft bound: one indivisible transaction may exceed it. The default of one exchange bounds
+the batch independently of this estimate. The preceding eval measurement covers host compute
+and submission, not an exclusive GPU-time measurement.
+
+The policy uses the existing recent-use counts, with a half-life of 128 evaluated decode rows,
+and the threshold `recent(hot) >= 2 * recent(cold) + 2`. Profile counts break ties. Like the
+existing adaptive cache, evaluated tentative MTP rows contribute to these counts; ownership is
+global and does not roll back when speculative token state or a conversation is restored.
+The cooldown is configurable; 256 rows is not claimed to be an optimal measured setting.
+
+Readers finish before weights are overwritten. A transaction saves the cold GPU payload to
+staging, copies hot RAM weights to that GPU slot, copies the cold payload back to the RAM slot,
+then publishes both owners. On an error it restores the original payloads where possible. If
+restoration fails the engine refuses further expert evaluation. Registered RAM pages are reused
+within a bounded window; removing any registration waits for its DMA users.
+
+`exchange:` diagnostics separate completed/failed/restored transactions, plan/registration/copy/
+reader-wait time and rejected candidates. `committed_H2D`, `committed_D2H`, `committed_D2D` count
+successful committed payload bytes; rollback and verification traffic are not included in those
+three byte counters. Registration counters with `_total` are engine-lifetime counts.
+
+For diagnostics only, `STRATA_VERIFY_EXCHANGE=1` hashes both complete payloads before and after
+each exchange. It adds substantial host and device reads and must be off for throughput tests.
+`STRATA_TRACE_EXCHANGE=1` reports the expert identities and counts. `STRATA_FREEZE_EXPERTS=1`
+disables automatic adaptation in both cache modes.
+
+The native serve protocol exposes `EXCHANGE [fault]` only with `STRATA_EXCHANGE_TEST_MODE=1`.
+It forces a same-layer pair and verifies both payloads; fault points -1, 1, 2, 3 exercise rollback.
+It is a test hook, not an HTTP endpoint. `poly_exchange_test` checks planning without a model;
+`poly_exchange_gpu_test` exercises 1000 in-place exchanges, rollback, payload hashes, tails,
+canaries and bounded registration reuse without loading model weights.

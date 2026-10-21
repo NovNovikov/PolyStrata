@@ -15,6 +15,7 @@
 #pragma once
 
 #include "cpu_experts.hpp"
+#include "exchange.hpp"
 
 #include <condition_variable>
 #include <cstddef>
@@ -49,6 +50,10 @@ struct Options {
     int vram_reserve_mib = -1;    ///< left free after the expert cache is filled; below 0: by the card's size
     std::string profile;          ///< expert use counts; orders the expert cache, and save_profile() adds to it
     bool gpu_experts = true;
+    bool no_disk_expert_exchange = false; ///< opt-in: exchange ownership of RAM and main GPU slots
+    int exchange_max = 1;        ///< completed exchanges per eval boundary
+    int exchange_cooldown = 0;   ///< evaluated decode rows before either expert can exchange again
+    float exchange_budget_pct = 10.f; ///< soft budget for further exchanges vs preceding eval; always allow first
     bool no_disk = false;        ///< all weights resident in locked RAM or fixed VRAM; model files close at load
     int no_disk_vram_margin_mib = 512; ///< extra headroom for loading, separate from the runtime reserve
     bool rows_vram = false;      ///< reserve intermediate read rows in VRAM
@@ -175,8 +180,18 @@ struct Image {
     const float* rows = nullptr;
 };
 
+struct ExchangeStats {
+    uint64_t calls = 0, proposed = 0, completed = 0, failed = 0, restored = 0, verified = 0;
+    uint64_t h2d = 0, d2h = 0, d2d = 0, budget_skips = 0, skipped[8]{};
+    double plan_ms = 0, registration_ms = 0, copy_ms = 0, wait_ms = 0, wall_ms = 0;
+};
+
 class Engine {
 public:
+    const ExchangeStats& exchange_stats() const { return exchange_stats_; }
+    void print_exchange_stats(const ExchangeStats& before) const;
+    void exchange_test(int fault = 0); // gated by STRATA_EXCHANGE_TEST_MODE in the serve protocol
+
     Engine();
     virtual ~Engine();
     Engine(const Engine&) = delete;
@@ -482,6 +497,10 @@ protected:
     void pin_host_weights(void* p, size_t bytes);
     void start_swaps();
     void follow_resident(int available);
+    void init_exchange();
+    void follow_exchange(int written);
+    void exchange_pair(int il, int hot, int cold, int fault = 0, bool verify = false);
+    void exchange_available() const;
     void drop_resident_stage_cache();
     void plan_ahead(Layer& L, int il);
     void run(const int32_t* tokens, int n);
@@ -814,6 +833,11 @@ protected:
     std::vector<size_t> trade_at_;   ///< per trade number: how many of its pairs follow() has taken
     // no-disk: borrowed staging slots hold disposable copies of RAM experts during decode. Permanent
     // exp_ slots never enter this pool. -1 is empty, -2 uploading; otherwise a flattened (layer, expert).
+    ExchangeStats exchange_stats_;
+    std::vector<int64_t> exchange_until_;
+    int64_t exchange_clock_ = 0; // evaluated decode rows, including tentative MTP rows, monotonic across requests
+    std::string exchange_error_; // poisoned only if rollback could not restore both payloads
+    double exchange_eval_ms_ = 0;
     std::vector<int> resident_stage_owners_;
     size_t resident_stage_used_ = 0;
     bool resident_stage_active_ = false;

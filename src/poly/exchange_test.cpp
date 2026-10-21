@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+#include <chrono>
+#include "dma_ranges.hpp"
 using namespace strata::poly;
 namespace {
 int checks = 0;
@@ -129,7 +131,7 @@ int main() {
         for (int round = 0; round < 1000; ++round) {
             // the recent use of every expert, the way the engine counts it
             for (int i = 0; i < n; ++i) {
-                e[(size_t) i].recent = 20.f - (float) (round % 7) * (float) i;
+                e[(size_t) i].recent = std::max(0.f, 20.f - (float) (round % 7) * (float) i);
                 e[(size_t)(n + i)].recent = 1.f + (float) (round % 5) * (float) i;
             }
             const auto plan = plan_exchanges(e, layers);
@@ -150,7 +152,7 @@ int main() {
                 ++exchanges;
             }
         }
-        check(exchanges > 0);
+        check(exchanges >= 1000);
     }
 
     // the protection against the swinging: the experts that were exchanged are not candidates at once
@@ -163,6 +165,37 @@ int main() {
         check(plan.skipped[0] == ExchangeSkip::locked);
     }
 
+    {
+        auto h = expert(0, 0, ExchangeHome::ram, 6.f);
+        auto c = expert(0, 1, ExchangeHome::vram, 2.f);
+        check(plan_exchanges({h,c}, {layer_of()}).pairs.size() == 1);
+        c.locked = true;
+        check(plan_exchanges({h,c}, {layer_of()}).skipped[0] == ExchangeSkip::locked);
+        c.locked = false;
+        h.slot_bytes = 101;
+        check(plan_exchanges({h,c}, {layer_of()}).skipped[0] == ExchangeSkip::no_room);
+        h.slot_bytes = 100;
+        check(plan_exchanges({h,c}, {layer_of()}, 0).skipped[0] == ExchangeSkip::batch_limit);
+        auto h2 = h; h2.expert = 2; h2.prior = 100;
+        check(plan_exchanges({h,h2,c}, {layer_of()}, 1).pairs[0].hot == 1);
+        auto c2 = c; c2.expert = 3; c2.prior = -1;
+        check(plan_exchanges({h,c,c2}, {layer_of()}, 1).pairs[0].cold == 2);
+        const auto p = plan_exchanges({h,c}, {layer_of()});
+        check(p.skipped[0] == ExchangeSkip::selected && p.skipped[1] == ExchangeSkip::selected);
+        check(p.considered == p.pairs.size() + p.refused);
+    }
+    {
+        check(dma_missing({{0,4096}}, {{0,8192}}).empty());
+        check(dma_missing({{0,12288}}, {{4096,4096}}) == std::vector<DmaRange>({{0,4096},{8192,4096}}));
+        std::vector<ExchangeExpert> e;
+        std::vector<ExchangeLayer> layers(43, layer_of());
+        for (int i = 0; i < 12384; ++i) e.push_back(expert(i/288, i%288,
+            i < 1137 ? ExchangeHome::vram : ExchangeHome::ram, 0.f));
+        const auto at = std::chrono::steady_clock::now();
+        for (int i = 0; i < 100; ++i) check(plan_exchanges(e,layers,1).pairs.empty());
+        std::printf("exchange planner: 12384 experts, zero exchanges: %.3f ms/call\n",
+            std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-at).count()/100);
+    }
     std::printf("exchange_test: %d checks OK\n", checks);
     return 0;
 }

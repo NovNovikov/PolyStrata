@@ -2,6 +2,8 @@
 #pragma once
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
+#include <stdexcept>
 #include <vector>
 
 namespace strata::poly {
@@ -43,6 +45,8 @@ enum class ExchangeSkip : uint8_t {
     locked,            ///< exchanged too recently
     taken,             ///< already in a pair of this batch
     no_room,           ///< the place it would go to cannot take its payload
+    batch_limit,       ///< not selected because the bounded batch is full
+    selected,          ///< participates in a selected pair (not a refusal)
 };
 
 /// What the planner decided.
@@ -70,72 +74,67 @@ inline ExchangePlan plan_exchanges(const std::vector<ExchangeExpert>& experts,
                                    size_t max_pairs = 8) {
     ExchangePlan plan;
     plan.skipped.assign(experts.size(), ExchangeSkip::none);
-    std::vector<char> taken(experts.size(), 0);
-    // the hot experts of the RAM, the most used first; the profile breaks a tie
+    struct Group { std::vector<int> cold; size_t next = 0, total = 0, locked = 0; };
+    std::vector<Group> groups(layers.size());
     std::vector<int> hot;
     hot.reserve(experts.size());
-    for (size_t i = 0; i < experts.size(); ++i)
-        if (experts[i].home == ExchangeHome::ram) hot.push_back((int) i);
-    std::stable_sort(hot.begin(), hot.end(), [&](int a, int b) {
-        const auto& x = experts[(size_t) a];
-        const auto& y = experts[(size_t) b];
-        return x.recent != y.recent ? x.recent > y.recent : x.prior > y.prior;
-    });
-    for (int h : hot) {
-        if (plan.pairs.size() >= max_pairs) break;
-        const auto& he = experts[(size_t) h];
-        if (he.locked) { plan.skipped[(size_t) h] = ExchangeSkip::locked; ++plan.refused; continue; }
-        if (taken[(size_t) h]) { plan.skipped[(size_t) h] = ExchangeSkip::taken; ++plan.refused; continue; }
-        ++plan.considered;
-        // the cold experts of the VRAM of the same layer, the least used first
-        std::vector<int> cold;
-        for (size_t i = 0; i < experts.size(); ++i) {
-            const auto& c = experts[i];
-            if (c.home != ExchangeHome::vram || c.layer != he.layer) continue;
-            if (taken[i] || c.locked) continue;
-            cold.push_back((int) i);
-        }
-        if (cold.empty()) {
-            // either there is no partner at all, or the ones there are locked or taken: say which
-            bool any = false;
-            for (size_t i = 0; i < experts.size(); ++i) {
-                const auto& c = experts[i];
-                if (c.home == ExchangeHome::vram && c.layer == he.layer) { any = true; break; }
-            }
-            plan.skipped[(size_t) h] = any ? ExchangeSkip::taken : ExchangeSkip::no_cold;
-            ++plan.refused;
-            continue;
-        }
-        std::stable_sort(cold.begin(), cold.end(), [&](int a, int b) {
-            const auto& x = experts[(size_t) a];
-            const auto& y = experts[(size_t) b];
-            return x.recent != y.recent ? x.recent < y.recent : x.prior < y.prior;
-        });
-        // the coldest partner that the places can take
-        int chosen = -1;
-        bool no_room = false;
-        for (int c : cold) {
-            const auto& ce = experts[(size_t) c];
-            const auto& layer = layers[(size_t) he.layer];
-            const bool fits_ram = layer.ram_place_bytes >= ce.payload_bytes;
-            const bool fits_vram = layer.vram_place_bytes >= he.slot_bytes;
-            if (!fits_ram || !fits_vram) { no_room = true; continue; }
-            if (he.recent < kExchangeRatio * ce.recent + kExchangeMargin) continue;   // the threshold
-            chosen = c;
-            break;
-        }
-        if (chosen < 0) {
-            plan.skipped[(size_t) h] = no_room ? ExchangeSkip::no_room : ExchangeSkip::below_threshold;
-            ++plan.refused;
-            continue;
-        }
-        plan.pairs.push_back({h, chosen});
-        taken[(size_t) h] = 1;
-        taken[(size_t) chosen] = 1;
-    }
     for (size_t i = 0; i < experts.size(); ++i) {
-        if (plan.skipped[i] == ExchangeSkip::none && taken[i] && experts[i].home == ExchangeHome::vram)
-            plan.skipped[i] = ExchangeSkip::taken;
+        const auto& e = experts[i];
+        if (e.layer < 0 || (size_t) e.layer >= layers.size() || !std::isfinite(e.recent) || e.recent < 0)
+            throw std::invalid_argument("exchange: invalid layer or recent count");
+        if (e.home == ExchangeHome::ram) hot.push_back((int) i);
+        else {
+            auto& g = groups[(size_t) e.layer];
+            ++g.total;
+            if (e.locked) ++g.locked;
+            else g.cold.push_back((int) i);
+        }
+    }
+    const auto more = [&](int a, int b) {
+        const auto& x = experts[(size_t) a]; const auto& y = experts[(size_t) b];
+        return x.recent != y.recent ? x.recent > y.recent : x.prior > y.prior;
+    };
+    std::stable_sort(hot.begin(), hot.end(), more);
+    for (auto& g : groups)
+        std::stable_sort(g.cold.begin(), g.cold.end(), [&](int a, int b) { return more(b, a); });
+    std::vector<char> taken(experts.size(), 0);
+    for (int h : hot) {
+        ++plan.considered;
+        const auto& he = experts[(size_t) h];
+        auto& g = groups[(size_t) he.layer];
+        const auto& l = layers[(size_t) he.layer];
+        ExchangeSkip why = ExchangeSkip::none;
+        if (he.locked) why = ExchangeSkip::locked;
+        else if (plan.pairs.size() >= max_pairs) why = ExchangeSkip::batch_limit;
+        else if (!g.total) why = ExchangeSkip::no_cold;
+        else if (g.cold.empty()) why = ExchangeSkip::locked;
+        else if (g.next == g.cold.size()) why = ExchangeSkip::taken;
+        else if (!he.payload_bytes || !he.slot_bytes || he.slot_bytes > l.vram_place_bytes)
+            why = ExchangeSkip::no_room;
+        else {
+            int chosen = -1;
+            bool fits = false;
+            // Each layer's sorted list is made once. With the engine's uniform layer geometry this
+            // examines one available entry; heterogeneous test inputs still check each destination.
+            for (size_t k = g.next; k < g.cold.size(); ++k) {
+                const int c = g.cold[k];
+                if (taken[(size_t) c]) continue;
+                const auto& ce = experts[(size_t) c];
+                if (!ce.payload_bytes || ce.payload_bytes > l.ram_place_bytes) continue;
+                fits = true;
+                if (he.recent < kExchangeRatio * ce.recent + kExchangeMargin) break;
+                chosen = c;
+                break;
+            }
+            if (chosen < 0) why = fits ? ExchangeSkip::below_threshold : ExchangeSkip::no_room;
+            else {
+                plan.pairs.push_back({h, chosen});
+                taken[(size_t) h] = taken[(size_t) chosen] = 1;
+                plan.skipped[(size_t) h] = plan.skipped[(size_t) chosen] = ExchangeSkip::selected;
+                while (g.next < g.cold.size() && taken[(size_t) g.cold[g.next]]) ++g.next;
+            }
+        }
+        if (why != ExchangeSkip::none) { plan.skipped[(size_t) h] = why; ++plan.refused; }
     }
     return plan;
 }

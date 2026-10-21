@@ -2065,7 +2065,7 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
     target_link_libraries(strata_poly_mmq PUBLIC ggml-base ${_strata_gpu_runtime_target})
   endif()
 
-  add_executable(strata-poly src/poly/main.cpp src/poly/engine.cpp src/poly/no_disk.cpp src/poly/glm5next.cpp src/poly/qwen35.cpp
+  add_executable(strata-poly src/poly/main.cpp src/poly/engine.cpp src/poly/no_disk.cpp src/poly/exchange.cpp src/poly/glm5next.cpp src/poly/qwen35.cpp
                             src/poly/gemma4.cpp src/poly/deepseek4.cpp src/poly/lfm2moe.cpp src/poly/cpu_experts.cpp
                             src/poly/kernels.cu src/poly/kernels_dsv4.cu src/core/conversation_memory.cpp src/platform/memory.cpp)
   target_include_directories(strata-poly PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${_strata_gpu_include_directories})
@@ -2100,6 +2100,10 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
   target_link_libraries(poly_scratch_parity_test PRIVATE strata_poly_mmq strata_kernels strata_spec ggml-cpu ggml-base
                                                       ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target}
                                                       ${_strata_poly_driver} Threads::Threads)
+  add_executable(poly_exchange_gpu_test src/poly/exchange_gpu_test.cpp src/platform/memory.cpp)
+  target_include_directories(poly_exchange_gpu_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
+                                                            ${_strata_gpu_include_directories})
+  target_link_libraries(poly_exchange_gpu_test PRIVATE ${_strata_gpu_runtime_target})
   add_executable(poly_swap_cost_probe src/poly/swap_cost_probe.cpp src/platform/memory.cpp)
   target_include_directories(poly_swap_cost_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
                                                            ${_strata_gpu_include_directories})
@@ -2117,7 +2121,7 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
                                                   Threads::Threads)
   # a read with the draft block repeats bit for bit; needs the model file, so it is run by hand:
   # poly_draft_race_test MODEL.gguf [RUNS] [LAYER_SPLIT]
-  add_executable(poly_draft_race_test src/poly/draft_race_test.cpp src/poly/engine.cpp src/poly/no_disk.cpp src/poly/glm5next.cpp
+  add_executable(poly_draft_race_test src/poly/draft_race_test.cpp src/poly/engine.cpp src/poly/no_disk.cpp src/poly/exchange.cpp src/poly/glm5next.cpp
                                       src/poly/qwen35.cpp src/poly/gemma4.cpp src/poly/deepseek4.cpp
                                       src/poly/lfm2moe.cpp src/poly/cpu_experts.cpp src/poly/kernels.cu src/poly/kernels_dsv4.cu
                                       src/core/conversation_memory.cpp src/platform/memory.cpp)

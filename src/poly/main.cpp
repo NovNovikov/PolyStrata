@@ -1002,6 +1002,20 @@ int serve(Session& ss, const Options& o) {
             std::fflush(stdout);
             continue;
         }
+        if ((line == "EXCHANGE" || line.rfind("EXCHANGE ", 0) == 0) && std::getenv("STRATA_EXCHANGE_TEST_MODE")) {
+            try {
+                if (writing()) throw std::runtime_error("EXCHANGE: batch slots are active");
+                const auto before = engine.exchange_stats();
+                const int fault = line.size() > 8 ? std::atoi(line.c_str() + 8) : 0;
+                if (fault < -1 || fault > 3) throw std::runtime_error("EXCHANGE fault must be -1..3");
+                engine.exchange_test(fault);
+                engine.print_exchange_stats(before);
+                engine.print_memory("forced-exchange");
+                std::printf("EXCHANGED %llu\n", (unsigned long long) engine.exchange_stats().completed);
+            } catch (const std::exception& e) { std::printf("ERR EXCHANGE: %s\n", e.what()); }
+            std::fflush(stdout);
+            continue;
+        }
         if (line.rfind("GEN ", 0) != 0 && line.rfind("GENI ", 0) != 0) {
             std::printf("ERR expected: GEN <max_new> <id,id,...> or GENI <max_new> image_pad=<id> <file> <id,id,...>\n");
             std::fflush(stdout);
@@ -1034,6 +1048,7 @@ int serve(Session& ss, const Options& o) {
             continue;
         }
 
+        const auto exchange_before = engine.exchange_stats();
         const strata::poly::Stats before = engine.stats();
         const bool trace_decode_costs = std::getenv("STRATA_TRACE_DECODE_COSTS") != nullptr;
         strata::poly::Stats decode_before = before, cache_interval = before;
@@ -1139,6 +1154,7 @@ int serve(Session& ss, const Options& o) {
         //      <experts from VRAM> <experts> <RAM blobs> <file blobs> <file MB> <prompt tokens read> <offloaded>
         const strata::poly::Stats& now = engine.stats();
         // the cache's share of the experts looked up while answering: a prompt batch's go through VRAM either way
+        engine.print_exchange_stats(exchange_before);
         const auto& answer_before = o.no_disk ? (emitted ? decode_before : now) : before;
         const long long hits = now.gpu_experts - answer_before.gpu_experts;
         const long long misses = now.cpu_experts - answer_before.cpu_experts;
@@ -1323,6 +1339,10 @@ void usage() {
                  "                         later card, as 20 or 20,30 (default: the first card alone)\n"
                  "  --expert-profile FILE  expert use counts: read to choose the cached experts, written back on\n"
                  "                         exit and by --serve after an answer, every 10 s at most\n"
+                 "  --no-disk-expert-exchange  exchange RAM/main GPU experts during decode (requires --no-disk)\n"
+                 "  --no-disk-exchange-max N  exchanges per eval, 1..64 (default 1)\n"
+                 "  --no-disk-exchange-cooldown N  evaluated decode rows before exchanging again (default 0)\n"
+                 "  --no-disk-exchange-budget-pct F  soft budget after first exchange, 0<F<=100 (default 10)\n"
                  "  --no-gpu-experts       keep every routed expert on the CPU\n"
                  "  --any-node             on a PC with several NUMA nodes, let the CPU threads run on any of them\n"
                  "                         (default: on the node whose memory holds most of the experts)\n"
@@ -1453,6 +1473,10 @@ int main(int argc, char** argv) {
         else if (a == "--expert-profile") o.profile = val();
         else if (a == "--no-gpu-experts") o.gpu_experts = false;
         else if (a == "--no-disk") o.no_disk = true;
+        else if (a == "--no-disk-expert-exchange") o.no_disk_expert_exchange = true;
+        else if (a == "--no-disk-exchange-max") o.exchange_max = std::atoi(val());
+        else if (a == "--no-disk-exchange-cooldown") o.exchange_cooldown = std::atoi(val());
+        else if (a == "--no-disk-exchange-budget-pct") o.exchange_budget_pct = (float) std::atof(val());
         else if (a == "--no-disk-vram-margin-mib") {
             const char* v = val();
             char* end = nullptr;

@@ -4,6 +4,7 @@
 #include <cuda_runtime.h>
 #include <cstdint>
 #include <string>
+#include <map>
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -19,6 +20,9 @@ class ResidentDma {
     uint8_t* base_;
     size_t arena_, limit_, page_, peak_ = 0;
     std::vector<DmaRange> pinned_;
+    std::map<size_t, uint64_t> ages_;
+    uint64_t age_ = 0;
+    uint64_t registered_bytes_ = 0, unregistered_bytes_ = 0;
     std::vector<Use> uses_;
     static void check(cudaError_t e, const std::string& what) {
         if (e == cudaSuccess) return;
@@ -69,12 +73,16 @@ public:
     const uint8_t* base() const { return base_; }
     size_t bytes() const { size_t n = 0; for (const auto& r : pinned_) n += r.second; return n; }
     size_t peak() const { return peak_; }
+    uint64_t registered_bytes() const { return registered_bytes_; }
+    uint64_t unregistered_bytes() const { return unregistered_bytes_; }
     void clear() {
         drain();
         while (!pinned_.empty()) {
             check(cudaHostUnregister(base_ + pinned_.back().first), "unregistering the previous DMA window");
+            unregistered_bytes_ += pinned_.back().second;
             pinned_.pop_back();
         }
+        ages_.clear();
     }
     void prepare(std::vector<DmaRange> sources) {
         const auto wanted = dma_ranges(std::move(sources), arena_, limit_, page_);
@@ -84,6 +92,7 @@ public:
             for (const auto& r : wanted) {
                 check(cudaHostRegister(base_ + r.first, r.second, 0), "CUDA/HIP registration of " +
                       std::to_string(r.second) + " RAM bytes (no pageable fallback)");
+                registered_bytes_ += r.second;
                 try { pinned_.push_back(r); }
                 catch (...) { (void) cudaHostUnregister(base_ + r.first); throw; }
                 verify(base_ + r.first);
@@ -93,6 +102,44 @@ public:
             }
             peak_ = std::max(peak_, bytes());
         } catch (...) { clear(); throw; }
+    }
+    // Exchange mode only: retain useful registrations, add uncovered pages, evict old whole
+    // registrations only under budget pressure. All users finish before unregistering any page.
+    void retain(std::vector<DmaRange> sources) {
+        const auto wanted = dma_ranges(std::move(sources), arena_, limit_, page_);
+        ++age_;
+        const auto intersects = [&](const DmaRange& r) {
+            for (const auto& w : wanted)
+                if (r.first < w.first + w.second && w.first < r.first + r.second) return true;
+            return false;
+        };
+        for (const auto& r : pinned_) if (intersects(r)) ages_[r.first] = age_;
+        auto missing = dma_missing(wanted, pinned_);
+        const auto missing_bytes = [&] { size_t n = 0; for (const auto& r : missing) n += r.second; return n; };
+        if (missing.empty()) return;
+        bool drained = false;
+        while (bytes() + missing_bytes() > limit_) {
+            if (!drained) { drain(); drained = true; }
+            if (pinned_.empty()) throw std::logic_error("exchange: DMA window cannot hold requested pages");
+            auto victim = std::min_element(pinned_.begin(), pinned_.end(), [&](const auto& a, const auto& b) {
+                if (intersects(a) != intersects(b)) return !intersects(a);
+                return ages_[a.first] < ages_[b.first];
+            });
+            check(cudaHostUnregister(base_ + victim->first), "evicting an idle DMA registration");
+            unregistered_bytes_ += victim->second;
+            ages_.erase(victim->first);
+            pinned_.erase(victim);
+            missing = dma_missing(wanted, pinned_);
+        }
+        for (const auto& r : missing) {
+            check(cudaHostRegister(base_ + r.first, r.second, 0), "registering exchange RAM pages");
+            registered_bytes_ += r.second;
+            try { ages_[r.first] = age_; pinned_.push_back(r); }
+            catch (...) { ages_.erase(r.first); (void) cudaHostUnregister(base_ + r.first); throw; }
+            std::sort(pinned_.begin(), pinned_.end());
+            peak_ = std::max(peak_, bytes());
+            verify(base_ + r.first);
+        }
     }
     void begin(cudaStream_t stream) {
         for (auto& u : uses_) if (u.stream == stream) { u.pending = true; return; }
