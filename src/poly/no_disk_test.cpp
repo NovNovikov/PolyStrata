@@ -25,6 +25,26 @@ int main() {
     check(fails([] { dma_ranges({{0, 8192}}, 8192, 4096, 4096); }));
     check(fails([] { dma_ranges({}, SIZE_MAX, SIZE_MAX, 4096); }));
     check(fails([] { dma_ranges({}, 8192, 8192, 3); }));
+    check(dma_stage_ranges({}, 16384, 12288, 4096).empty());
+    check(dma_stage_ranges({{8192, 1}, {1, 1}}, 16384, 12288, 4096) ==
+          std::vector<DmaRange>{{0, 12288}});
+    // Exact limit includes page rounding. A larger span keeps only the selected pages.
+    check(dma_stage_ranges({{8192, 1}, {1, 1}}, 16384, 8192, 4096) ==
+          std::vector<DmaRange>{{0, 4096}, {8192, 4096}});
+    check(dma_stage_ranges({{16384, 1}, {1, 1}}, 16385, 20480, 4096) ==
+          std::vector<DmaRange>{{0, 20480}});
+    check(fails([] { dma_stage_ranges({{16384, 2}}, 16385, 20480, 4096); }));
+    check(fails([] { dma_stage_ranges({{0, 12288}}, 16384, 8192, 4096); }));
+    for (size_t a = 0; a < 24; ++a) for (size_t b = a; b < 24; ++b) {
+        const std::vector<DmaRange> source{{a * 4096 + 7, 17}, {b * 4096 + 3, 41}};
+        const auto exact = dma_ranges(source, 24 * 4096, 24 * 4096, 4096);
+        const auto cover = dma_stage_ranges(source, 24 * 4096, 8 * 4096, 4096);
+        size_t sum = 0;
+        for (const auto& r : cover) sum += r.second;
+        check(sum <= 8 * 4096);
+        check(dma_missing(exact, cover).empty());
+        check(cover.size() == (b - a < 8 ? 1 : exact.size()));
+    }
     for (size_t offset = 0; offset < 8192; offset += 31) {
         const auto ranges = dma_ranges({{offset, 1}}, 8192, 4096, 4096);
         check(ranges.size() == 1 && ranges[0].first == offset / 4096 * 4096 && ranges[0].second == 4096);

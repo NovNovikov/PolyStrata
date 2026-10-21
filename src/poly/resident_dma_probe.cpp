@@ -82,6 +82,57 @@ int main(int argc, char** argv) {
                     ck(cudaMemcpy(got.data(), dev[j], got.size(), cudaMemcpyDeviceToHost));
                     for (uint8_t v : got) check(v == 0x41 + j, "disjoint DMA payload mismatch");
                 }
+                dma.clear();
+                dma.prepare_stage({{0, 4096}, {8192, 4096}});
+                check(dma.bytes() == 12288, "stage did not merge the bounded gap");
+                const auto registered = dma.registered_bytes(), unregistered = dma.unregistered_bytes();
+                dma.prepare_stage({{8192 + 17, 1}});
+                check(dma.bytes() == 12288 && dma.registered_bytes() == registered &&
+                      dma.unregistered_bytes() == unregistered, "covered stage subset changed registration");
+                bool invalid = false;
+                try { dma.prepare_stage({{bytes, 1}}); } catch (const std::runtime_error&) { invalid = true; }
+                check(invalid && dma.bytes() == 12288, "invalid stage range evicted valid pages");
+                // The exact same [G,U,D] bytes and staging padding as stage(), with an unaligned GU size.
+                constexpr size_t gu = 333, down = 777, count = 2;
+                constexpr size_t down_at = (count * 2 * gu + 255) & ~size_t(255);
+                constexpr size_t output_bytes = down_at + count * down + 256;
+                static_assert(output_bytes <= 4096);
+                for (size_t e = 0; e < count; ++e) {
+                    auto* src = base + e * 8192;
+                    for (size_t i = 0; i < 2 * gu + down; ++i) src[i] = (uint8_t) (i * 31 + e * 17);
+                }
+                // streams[0] is the original three-copy layout, streams[1] the merged two-copy layout.
+                for (int j = 0; j < 2; ++j) {
+                    ck(cudaMemsetAsync(dev[j], 0, 4096, streams[j]));
+                    dma.begin(streams[j]);
+                    for (size_t e = 0; e < count; ++e) {
+                        const auto* src = base + e * 8192;
+                        auto* dst = (uint8_t*) dev[j] + e * 2 * gu;
+                        ck(cudaMemcpyAsync(dst, src, j ? 2 * gu : gu, cudaMemcpyHostToDevice, streams[j]));
+                        if (!j) ck(cudaMemcpyAsync(dst + gu, src + gu, gu, cudaMemcpyHostToDevice, streams[j]));
+                        ck(cudaMemcpyAsync((uint8_t*) dev[j] + down_at + e * down, src + 2 * gu, down,
+                                           cudaMemcpyHostToDevice, streams[j]));
+                    }
+                    dma.end(streams[j]);
+                }
+                // Eviction fences both outstanding source readers, including the merged copy.
+                dma.clear();
+                std::array<uint8_t, output_bytes> original{}, merged{};
+                ck(cudaMemcpy(original.data(), dev[0], original.size(), cudaMemcpyDeviceToHost));
+                ck(cudaMemcpy(merged.data(), dev[1], merged.size(), cudaMemcpyDeviceToHost));
+                check(original == merged, "merged gate/up changed staging bytes/padding/tail");
+                for (size_t e = 0; e < count; ++e) {
+                    check(std::memcmp(merged.data() + e * 2 * gu, base + e * 8192, 2 * gu) == 0, "gate/up data");
+                    check(std::memcmp(merged.data() + down_at + e * down, base + e * 8192 + 2 * gu, down) == 0, "down data");
+                }
+                if (bytes > window) {
+                    dma.prepare_stage({{0, 4096}, {bytes - 4096, 4096}});
+                    check(dma.bytes() == 8192, "stage span exceeded budget rather than falling back");
+                    dma.clear();
+                }
+                dma.prepare_stage({{0, 4096}, {8192, 4096}}, true);
+                check(dma.bytes() == 12288, "retained stage did not merge bounded gap");
+                dma.clear();
                 dma.prepare({{0, window}});
                 // Destruction must also fence a partially issued operation without end().
                 dma.begin(streams[0]);

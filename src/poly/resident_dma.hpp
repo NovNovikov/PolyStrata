@@ -84,11 +84,23 @@ public:
         (void) cudaGetLastError();
     }
     const uint8_t* base() const { return base_; }
+    size_t limit() const { return limit_; }
     size_t bytes() const { size_t n = 0; for (const auto& r : pinned_) n += r.second; return n; }
     size_t peak() const { return peak_; }
     uint64_t registered_bytes() const { return registered_bytes_; }
     uint64_t unregistered_bytes() const { return unregistered_bytes_; }
     const DmaCost& cost() const { return cost_; }
+    // Opt-in prefill policy. A whole-layer window prepared before attention also covers all
+    // later routed subsets; do not tear it down just because the subset is smaller.
+    void prepare_stage(std::vector<DmaRange> sources, bool retain_window = false) {
+        auto wanted = dma_stage_ranges(std::move(sources), arena_, limit_, page_);
+        if (dma_missing(wanted, pinned_).empty()) {
+            audit::count("dma-stage-covered-skip");
+            return;
+        }
+        if (retain_window) retain(std::move(wanted));
+        else prepare(std::move(wanted));
+    }
     void clear() {
         drain();
         const auto t0 = trace_ ? Clock::now() : Clock::time_point{};

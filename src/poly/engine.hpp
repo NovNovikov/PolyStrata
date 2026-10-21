@@ -56,6 +56,7 @@ struct Options {
     int exchange_cooldown = 0;   ///< evaluated decode rows before either expert can exchange again
     float exchange_budget_pct = 10.f; ///< soft budget for further exchanges vs preceding eval; always allow first
     bool no_disk = false;        ///< all weights resident in locked RAM or fixed VRAM; model files close at load
+    bool coalesce_expert_dma = false; ///< opt-in: bounded contiguous prefill registration before attention, two H2D per expert
     int no_disk_vram_margin_mib = 512; ///< extra headroom for loading, separate from the runtime reserve
     bool rows_vram = false;      ///< reserve intermediate read rows in VRAM
     int read_chunk_tokens = 0;   ///< prompt tokens in one read() pass at most; 0: context / RAM limit
@@ -522,6 +523,7 @@ protected:
     void exchange_available() const;
     void drop_resident_stage_cache();
     void plan_ahead(Layer& L, int il);
+    void prepare_layer_dma(const Layer& L, int n);
     void run(const int32_t* tokens, int n);
     bool pick_way(int t);
     void took_way(int t, double ms);

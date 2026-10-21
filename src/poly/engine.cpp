@@ -1043,6 +1043,8 @@ void Engine::load_moe(int il, bool shared) {
 
 // The engine for a model file: its general.architecture says which.
 std::unique_ptr<Engine> Engine::open(const Options& o) {
+    if (o.coalesce_expert_dma && !o.no_disk)
+        throw std::runtime_error("--coalesce-expert-dma requires --no-disk");
     if (o.no_disk_expert_exchange && !o.no_disk)
         throw std::runtime_error("--no-disk-expert-exchange requires --no-disk");
     if (o.no_disk_expert_exchange && (o.exchange_max < 1 || o.exchange_max > 64 || o.exchange_cooldown < 0 ||
@@ -2889,9 +2891,35 @@ bool Engine::moe_card(Layer& L, int il, int n) {
     return true;
 }
 
-// m experts from the mapped file into the staging buffer: gate and up of each back to back from the start, the
-// downs after them.  The two pinned buffers take turns, so the workers fill one while the other uploads.  `alone`:
-// stagers_ fill them, while the workers compute experts.
+// Prepare a bounded RAM-source window before this layer's attention is submitted. Unregister
+// may wait for GPU work internally; it must not unnecessarily fence this layer's own head.
+void Engine::prepare_layer_dma(const Layer& L, int n) {
+    if (!opt_.coalesce_expert_dma || !L.moe || !batched(L, n) || !expert_dma_) return;
+    // Ownership is settled at the eval/read boundary. Include every RAM source, even a
+    // disposable cached copy: all rounds of this layer must remain covered after routing.
+    size_t first = SIZE_MAX, last = 0;
+    const size_t bytes = 2 * L.gu_bytes + L.d_bytes;
+    for (const auto& h : L.resident_host) if (h.gate) {
+        const size_t at = (size_t) (h.gate - expert_dma_->base());
+        first = std::min(first, at);
+        last = std::max(last, at + bytes);
+    }
+    if (first == SIZE_MAX) return;
+    const size_t page = ResidentDma::page_size();
+    first &= ~(page - 1);
+    last = (last + page - 1) & ~(page - 1);
+    if (last - first > expert_dma_->limit()) {
+        audit::count("dma-layer-span-over-budget");
+        return; // Different owner layouts/smaller windows retain the bounded routed-stage path.
+    }
+    audit::HostSpan span(__FILE__, __LINE__, "dma-before-head");
+    const DmaCost before = expert_dma_->cost();
+    expert_dma_->prepare_stage({{first, last - first}}, opt_.no_disk_expert_exchange);
+    if (stage_trace_) add_cost(stage_stats_.reg, expert_dma_->cost(), before);
+}
+
+// m experts into staging: each gate/up pair first, all downs after them. In mapped-file mode
+// two pinned buffers alternate; `alone` leaves the main workers free for CPU experts.
 void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, bool alone, StageCopy kind) {
     staged_il_ = -1;   // whatever the buffer held
     const size_t gu2 = 2 * L.gu_bytes, down_at = pad((size_t) m * gu2);
@@ -2917,17 +2945,23 @@ void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, 
             sources.emplace_back((size_t) (h.gate - expert_dma_->base()), gu2 + L.d_bytes);
         }
         const DmaCost before = expert_dma_->cost();
-        if (opt_.no_disk_expert_exchange) expert_dma_->retain(std::move(sources));
+        if (opt_.coalesce_expert_dma) expert_dma_->prepare_stage(std::move(sources), opt_.no_disk_expert_exchange);
+        else if (opt_.no_disk_expert_exchange) expert_dma_->retain(std::move(sources));
         else expert_dma_->prepare(std::move(sources));
         if (stage_trace_) add_cost(stage_stats_.reg, expert_dma_->cost(), before);
         expert_dma_->begin(cs(stream));
         audit::GpuSpan audit_copy(__FILE__, __LINE__, "expert-stage-copy-interval", (uint64_t)m*(gu2+L.d_bytes), cs(stream));
         for (int j = 0; j < m; ++j) {
             const auto h = host_expert(L, (size_t) experts[j]);
-            ck(PA_COPY(stage_ + (size_t) j * gu2, h.gate, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
-               "no-disk: expert gate");
-            ck(PA_COPY(stage_ + (size_t) j * gu2 + L.gu_bytes, h.up, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
-               "no-disk: expert up");
+            if (opt_.coalesce_expert_dma && h.up == h.gate + L.gu_bytes) {
+                ck(PA_COPY(stage_ + (size_t) j * gu2, h.gate, gu2, cudaMemcpyHostToDevice, cs(stream)),
+                   "no-disk: expert gate/up");
+            } else {
+                ck(PA_COPY(stage_ + (size_t) j * gu2, h.gate, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
+                   "no-disk: expert gate");
+                ck(PA_COPY(stage_ + (size_t) j * gu2 + L.gu_bytes, h.up, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
+                   "no-disk: expert up");
+            }
             ck(PA_COPY(stage_ + down_at + (size_t) j * L.d_bytes, h.down, L.d_bytes, cudaMemcpyHostToDevice, cs(stream)),
                "no-disk: expert down");
         }
@@ -3708,6 +3742,7 @@ void Engine::run(const int32_t* tokens, int n) {
     for (int il = lo_; il < hi_; ++il) {
         audit::Scope audit_layer(nullptr, il, -1, n);
         Layer& L = layers_[(size_t) il];
+        prepare_layer_dma(L, n);
         up(il, n, (size_t) n - 1);
         if (!L.moe) continue;
         if (batched(L, n)) moe_rows(L, il, n);
@@ -3784,6 +3819,7 @@ void Engine::step(const int* seqs, const int32_t* tokens, int n) {
     for (int il = lo_; il < hi_; ++il) {
         audit::Scope audit_layer(nullptr, il, -1, n);
         Layer& L = layers_[(size_t) il];
+        prepare_layer_dma(L, n);
         if (batch_heads()) {
             const int64_t keep = pos_;
             key.assign(1, n);
@@ -3939,6 +3975,7 @@ void Engine::eval(const int32_t* tokens, int n, bool want_logits) {
 void Engine::layer(int il, int n) {
     audit::Scope audit_layer(nullptr, il, -1, n);
     Layer& L = layers_[(size_t) il];
+    prepare_layer_dma(L, n);
     layer_head(L, il, n);
     if (!L.moe) return;
     if (batched(L, n)) {

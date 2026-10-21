@@ -54,4 +54,16 @@ inline std::vector<DmaRange> dma_ranges(std::vector<DmaRange> ranges, size_t are
     }
     return merged;
 }
+// Staging may register the gaps between sources already owned by the same resident arena.
+// Prefer one registration only when its page-rounded span fits the EXISTING window budget.
+// Otherwise keep the exact source pages; never enlarge the budget or allocate a second copy.
+inline std::vector<DmaRange> dma_stage_ranges(std::vector<DmaRange> sources, size_t arena, size_t limit, size_t page) {
+    auto ranges = dma_ranges(std::move(sources), arena, limit, page);
+    if (ranges.size() > 1) {
+        const size_t first = ranges.front().first;
+        const size_t span = ranges.back().first + ranges.back().second - first;
+        if (span <= limit) return {{first, span}};
+    }
+    return ranges;
+}
 } // namespace strata::poly

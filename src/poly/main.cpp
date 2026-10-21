@@ -1351,6 +1351,7 @@ void usage() {
                  "  --expert-profile FILE  expert use counts: read to choose the cached experts, written back on\n"
                  "                         exit and by --serve after an answer, every 10 s at most\n"
                  "  --no-disk-expert-exchange  exchange RAM/main GPU experts during decode (requires --no-disk)\n"
+                 "  --coalesce-expert-dma  prepare bounded layer DMA before attention; merge gate/up H2D (requires --no-disk)\n"
                  "  --no-disk-exchange-max N  exchanges per eval, 1..64 (default 1)\n"
                  "  --no-disk-exchange-cooldown N  evaluated decode rows before exchanging again (default 0)\n"
                  "  --no-disk-exchange-budget-pct F  soft budget after first exchange, 0<F<=100 (default 10)\n"
@@ -1484,6 +1485,7 @@ int main(int argc, char** argv) {
         else if (a == "--expert-profile") o.profile = val();
         else if (a == "--no-gpu-experts") o.gpu_experts = false;
         else if (a == "--no-disk") o.no_disk = true;
+        else if (a == "--coalesce-expert-dma") o.coalesce_expert_dma = true;
         else if (a == "--no-disk-expert-exchange") o.no_disk_expert_exchange = true;
         else if (a == "--no-disk-exchange-max") o.exchange_max = std::atoi(val());
         else if (a == "--no-disk-exchange-cooldown") o.exchange_cooldown = std::atoi(val());
