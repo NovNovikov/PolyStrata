@@ -2097,6 +2097,10 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
   target_link_libraries(poly_scratch_parity_test PRIVATE strata_poly_mmq strata_kernels strata_spec ggml-cpu ggml-base
                                                       ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target}
                                                       ${_strata_poly_driver} Threads::Threads)
+  add_executable(poly_swap_cost_probe src/poly/swap_cost_probe.cpp src/platform/memory.cpp)
+  target_include_directories(poly_swap_cost_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
+                                                           ${_strata_gpu_include_directories})
+  target_link_libraries(poly_swap_cost_probe PRIVATE ${_strata_gpu_runtime_target})
   add_executable(poly_resident_dma_probe src/poly/resident_dma_probe.cpp src/platform/memory.cpp)
   target_include_directories(poly_resident_dma_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
                                                            ${_strata_gpu_include_directories})
