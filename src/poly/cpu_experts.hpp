@@ -22,6 +22,15 @@ struct CpuStageTiming { double prepare = 0, gate_up = 0, quantize = 0, down = 0;
 CpuStageTiming& cpu_stage_timing();
 #endif
 
+#ifdef STRATA_CPU_LAYOUT_PROBE
+// Standalone benchmark only. Not compiled into strata-poly or its default CPU path.
+struct CpuLayoutProbe {
+    int gate_rows = 32, down_rows = 16;
+    bool expert_major_down = false, gate_then_up = false;
+};
+CpuLayoutProbe& cpu_layout_probe();
+#endif
+
 /// Runs fn(0..n-1) on the workers and the calling thread, and returns when all of them are done.  A call from
 /// inside fn does its work on the thread it is on.
 class Workers {

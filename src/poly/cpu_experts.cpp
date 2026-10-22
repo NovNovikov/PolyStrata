@@ -18,6 +18,9 @@ namespace strata::poly {
 #ifdef STRATA_CPU_STAGE_TIMING
 CpuStageTiming& cpu_stage_timing() { static thread_local CpuStageTiming t; return t; }
 #endif
+#ifdef STRATA_CPU_LAYOUT_PROBE
+CpuLayoutProbe& cpu_layout_probe() { static thread_local CpuLayoutProbe p; return p; }
+#endif
 namespace {
 
 // Rows of gate and up, and of down, a task.  With fewer tasks than several a thread, the last round left threads
@@ -178,6 +181,12 @@ void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, in
     uint8_t* actp = act.data();
     const auto act_from = traits(tg->vec_dot_type)->from_float;
     workers.run(rows, [&](int t) { act_from(x + (size_t) t * n_embd, actp + (size_t) t * a_bytes, n_embd); });
+#ifdef STRATA_CPU_LAYOUT_PROBE
+    const auto probe = cpu_layout_probe(); // workers capture the caller's settings, not their own TLS
+    const int gate_rows = probe.gate_rows, down_rows = probe.down_rows;
+#else
+    constexpr int gate_rows = kRowsPerTask, down_rows = kRowsPerDownTask;
+#endif
 
     // The uses of one expert next to each other (by), and where each expert's run of them starts (run).
     by.resize((size_t) n);
@@ -192,7 +201,7 @@ void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, in
     float* hp = h.data();
     const int* byp = by.data();
     const int* runp = run.data();
-    const int gu_tasks = (n_ff + kRowsPerTask - 1) / kRowsPerTask;
+    const int gu_tasks = (n_ff + gate_rows - 1) / gate_rows;
     const int first = meanwhile ? 1 : 0;   // task 0, so it is taken at once
 #ifdef STRATA_CPU_STAGE_TIMING
     take_time(cpu_stage_timing().prepare);
@@ -202,7 +211,32 @@ void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, in
         t -= first;
         const int i0 = runp[t / gu_tasks], i1 = runp[t / gu_tasks + 1];
         const CpuExpert& e = experts[byp[i0]];
-        const int r0 = (t % gu_tasks) * kRowsPerTask, r1 = std::min(n_ff, r0 + kRowsPerTask);
+        const int r0 = (t % gu_tasks) * gate_rows, r1 = std::min(n_ff, r0 + gate_rows);
+#ifdef STRATA_CPU_LAYOUT_PROBE
+        if (probe.gate_then_up) {
+            static thread_local std::vector<float> gates;
+            gates.resize((size_t) (r1 - r0) * (i1 - i0));
+            for (int r = r0; r < r1; ++r) for (int i = i0; i < i1; ++i) {
+                const int j = byp[i];
+                const uint8_t* a = actp + (size_t) experts[j].row * a_bytes;
+                tg->vec_dot(n_embd, &gates[(size_t)(r-r0)*(i1-i0)+i-i0], 0,
+                            e.gate + (size_t)r*gu_row, 0, a, 0, 1);
+            }
+            for (int r = r0; r < r1; ++r) for (int i = i0; i < i1; ++i) {
+                const int j = byp[i];
+                const uint8_t* a = actp + (size_t) experts[j].row * a_bytes;
+                float g = gates[(size_t)(r-r0)*(i1-i0)+i-i0], u = 0;
+                tg->vec_dot(n_embd, &u, 0, e.up + (size_t)r*gu_row, 0, a, 0, 1);
+                if (gelu) hp[(size_t)j*n_ff+r] = 0.5f*g*(1.f+std::tanh(0.7978845608f*g*(1.f+0.044715f*g*g)))*u;
+                else {
+                    g = std::min(g, limit);
+                    u = std::clamp(u, -limit, limit);
+                    hp[(size_t)j*n_ff+r] = g/(1.f+std::exp(-g))*u;
+                }
+            }
+            return;
+        }
+#endif
         for (int r = r0; r < r1; ++r) {
             const uint8_t* gate = e.gate + (size_t) r * gu_row;
             const uint8_t* up = e.up + (size_t) r * gu_row;
@@ -233,12 +267,34 @@ void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, in
     take_time(cpu_stage_timing().quantize);
 #endif
 
-    const int d_tasks = (n_embd + kRowsPerDownTask - 1) / kRowsPerDownTask;
+    const int d_tasks = (n_embd + down_rows - 1) / down_rows;
     workers.run(d_tasks, [&](int t) {
         static thread_local std::vector<float> one;   // an output value of every use
+        const int r0 = t * down_rows, r1 = std::min(n_embd, r0 + down_rows);
+#ifdef STRATA_CPU_LAYOUT_PROBE
+        if (probe.expert_major_down) {
+            one.resize((size_t)n*(r1-r0));
+            float* sums = one.data();
+            for (int u = 0; u < n_run; ++u) for (int r = r0; r < r1; ++r) {
+                const uint8_t* down = experts[byp[runp[u]]].down + (size_t)r*d_row;
+                for (int i = runp[u]; i < runp[u+1]; ++i)
+                    td->vec_dot(n_ff, sums+(size_t)(r-r0)*n+byp[i], 0, down, 0,
+                                hqp+(size_t)byp[i]*h_bytes, 0, 1);
+            }
+            for (int r = r0; r < r1; ++r) {
+                int j = 0;
+                for (int row = 0; row < rows; ++row) {
+                    float acc = 0;
+                    for (; j < n && experts[j].row == row; ++j)
+                        acc += experts[j].weight*sums[(size_t)(r-r0)*n+j];
+                    out[(size_t)row*n_embd+r] = acc;
+                }
+            }
+            return;
+        }
+#endif
         one.resize((size_t) n);
         float* s = one.data();
-        const int r0 = t * kRowsPerDownTask, r1 = std::min(n_embd, r0 + kRowsPerDownTask);
         for (int r = r0; r < r1; ++r) {
             for (int u = 0; u < n_run; ++u) {
                 const uint8_t* down = experts[byp[runp[u]]].down + (size_t) r * d_row;

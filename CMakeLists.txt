@@ -2181,6 +2181,10 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
   target_compile_definitions(poly_cpu_decode_bench PRIVATE STRATA_CPU_STAGE_TIMING=1)
   target_include_directories(poly_cpu_decode_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${_strata_gg}/include)
   target_link_libraries(poly_cpu_decode_bench PRIVATE ggml-cpu ggml-base Threads::Threads)
+  add_executable(poly_cpu_layout_probe EXCLUDE_FROM_ALL src/poly/cpu_layout_probe.cpp src/poly/cpu_experts.cpp)
+  target_compile_definitions(poly_cpu_layout_probe PRIVATE STRATA_CPU_STAGE_TIMING=1 STRATA_CPU_LAYOUT_PROBE=1)
+  target_include_directories(poly_cpu_layout_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${_strata_gg}/include)
+  target_link_libraries(poly_cpu_layout_probe PRIVATE ggml-cpu ggml-base Threads::Threads)
   if(MSVC AND STRATA_HAVE_AVXVNNI_INTRINSICS)
     add_executable(poly_cpu_decode_vnni_bench EXCLUDE_FROM_ALL src/poly/cpu_decode_bench.cpp
                    src/poly/cpu_experts.cpp src/poly/cpu_vnni_probe.c)
