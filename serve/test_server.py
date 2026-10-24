@@ -5225,6 +5225,35 @@ class EngineMemory(unittest.TestCase):
         self.assertEqual(telemetry.process_ram(SimpleNamespace(), 0), {})
 
 
+class CacheConsole(unittest.TestCase):
+    REQUEST = ("strata-poly: prompt 100 tokens = 80 reused + 20 read in 100 ms (200 tok/s), "
+               "10 generated in 500 ms (20 tok/s)\n")
+
+    def test_cache_events_are_visible_without_request_tracing(self):
+        from serve.server import echo_requests
+        parked = "strata-poly: conversation cache: parked 100 tokens in 5.0 ms; parked=1 bytes=20 evictions=0"
+        restored = "strata-poly: conversation cache: restored 80 tokens in 2.0 ms; parked=1 bytes=20 evictions=0\n"
+        stream = mock.mock_open()
+        # A line can arrive in pieces, including a pause before its terminating newline.
+        stream.return_value.readline.side_effect = ["unrelated engine output\n", self.REQUEST,
+                                                   parked[:40], "", parked[40:] + "\n", restored, ""]
+        out = io.StringIO()
+        with mock.patch("builtins.open", stream), mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch("serve.server.time.sleep", side_effect=[None, EOFError]), \
+                contextlib.redirect_stdout(out):
+            with self.assertRaises(EOFError):
+                echo_requests("synthetic.log", 123)
+        stream.return_value.seek.assert_called_once_with(123)
+        self.assertEqual(out.getvalue().splitlines(), ["[strata] " + parked.split(": ", 1)[1],
+                                                       "[strata] " + restored.strip().split(": ", 1)[1]])
+
+    def test_request_summaries_stay_opt_in(self):
+        from serve.server import engine_console_line
+        self.assertIsNone(engine_console_line(self.REQUEST))
+        self.assertIn("cached 80 output 10", engine_console_line(self.REQUEST, request_lines=True))
+        self.assertIsNone(engine_console_line("unrelated text containing conversation cache: restored 80 tokens"))
+
+
 class SilentEngine(unittest.TestCase):
     """#481: an engine that prints nothing for engine_silence_s during a request (or never acknowledges a STOP) has
     lost step with the server: it is ended and the request fails with EngineDied, instead of waiting forever."""
@@ -5246,6 +5275,17 @@ class SilentEngine(unittest.TestCase):
             for x in lines:
                 engine.lines.put(x)
         threading.Thread(target=put, daemon=True).start()
+
+    def test_resume_is_visible_and_keeps_the_token_protocol(self):
+        engine = self.bare(0.3)
+        for line in ("RESUME 3", "T 7", "DONE 1 5 1 1 length 0 0 3"):
+            engine.lines.put(line)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            tokens = list(engine.generate([1] * 5, 10, {}, threading.Event()))
+        self.assertEqual(tokens, [7])
+        self.assertEqual(engine.reused, 3)
+        self.assertIn("[strata] prompt cache: reused 3 of 5 tokens", out.getvalue())
 
     def test_silence_mid_answer_ends_the_engine(self):
         from serve.server import EngineSilent

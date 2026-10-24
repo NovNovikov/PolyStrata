@@ -578,27 +578,38 @@ def transient_start_failure(log: str | None, offset: int, elapsed_s: float, rc: 
     return not engine_lines and rc != 1 and not engine_crashed(rc)
 
 
-def echo_requests(log_path: str, offset: int) -> None:
-    """STRATA_REQUEST_LINES=1: one stdout line per finished request, from the engine's own summary in its log.
+def engine_console_line(line: str, request_lines: bool = False) -> str | None:
+    """Forward cache events, and optionally request timings, without echoing other engine log contents."""
+    for prefix in ("strata-poly: conversation cache: ", "strata serve: conversation cache: "):
+        if line.startswith(prefix):
+            return "[strata] conversation cache: " + line[len(prefix):].rstrip()
+    m = ENGINE_REQUEST.search(line) if request_lines else None
+    if m:
+        read_ms, gen_ms = float(m["read"]), float(m["gen_ms"])
+        return ("[strata] request prompt %s cached %s output %s prompt_read %.0f ms total %.0f ms prefill %s "
+                "tok/s decode %s tok/s" % (m["prompt"], m["reused"], m["gen"], read_ms, read_ms + gen_ms,
+                                           m["pp"], m["tg"]))
+    return None
 
-    The engine's stderr goes to the log file (the start narrator reads it), so a supervisor that only sees this
-    process's output - a tray, llama-swap - has no per-request numbers. This re-states the engine's line with the
-    total the two times make: `request prompt P cached C output O prompt_read R ms total S ms prefill X tok/s decode Y
-    tok/s` (prompt_read: the time the engine spent reading the prompt's new tokens, not a time to first token).
-    """
+
+def echo_requests(log_path: str, offset: int) -> None:
+    """Follow cache events from the engine log; STRATA_REQUEST_LINES also enables per-request timings."""
+    request_lines = bool(os.environ.get("STRATA_REQUEST_LINES"))
     with open(log_path, "r", encoding="utf-8", errors="replace") as f:
         f.seek(offset)
+        pending = ""
         while True:
             line = f.readline()
             if not line:
                 time.sleep(0.2)
                 continue
-            m = ENGINE_REQUEST.search(line)
-            if m:
-                read_ms, gen_ms = float(m["read"]), float(m["gen_ms"])
-                print("[strata] request prompt %s cached %s output %s prompt_read %.0f ms total %.0f ms prefill %s "
-                      "tok/s decode %s tok/s" % (m["prompt"], m["reused"], m["gen"], read_ms, read_ms + gen_ms, m["pp"],
-                                                 m["tg"]), flush=True)
+            pending += line
+            if not pending.endswith("\n"):
+                continue
+            notice = engine_console_line(pending, request_lines)
+            pending = ""
+            if notice is not None:
+                print(notice, flush=True)
 
 
 def experts_loading_words(args: list, size: str) -> str:
@@ -879,7 +890,7 @@ class StrataEngine:
             threading.Thread(target=narrate_start, args=(log, os.path.getsize(log), args, loading),
                              daemon=True).start()
             # once per log: the follower keeps reading the same (appended) log across restarts and reloads
-            if os.environ.get("STRATA_REQUEST_LINES") and os.path.abspath(log) not in _echoing:
+            if os.path.abspath(log) not in _echoing:
                 _echoing.add(os.path.abspath(log))
                 threading.Thread(target=echo_requests, args=(log, os.path.getsize(log)), daemon=True).start()
         if log:                                          # #779: when an engine started (a crash report has the time)
@@ -2094,6 +2105,8 @@ class StrataEngine:
                         read_to = self.reused = int(line.split()[1])
                     except (IndexError, ValueError):
                         pass
+                    else:
+                        print(f"[strata] prompt cache: reused {self.reused} of {len(ids)} tokens", flush=True)
                 elif line.startswith("DONE"):
                     self._parse_done(line)
                     done = True
