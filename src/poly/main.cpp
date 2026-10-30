@@ -72,7 +72,8 @@ double ms_since(Clock::time_point t) { return std::chrono::duration<double, std:
 constexpr double kProfileSaveMs = 10000.0;
 
 // The most tokens of a window whose guesses are the block's: the token the model has and three guesses, each
-// from the one before.  A repeat of the conversation may fill a longer window (Options::window).
+// from the one before.  A repeat of the conversation may fill a longer window (Options::window), and so may a
+// model whose guesses come together (Engine::guesses_at_once()).
 constexpr int kBlockWindow = 4;
 
 // A window longer than that is for a copy: a repeat of the conversation whose match is this many tokens or more.
@@ -331,6 +332,7 @@ struct CacheFlags {
     CacheOptions o;
     long long min_free_mib = 2560;       // parking leaves this much physical RAM free
     long long min_save_free_mib = 4096;  // a session save and the disk, this much between them
+    bool park_auto = false;          // --conversation-cache-mib auto: park_mib from the RAM free once loaded
 };
 
 // The Qwen engine's (strata::core's) bounded allowances for the line protocol's session steps: 60 s plus one
@@ -513,6 +515,7 @@ struct Session {
         };
         if (max_new > 0) {
             int32_t w[strata::spec::DraftPolicy::kMaxT], d[strata::spec::DraftPolicy::kMaxT];
+            const int block_window = engine.guesses_at_once() ? most : kBlockWindow;
             int32_t t = pick(engine.logits());   // picked, and not shown yet
             while (show(t)) {
                 // t goes into the model now, and with it guesses at what follows when there are any that pay
@@ -521,7 +524,7 @@ struct Session {
                 const bool room = engine.pos() + span <= engine.max_context();
                 const int offered = look && room ? repeats.propose(span - 1, w + 1) : 0;
                 const int match = repeats.last_match();
-                const int widest = match >= kCopyMatch ? span : std::min(span, kBlockWindow);   // this round's window
+                const int widest = match >= kCopyMatch ? span : std::min(span, block_window);   // this round's window
                 const int k = std::min(offered, widest - 1);
                 if (trace_policy) {
                     PolicyRound sample{};
@@ -558,7 +561,7 @@ struct Session {
                 strata::spec::DraftPolicy::Pick use = policy.choose(1, k, match);
                 if (ask) {
                     int n_d = 0;
-                    for (int32_t from = t; n_d < std::min(span, kBlockWindow) - 1 && guesses.wants(n_d); from = d[n_d++]) {
+                    for (int32_t from = t; n_d < std::min(span, block_window) - 1 && guesses.wants(n_d); from = d[n_d++]) {
                         float p = 0.f;
                         const Clock::time_point asked_at = Clock::now();
                         d[n_d] = engine.draft(from, n_d, &p);
@@ -1158,6 +1161,17 @@ int serve(Session& ss, const Options& o) {
             std::fflush(stdout);
             continue;
         }
+        // STRATA_REQUEST_LINES=1: one stdout line per finished request, like Strata's own engine (the same summary, to
+        // the log on stderr so echo_requests picks it up): prompts, cached, fresh tokens read, and both rates.  Any
+        // drafts go in the tail (the server reads them from that; DONE below is what it uses for its figures).
+        const double pp = r.prompt_ms > 0 ? 1000.0 * r.read / r.prompt_ms : 0.0;
+        const double tg = r.decode_ms > 0 ? 1000.0 * r.produced / r.decode_ms : 0.0;
+        std::fprintf(stderr, "strata serve: prompt %lld tokens = %lld reused + %lld read in %.0f ms (%.1f tok/s), %lld generated in %.0f ms (%.1f tok/s)",
+                     n, (long long) r.resume, (long long) r.read, r.prompt_ms, pp, (long long) r.produced, r.decode_ms, tg);
+        if (r.guessed > 0)   // MTP drafts: the ones guessed right of the total guesses made
+            std::fprintf(stderr, ", drafts accepted %lld of %lld\n", (long long) r.guessed_right, (long long) r.guessed);
+        else
+            std::fprintf(stderr, "\n");
         // DONE <generated> <prompt> <prompt ms> <decode ms> <finish> <drafts accepted> <drafts offered> <reused>
         //      <experts from VRAM> <experts> <RAM blobs> <file blobs> <file MB> <prompt tokens read> <offloaded>
         const strata::poly::Stats& now = engine.stats();
@@ -1375,8 +1389,12 @@ void usage() {
                  "  --trace-graphs         synchronize and trace graph creation (diagnostic; affects timings)\n"
                  "  --kv-whole             give the attention caches VRAM for the whole context at load (default: as\n"
                  "                         the conversation grows, the expert cache having the rest until then)\n"
-                 "  --kv fmt               the K and V attention caches' format: fp16 (default, unchanged) or q8_0\n"
-                 "                         (ggml Q8_0 blocks: half the KV VRAM, slightly different answers); opt-in\n"
+                 "  --kv fmt               the K and V attention caches' format, opt-in: fp16 (default,\n"
+                 "                         unchanged); q8_0 (ggml Q8_0 blocks: half the KV VRAM, slightly\n"
+                 "                         different answers; qwen35moe's and kolibri1's); int8 / int8k (Gemma 4's:\n"
+                 "                         the same Q8_0 rule with the codes and their deltas in two arrays, so a\n"
+                 "                         reader takes four codes to a load; int8k keeps the keys' side\n"
+                 "                         quantized and the values' in fp16)\n"
                  "  --expert-swaps N       while an answer is written, up to N experts it keeps using are on their way\n"
                  "                         into VRAM, in place of cached ones it uses less (default 64, 0 = the cache\n"
                  "                         stays as it was loaded)\n"
@@ -1400,7 +1418,8 @@ void usage() {
                  "  --prompt-cache-every N accepted for older launch scripts; semantic assistant-history checkpoints\n"
                  "                         are used instead (the value has no effect)\n"
                  "  --conversation-cache-mib N   RAM for parked conversations, so that several can take turns\n"
-                 "                         without being read again (default 0 = off)\n"
+                 "                         without being read again (default 0 = off; auto: 40%% of the RAM free\n"
+                 "                         once loaded, above the floor below, at most 8192)\n"
                  "  --conversation-cache-slots N        parked conversations at most (default 4)\n"
                  "  --conversation-cache-min-tokens N   a conversation shorter than this is not parked (default 1024)\n"
                  "  --conversation-cache-min-free-mib N park only while this much physical RAM stays free (default\n"
@@ -1413,7 +1432,8 @@ void usage() {
                  "                         state and attention rows (default 0 = one at a time; at most 8);\n"
                  "                         --slots N is the same\n"
                  "  --check-batch K        with --tokens and --batch K or more: K prompts answered on their own and\n"
-                 "                         then together, compared token by token\n"
+                 "                         then together, compared token by token (takes --kv-whole, so the expert\n"
+                 "                         cache stays as it is)\n"
                  "  --eos-ids ID,ID,...    tokens that end a reply (default: the GGUF's eos, eot and eom)\n"
                  "  --temperature F --top-k N --top-p F --min-p F --seed N   sampling for --tokens (default greedy)\n"
                  "  --images FILE          with --tokens: the prompt's pictures, as strata-vision writes them\n"
@@ -1435,6 +1455,10 @@ void usage() {
 #endif
                  "environment: STRATA_TRACE_DRAFT_POLICY=1  numeric window choices/costs after each answer\n"
                  "environment: STRATA_REFRESH_DRAFT_COSTS=1  remeasure stale intermediate lookup windows\n"
+                 "  --cache-bias F         qwen35moe: a token's router scores get F added for each expert in VRAM\n"
+                 "                         before it picks, as it comes a few at a time; the weights stay the\n"
+                 "                         router's own: fewer experts on the CPU, and the answers move (default 0\n"
+                 "                         = off)\n"
                  "environment: STRATA_ROUTE_TAIL_SKIP=N  in place of --tail-skip (0 turns it off)\n"
                  "environment: STRATA_FREEZE_EXPERTS=1  hold the split of the routed experts between the card\n"
                  "                         and the CPU still, so the same request gives the same greedy answer\n"
@@ -1511,8 +1535,11 @@ int main(int argc, char** argv) {
             const std::string fmt = val();
             if (fmt == "fp16") o.kv_format = KvFmt::kFp16;
             else if (fmt == "q8_0") o.kv_format = KvFmt::kQ8_0;
+            else if (fmt == "int8") o.kv_format = KvFmt::kInt8;
+            else if (fmt == "int8k") o.kv_format = KvFmt::kInt8K;
             else {
-                std::fprintf(stderr, "strata-poly: --kv %s: unknown format (use fp16 or q8_0)\n", fmt.c_str());
+                std::fprintf(stderr, "strata-poly: --kv %s: unknown format (use fp16, q8_0, int8 or int8k)\n",
+                             fmt.c_str());
                 std::exit(2);
             }
         }
@@ -1523,6 +1550,7 @@ int main(int argc, char** argv) {
         else if (a == "--expert-swaps") o.expert_swaps = std::atoi(val());
         else if (a == "--tail-skip") o.tail_skip = std::atoi(val());
         else if (a == "--skip-weight") o.skip_weight = (float) std::atof(val());
+        else if (a == "--cache-bias") o.cache_bias = (float) std::atof(val());
         else if (a == "--layer-split") o.layer_split = val();
         else if (a == "--batch" || a == "--slots") o.batch = std::atoi(val());
         else if (a == "--check-batch") check = std::atoi(val());
@@ -1554,7 +1582,11 @@ int main(int argc, char** argv) {
         else if (a == "--cpu-share") o.cpu_share = (float) std::atof(val());
         else if (a == "--prompt-cache") cache.o.checkpoints = std::atoi(val());
         else if (a == "--prompt-cache-every") cache.o.every = std::atoll(val());
-        else if (a == "--conversation-cache-mib") cache.o.park_mib = std::atoll(val());
+        else if (a == "--conversation-cache-mib") {
+            const std::string v = val();
+            cache.park_auto = v == "auto";
+            cache.o.park_mib = cache.park_auto ? 0 : std::atoll(v.c_str());
+        }
         else if (a == "--conversation-cache-slots") cache.o.park_slots = std::atoi(val());
         else if (a == "--conversation-cache-min-tokens") cache.o.park_min = std::atoll(val());
         else if (a == "--conversation-cache-min-free-mib") cache.min_free_mib = std::atoll(val());
@@ -1594,6 +1626,9 @@ int main(int argc, char** argv) {
                              "with tokens left of --tokens\n");
         return 2;
     }
+    // --check-batch: K sequences growing together would take VRAM from the expert cache that the single runs had,
+    // and an expert moved to the CPU rounds differently (issue 55).  Their attention rows get VRAM at load instead.
+    if (check > 0) o.kv_grow = false;
     // over --tail-skip, as Strata's engine reads it: =0 turns a model's default off
     if (const char* v = std::getenv("STRATA_ROUTE_TAIL_SKIP")) o.tail_skip = std::atoi(v);
     const long long most = 1LL << 24;   // MiB: 16 TiB
@@ -1612,6 +1647,10 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "strata-poly: loaded in %.1f s; %d of %d routed experts in VRAM (%.1f GiB), %d CPU threads\n",
                      ms_since(t0) / 1000.0, engine.cached_experts(), engine.total_experts(), engine.cached_gib(),
                      engine.threads());
+        if (o.cache_bias > 0)
+            std::fprintf(stderr, "strata-poly: cache bias %.2f: a token that comes a few at a time routes with %.2f "
+                                 "added to the score of each expert in VRAM; the weights stay the router's own\n",
+                         o.cache_bias, o.cache_bias);
         if (o.skip_weight > 0)
             std::fprintf(stderr, "strata-poly: skip weight %.3f: an expert outside VRAM that every token of a window "
                                  "weighs under %.1f%% of its experts' weight is left out (in place of --tail-skip)\n",
@@ -1637,6 +1676,19 @@ int main(int argc, char** argv) {
                 const int64_t id = engine.meta_u(key, -1);
                 if (id >= 0 && std::find(eos.begin(), eos.end(), (int32_t) id) == eos.end()) eos.push_back((int32_t) id);
             }
+        // A fixed 8 GiB on a PC whose RAM the model's file already fills pushed that file out of the file cache.
+        // Sized as Strata's engine sizes it (#3493); admit() still keeps min_free_mib free at every park.
+        if (cache.park_auto && want_serve && cache.o.checkpoints > 0 && cache.o.park_slots > 0) {
+            cache.o.park_mib = strata::core::auto_conversation_cache_mib(strata::core::available_host_bytes(),
+                                                                        cache.min_free_mib);
+            if (cache.o.park_mib > 0)
+                std::fprintf(stderr, "strata-poly: conversation cache sized from the free RAM: %lld MiB for up to %d "
+                                     "parked conversations (--conversation-cache-mib N sets it, 0 turns it off)\n",
+                             (long long) cache.o.park_mib, cache.o.park_slots);
+            else
+                std::fprintf(stderr, "strata-poly: conversation cache off: not enough free RAM to park conversations "
+                                     "(--conversation-cache-mib N asks for one anyway)\n");
+        }
         Session ss(engine, eos, cache, lookup);
         if (!follow.empty()) ss.follow = &follow; // explicit replay also applies to GEN in --serve tests
         int rc = 0;

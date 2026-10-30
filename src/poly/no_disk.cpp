@@ -13,7 +13,7 @@ Layer::Host Engine::host_expert(const Layer& l, size_t e) const {
         if (!h.gate || !h.up || !h.down) throw std::logic_error("no-disk: a VRAM expert was requested from RAM");
         return h;
     }
-    return {l.exp_gate + e * l.gu_stride, l.exp_up + e * l.gu_stride, l.exp_down + e * l.d_bytes};
+    return {l.exp_gate + e * l.gu_stride, l.exp_up + e * l.u_stride, l.exp_down + e * l.d_bytes};
 }
 
 void Engine::pin_host_weights(void* p, size_t bytes) {

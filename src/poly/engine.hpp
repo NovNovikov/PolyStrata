@@ -41,8 +41,12 @@ class ResidentMemory;
 class ResidentDma;
 struct Likeliest;
 
-/// The attention caches' storing format: fp16 (default) or ggml Q8_0; opt-in via --kv.
-enum class KvFmt { kFp16 = 0, kQ8_0 = 1 };
+/// The attention caches' storing format, opt-in via --kv.  q8_0 is ggml's blocks (one fp16 scale a 32-value
+/// block of int8 codes) and reads them back element by element; int8 is the same rule with the codes and the
+/// deltas in two arrays, which a reader can take four codes to a load, and int8k keeps only the keys' side
+/// quantized.  q8_0 is qwen35moe's; int8 and int8k are Gemma 4's - the two readers are not the same arithmetic,
+/// so a model has one or the other rather than a choice between them.
+enum class KvFmt { kFp16 = 0, kQ8_0 = 1, kInt8 = 2, kInt8K = 3 };
 
 struct Options {
     std::string model;
@@ -105,6 +109,9 @@ struct Options {
     float skip_weight = 0;        ///< in place of tail_skip: a routed expert outside VRAM whose router weight is under
                                   ///< this share of its token's experts' weight, for every token of the call, is left
                                   ///< out (--skip-weight); 0: tail_skip decides
+    float cache_bias = 0;         ///< a token's few-at-a-time routing adds this to the score of each expert in VRAM
+                                  ///< before it picks its experts; their weights stay the softmax of the scores the
+                                  ///< router gave (--cache-bias, qwen35moe only); 0: the router's own picks
     std::string layer_split;      ///< the layers across the CUDA devices this process sees, in their order: "auto"
                                   ///< (by each card's free VRAM) or the first layer of each later card ("20,30");
                                   ///< empty, or one device: the current card alone
@@ -141,6 +148,14 @@ struct Layer {
     size_t gu_bytes = 0, d_bytes = 0;  ///< one expert's gate (or up), and its down
     size_t gu_stride = 0;              ///< from an expert's gate to the next one's: twice gu_bytes in a file that
                                        ///< keeps an expert's gate and up in one tensor
+    // up's own format (issue 103: IsValorum's NanoPlus files quantize gate and up differently); in every other file
+    // these equal gu_type, gu_bytes and gu_stride, and nothing about the layer changes
+    uint32_t u_type = 0;
+    size_t u_bytes = 0, u_stride = 0;
+    bool mixed() const { return u_type != gu_type; }
+    size_t gu2() const { return gu_bytes + u_bytes; }   ///< an expert's gate and up: where its down starts in a slot
+    size_t gu_step = 0;   ///< from a staged expert's gate|up to the next one's: gu2(), and in a mixed layer whole
+                          ///< blocks of both types, since MMQ takes the stride in blocks (Mmq::mul)
     std::vector<uint8_t*> slot;        ///< per expert: gate | up | down in VRAM, or null
     struct Host { const uint8_t *gate = nullptr, *up = nullptr, *down = nullptr; };
     std::vector<Host> resident_host;    ///< no-disk: RAM experts only; a permanent VRAM expert has no host copy
@@ -237,6 +252,10 @@ public:
     double numa_share() const { return node_share_; }
     int64_t pos() const { return pos_; }
     int64_t meta_u(const char* key, int64_t fallback) const;
+    /// What --kv asked for, in the two short forms an architecture's code reads: the int8 codes/delta cache
+    /// (both sides, or the keys' side alone under int8k).
+    bool int8() const { return opt_.kv_format == KvFmt::kInt8 || opt_.kv_format == KvFmt::kInt8K; }
+    bool int8k() const { return opt_.kv_format == KvFmt::kInt8K; }
 
     /// Forget the sequence.
     void reset();
@@ -302,8 +321,14 @@ public:
     /// it; draft(guess, i, &p) for i = 1, 2, ... then guesses on from the i-th guess, with the block's own output
     /// in the model's place.  p is the probability the block gives what it returns.  pos() + i must be inside the
     /// context.  logits() is left alone.  An architecture may guess with a small model of its own instead of a
-    /// block (draft_step()); the calls are the same.
-    bool drafts() const { return next_ ? next_->drafts() : draft_; }
+    /// block (draft_step()); the calls are the same.  A model trained to guess a block of tokens at once may guess
+    /// them itself (block_mask(), under STRATA_BLOCK_GUESS=1): draft(token, 0, &p) makes a window's guesses in one
+    /// call, and the calls after it return them, whatever guess they are given.  It does so only while the card holds
+    /// every expert: the block runs the whole model, and with experts on the CPU it cost more than its right guesses
+    /// saved (Clover on an 8 GB laptop wrote 57.7 tokens/s after a 32K prompt with its guesses, 61.6 without).
+    bool drafts() const { return next_ ? next_->drafts() : draft_ || (block_guess_ && all_cached()); }
+    /// The guesses of a window come out of draft(token, 0, &p) together: asking for one more costs nothing.
+    bool guesses_at_once() const { return next_ ? next_->guesses_at_once() : block_guess_; }
     /// Test only: the calls read()'s layer-major path gave the draft block's rows (draft_rows()) on the card that has
     /// the block, since load.  Two or more in one read are back-to-back refills of its pinned input rows.
     int64_t read_draft_calls_for_test() const { return next_ ? next_->read_draft_calls_for_test() : read_draft_calls_; }
@@ -396,6 +421,12 @@ protected:
     /// How many of the vocabulary's first tokens hold nearly every token an answer writes; 0: the order says
     /// nothing of that.
     virtual int guess_vocab() const { return 0; }
+    /// The token a model trained to guess a block of tokens at once fills the block with after the known one
+    /// (guess_block()); -1: the model is not.  Its layers then run a call of block_pass_ as that block.
+    virtual int block_mask() const { return -1; }
+    /// In a call of block_pass_: what is done to the n tokens' scores at layer il's router, together, before each
+    /// token is routed (route()).
+    virtual void route_block(int il, float* scores, int n) { (void) il, (void) scores, (void) n; }
     /// The layers' places in state_, and the attention's caches: a row a position.  Only for the layers this
     /// engine runs (runs()).
     virtual void alloc_caches() = 0;
@@ -506,6 +537,7 @@ protected:
     void shared_scratch();
     float* draft_input(const int32_t* tokens, int64_t row, const float* h, int n);
     void draft_rows(const int32_t* tokens, int first, int n);
+    void guess_block(int32_t token);
     const Image* image_at(int64_t row) const;
     bool input(int32_t token, int64_t row, float* dst) const;
     void lin(const Dev& w, const float* x, float* y, int n, const void* xq = nullptr, int rows_per_x = 0);
@@ -533,9 +565,13 @@ protected:
     bool moe(Layer& L, int il, int n, const std::function<void()>* first = nullptr);
     bool card_moe(int n);
     bool moe_card(Layer& L, int il, int n);
+    const float* biased(const Layer& L, const float* scores);
     /// Whether n tokens take layer L's routed experts as a prompt batch, through MMQ (moe_rows()), and not a few at
     /// a time (moe()).
     bool batched(const Layer& L, int n) const;
+    /// The routed experts' rows a call routed on the card has room for (d_): a window of a model that guesses its
+    /// own block, or kSumRows.  The others keep kSumRows, whose windows past it are routed on the host as before.
+    int card_rows() const;
     void moe_add(int n);
     template <class F>
     void* record(F&& work, const char* kind = "other", int layer = -1, size_t key = 0, int rows = 0,
@@ -673,11 +709,18 @@ protected:
     float rms_eps_ = 0;
     bool gelu_ = false;       ///< the routed experts' activation: GELU of the gate, else SiLU within the layer's limits
     std::vector<float> clamp_exp_, clamp_shexp_;   ///< a layer's SwiGLU limits: the routed experts', the shared one's
+    /// a prompt batch's products go through guard_half_sums(): the model's activations can sum past a half's range
+    /// in a block.  Off for the models whose sums stay in range: it cost LFM2.5 4% of a 30K prompt's read on a 5090.
+    bool half_sum_guard_ = false;
 
     std::vector<Layer> layers_;   ///< the model's, and after them the draft block
     Dev out_norm_, output_;
     bool draft_ = false;
     bool block_layer_ = false;    ///< what guesses ahead is a block after the model's layers (layers_' last)
+    bool block_guess_ = false;    ///< the model guesses a window's tokens itself, in a block (block_mask())
+    bool block_pass_ = false;     ///< the call under way is that block: its tokens see each other, no state changes
+    Likeliest* h_block_ = nullptr;   ///< the block's guesses and their probabilities, pinned
+    int block_n_ = 0;                ///< how many it holds
     Dev d_proj_, d_enorm_, d_hnorm_, d_head_;   ///< the draft block's input projection and norms, and its output norm
     const uint8_t* tok_embd_ = nullptr;   ///< the token table in the mapped file, tok_row_ bytes a token
     size_t tok_row_ = 0;
@@ -711,11 +754,20 @@ protected:
         std::vector<std::vector<void*>> heads;   ///< Layer::heads, by layer
         std::map<std::vector<int>, void*> passes;
         void* tail = nullptr;
+        // A sequence's own fp16 twin of its int8 caches (Gemma 4's --kv int8), and the halves of it that have
+        // VRAM behind them.  The twin is a sequence's: a batch gives every row its own sequence, and the twin is
+        // where that sequence's prompt batch reads, so the twin belongs with the sequence's other members.
+        Mapped twin_k, twin_v;
+        size_t twin_mapped = 0;
     };
     std::vector<Seq> seqs_;      ///< the bound one's place holds nothing while it is bound
     int bound_ = 0;
     std::vector<Buf> bufs_;      ///< the bound sequence's: what kv_alloc() and seq_alloc() gave it, in that order
     size_t again_ = SIZE_MAX;    ///< while alloc_caches() points at the bound sequence's buffers again: the next one
+    // The bound sequence's fp16 twin of its int8 caches (Gemma 4's --kv int8): the addresses for the whole and
+    // the VRAM behind them.  A sequence's own, since a batch gives every row its own sequence.
+    Mapped twin_k_, twin_v_;
+    size_t twin_mapped_ = 0;
     void park_bound();
     void take_bound(int s);
     void hold(int s);   ///< bind() on this card alone
@@ -791,7 +843,9 @@ protected:
     // A prompt batch's MoE (moe_rows).  A row is a token and one of the experts it routes to.
     std::unique_ptr<Mmq> mmq_;   ///< null when the card has no MMQ tile for the experts' types
     float *gu_ = nullptr, *hx_ = nullptr, *dx_ = nullptr;   ///< the rows' gate|up, hidden and down values
+    float* hf_ = nullptr;   ///< the power of two a row was divided by for its half sums (guard_half_sums())
     void *mq_ = nullptr, *mq2_ = nullptr;                   ///< the rows quantized for the two products
+    void* mqu_ = nullptr;   ///< the rows quantized for up's product, in a layer whose up is not gate's type
     void* mqx_ = nullptr;                                   ///< lin()'s tokens quantized for a product
     int32_t *tab_ = nullptr, *h_tab_ = nullptr;   ///< a layer's row tables, in VRAM and pinned
     int32_t* iota_ = nullptr;                     ///< 0, 1, 2, ...
@@ -819,6 +873,7 @@ protected:
     int stage_turn_ = 0;
     std::vector<int32_t> ids_, count_, first_, group_, round_;
     std::vector<float> route_tmp_;   ///< route()'s scratch, a share for each host thread
+    std::vector<float> bias_rl_;     ///< one token's scores with Options::cache_bias added (moe())
     struct Run {
         int c, j, m, most;   ///< the rows' class, its first cached expert and how many, the most rows one has
     };

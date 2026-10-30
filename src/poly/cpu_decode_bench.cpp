@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
                         const auto* p = l.weights.data() + e * (2 * l.gu_bytes + l.d_bytes);
                         jobs[e] = {p, p + l.gu_bytes, p + 2 * l.gu_bytes, .25f};
                     }
-                    poly::cpu_experts(pool, jobs, experts, 1, l.gu_type, l.d_type, l.embd, l.ff,
+                    poly::cpu_experts(pool, jobs, experts, 1, l.gu_type, l.gu_type, l.d_type, l.embd, l.ff,
                                       input.data(), 10.f, false, output.data());
                 };
                 bool same = true;

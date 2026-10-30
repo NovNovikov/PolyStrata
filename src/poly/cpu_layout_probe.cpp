@@ -81,7 +81,7 @@ int main(int argc,char** argv) {
                 jobs.push_back({p,p+l.gu_bytes,p+2*l.gu_bytes,0.25f,row});
             }
             const std::function<void()> cb=[&]{++callbacks;};
-            cpu_experts(pool,jobs.data(),(int)jobs.size(),rows,l.gu,l.down,l.embd,l.ff,x.data(),10.f,gelu,
+            cpu_experts(pool,jobs.data(),(int)jobs.size(),rows,l.gu,l.gu,l.down,l.embd,l.ff,x.data(),10.f,gelu,
                         out.data(),callback?&cb:nullptr);
         };
         std::printf("loaded %zu layers, %zu bytes; no model/GPU engine\n",layers.size(),bytes);std::fflush(stdout);
