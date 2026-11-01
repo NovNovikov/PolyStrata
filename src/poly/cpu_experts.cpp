@@ -152,7 +152,7 @@ bool cpu_expert_types_ok(int gu_type, int d_type, int n_embd, int n_ff, std::str
 
 void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, int gu_type, int u_type, int d_type,
                  int n_embd, int n_ff, const float* x, float limit, bool gelu, float* out,
-                 const std::function<void()>* meanwhile) {
+                 const std::function<void()>* meanwhile, const uint8_t* late, const std::function<void(int)>* wait) {
 #ifdef STRATA_CPU_STAGE_TIMING
     auto stage_at = std::chrono::steady_clock::now();
     auto take_time = [&](double& value) {
@@ -209,10 +209,17 @@ void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, in
         if (i == 0 || experts[by[(size_t) i]].gate != experts[by[(size_t) i - 1]].gate) run.push_back(i);
     const int n_run = (int) run.size();
     run.push_back(n);
+    // the runs in the order their products are taken: the late experts' last, so their reads go on meanwhile
+    static thread_local std::vector<int> order;
+    order.resize((size_t) n_run);
+    std::iota(order.begin(), order.end(), 0);
+    if (late)
+        std::stable_partition(order.begin(), order.end(), [&](int u) { return !late[by[(size_t) run[(size_t) u]]]; });
 
     float* hp = h.data();
     const int* byp = by.data();
     const int* runp = run.data();
+    const int* orderp = order.data();
     const int gu_tasks = (n_ff + gate_rows - 1) / gate_rows;
     const int first = meanwhile ? 1 : 0;   // task 0, so it is taken at once
 #ifdef STRATA_CPU_STAGE_TIMING
@@ -221,7 +228,8 @@ void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, in
     workers.run(first + n_run * gu_tasks, [&](int t) {
         if (t < first) return (*meanwhile)();
         t -= first;
-        const int i0 = runp[t / gu_tasks], i1 = runp[t / gu_tasks + 1];
+        const int u = orderp[t / gu_tasks], i0 = runp[u], i1 = runp[u + 1];
+        if (late && late[byp[i0]]) (*wait)(byp[i0]);
         const CpuExpert& e = experts[byp[i0]];
         const int r0 = (t % gu_tasks) * gate_rows, r1 = std::min(n_ff, r0 + gate_rows);
 #ifdef STRATA_CPU_LAYOUT_PROBE

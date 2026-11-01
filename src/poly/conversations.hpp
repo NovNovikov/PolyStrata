@@ -5,7 +5,8 @@
 // recurrent state at that point, which is a checkpoint, and the rows its tokens left in the attention caches.  The
 // rows of the sequence in the engine are there already.  A conversation that makes room for another is parked:
 // its rows are copied to host memory, up to its last checkpoint.  What is saved is written once and never changed,
-// so conversations that start alike share it, and a parked conversation comes back bit for bit.
+// so conversations that start alike share it, and a parked conversation comes back bit for bit.  Between requests
+// it leaves the process for the file cache (release(), spill.hpp).
 //
 // Nothing here knows the model.  E is the engine:
 //     void reset();
@@ -23,11 +24,11 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
-#include <new>
 #include <utility>
 #include <vector>
 
 #include "session_file.hpp"
+#include "spill.hpp"
 
 namespace strata::poly {
 
@@ -138,7 +139,7 @@ public:
     /// logits that come with it.
     void before(int64_t at, bool last) {
         if (o_.checkpoints < 1 || at < 1 || (!last && !std::binary_search(anchors_.begin(), anchors_.end(), at))) return;
-        if (const BlobPtr b = mark(at)) e_.save_state(b->p.get());
+        if (const BlobPtr b = mark(at)) e_.save_state(b->data());
     }
 
     /// For an engine that reads past checkpoints in one go, of n tokens from `at`: the checkpoints due after the
@@ -166,7 +167,7 @@ public:
         for (const int64_t p : due) {
             const bool stays = std::find(after_.begin(), after_.end(), p) != after_.end();
             due_.push_back({p, stays ? blob(e_.state_bytes()) : nullptr});
-            out.emplace_back(p - at, due_.back().state ? due_.back().state->p.get() : nullptr);
+            out.emplace_back(p - at, due_.back().state ? due_.back().state->data() : nullptr);
         }
     }
 
@@ -201,7 +202,7 @@ public:
         }
         const int64_t at = s.marks.back().pos;
         cut(s, at);
-        e_.load_state(s.marks.back().state->p.get(), at);
+        e_.load_state(s.marks.back().state->data(), at);
         return at;
     }
     /// The first n tokens of the conversation are the prompt the client sent.
@@ -266,7 +267,7 @@ public:
                 // both have it
                 const BlobPtr fresh = blob((size_t) (end - from) * e_.row_bytes());
                 if (!fresh) return SOut::memory;   // the host could not hold the rows' copy: the server's memory kind
-                e_.save_rows(from, end - from, fresh->p.get());
+                e_.save_rows(from, end - from, fresh->data());
                 s.rows.push_back({fresh, from, end - from, end - from});
             } else {
                 // the file is where the rows live: they go to it in chunks, straight from the engine, and the
@@ -292,17 +293,17 @@ public:
         if (s.marks.back().pos != end) {   // the state of the conversation's end, a checkpoint of the engine's now
             const BlobPtr hold = blob(e_.state_bytes());
             if (!hold) return SOut::memory;
-            e_.save_state(hold->p.get());
+            e_.save_state(hold->data());
             s.marks.push_back({end, hold});
         }
         std::vector<std::pair<int64_t, SessionFile::SessionPart>> parts;
         parts.reserve(s.marks.size());
         for (const Checkpoint& m : s.marks)
-            parts.push_back({m.pos, SessionFile::part_of(m.state->p.get(), m.state->bytes)});
+            parts.push_back({m.pos, SessionFile::part_of(m.state->data(), m.state->bytes())});
         std::vector<SessionFile::StreamRows> rows;
         rows.reserve(s.rows.size());
         for (const Rows& r : s.rows)
-            rows.push_back({r.first, r.count, r.keep, SessionFile::part_of(r.blob->p.get(), r.blob->bytes)});
+            rows.push_back({r.first, r.count, r.keep, SessionFile::part_of(r.blob->data(), r.blob->bytes())});
         for (const SessionFile::StreamRows& r : tail_rows) rows.push_back(r);
         SessionFile::WStat st;
         const bool ok = SessionFile::write_stream(dir, name, s.prompt, e_.state_bytes(), e_.row_bytes(), s.seq,
@@ -379,7 +380,19 @@ public:
                (s.marks.size() + 1) * e_.state_bytes() + 128;
     }
 
-    // The parked conversations, the bytes they hold, and how many were pushed out so far.
+    /// Between requests: what the parked conversations hold leaves the process.  On the laptop four parked
+    /// conversations of Qwen3.6 held 1.1 to 1.7 GB, one of 29K tokens 1.05 GB.  The one in the engine keeps its
+    /// states in memory: every request saves one (63 MB of Qwen3.6's), and the next request most likely goes on
+    /// from it, so written to the disk it would mostly be read back at once.
+    void release() const {
+        for (size_t i = 0; i < slots_.size(); ++i) {
+            if (i == cur_) continue;
+            for (const Checkpoint& m : slots_[i].marks) m.state->release();
+            for (const Rows& r : slots_[i].rows) r.blob->release();
+        }
+    }
+
+    /// The parked conversations, the bytes they hold, and how many were pushed out so far.
     size_t parked() const { return held(slots_.size()).count; }
     size_t parked_bytes() const { return held(slots_.size()).bytes; }
     size_t evictions() const { return evictions_; }
@@ -417,7 +430,7 @@ private:
                         no_ram = true;
                         return false;
                     }
-                    if (!SessionFile::unpack(version, packed.data(), packed.size(), b->p.get(), r.raw)) return false;
+                    if (!SessionFile::unpack(version, packed.data(), packed.size(), b->data(), r.raw)) return false;
                     marks.push_back({r.pos, b});
                     return true;
                 }
@@ -457,7 +470,7 @@ private:
             return SLoad::unreadable;
         }
         const int64_t at = s.marks.back().pos;   // the state at the deepest row-covered checkpoint
-        e_.load_state(s.marks.back().state->p.get(), at);
+        e_.load_state(s.marks.back().state->data(), at);
         const bool at_end = at == rows_last && at == len(s);   // the rows and the state both reach the last token
         s.held = at_end;
         slots_[cur_] = std::move(s);
@@ -509,9 +522,9 @@ private:
         slots_[cur_] = Slot{};
         for (const Rows& r : s.rows) {
             const int64_t a = r.first, b = std::min(r.first + r.keep, end);
-            if (a < b) e_.load_rows(r.blob->p.get(), r.first, r.count, a, b - a);
+            if (a < b) e_.load_rows(r.blob->data(), r.first, r.count, a, b - a);
         }
-        e_.load_state(s.marks.back().state->p.get(), end);
+        e_.load_state(s.marks.back().state->data(), end);
         const bool at_end = end == rows_last && end == len(s);   // the rows and the state both reach the last token
         s.held = at_end;
         slots_[cur_] = std::move(s);
@@ -529,11 +542,7 @@ private:
 private:
     using Clock = std::chrono::steady_clock;
 
-    struct Blob {
-        std::unique_ptr<uint8_t[]> p;
-        size_t bytes = 0;
-        ~Blob() { if(p) audit::blob_memory(bytes, false); }
-    };
+    using Blob = Spill;
     using BlobPtr = std::shared_ptr<const Blob>;
     struct Checkpoint {
         int64_t pos;
@@ -560,7 +569,7 @@ private:
             }
             if (r.kind == SessionFile::Record::kMark) marks.push_back({r.pos, b});
             else rows.push_back({b, r.first, r.count, r.keep});
-            return b->p.get();
+            return b->data();
         };
         if (!SessionFile::read_into(path, head, take)) return false;
         seq = std::move(head.seq);
@@ -605,7 +614,7 @@ private:
         std::sort(seen.begin(), seen.end());
         seen.erase(std::unique(seen.begin(), seen.end()), seen.end());
         size_t b = 0;
-        for (const Blob* p : seen) b += p->bytes;
+        for (const Blob* p : seen) b += p->bytes();
         return b;
     }
 
@@ -638,18 +647,15 @@ private:
 
     static const uint8_t* state_at(const Slot& s, int64_t at) {
         for (const Checkpoint& m : s.marks)
-            if (m.pos == at) return m.state->p.get();
+            if (m.pos == at) return m.state->data();
         return nullptr;   // resume() only goes to positions reach() found
     }
 
     // A blob of `bytes`, or null: the host did not have them (or a test's lever asked this one to fail).
     BlobPtr blob(size_t bytes) {
         if (o_.fail_blob_at > 0 && ++blobs_ == o_.fail_blob_at) return nullptr;
-        auto b = std::make_shared<Blob>();
-        b->p.reset(new (std::nothrow) uint8_t[bytes]);
-        b->bytes = bytes;
-        if(b->p) audit::blob_memory(bytes, true);
-        return b->p ? b : nullptr;
+        auto b = std::make_shared<Blob>(bytes);
+        return b->data() ? b : nullptr;
     }
 
     // A checkpoint of the current conversation at `at`, its state still to be written.  Null: there is one there,
@@ -707,7 +713,7 @@ private:
         }
         std::sort(seen.begin(), seen.end());
         seen.erase(std::unique(seen.begin(), seen.end()), seen.end());
-        for (const Blob* b : seen) h.bytes += b->bytes;
+        for (const Blob* b : seen) h.bytes += b->bytes();
         return h;
     }
 
@@ -754,7 +760,7 @@ private:
             return false;
         }
         if (b) {
-            e_.save_rows(from, end - from, b->p.get());
+            e_.save_rows(from, end - from, b->data());
             s.rows.push_back({b, from, end - from, end - from});
         }
         if (disk) {
@@ -775,13 +781,13 @@ private:
                 // the checkpoints the slot's file already has are in that file
                 if (!whole && std::find(s.disk_marks.begin(), s.disk_marks.end(), m.pos) != s.disk_marks.end())
                     continue;
-                parts.push_back({m.pos, SessionFile::part_of(m.state->p.get(), m.state->bytes)});
+                parts.push_back({m.pos, SessionFile::part_of(m.state->data(), m.state->bytes())});
             }
             std::vector<SessionFile::StreamRows> rows;
             rows.reserve(s.rows.size() + 1);
             if (whole) {   // the rows the host holds are the file's
                 for (const Rows& r : s.rows) {
-                    rows.push_back({r.first, r.count, r.keep, SessionFile::part_of(r.blob->p.get(), r.blob->bytes)});
+                    rows.push_back({r.first, r.count, r.keep, SessionFile::part_of(r.blob->data(), r.blob->bytes())});
                 }
             }
             // save_rows() is opaque and normally layer-major: two independently saved spans cannot be
@@ -882,7 +888,7 @@ private:
         } else {
             for (const Rows& r : slots_[i].rows) {
                 const int64_t a = std::max(r.first, have), b = std::min(r.first + r.keep, need);
-                if (a < b) e_.load_rows(r.blob->p.get(), r.first, r.count, a, b - a);
+                if (a < b) e_.load_rows(r.blob->data(), r.first, r.count, a, b - a);
             }
         }
         cur_ = i;
@@ -1080,7 +1086,7 @@ private:
                         no_ram = true;
                         return false;
                     }
-                    if (!SessionFile::unpack(version, packed.data(), packed.size(), b->p.get(), r.raw))
+                    if (!SessionFile::unpack(version, packed.data(), packed.size(), b->data(), r.raw))
                         return false;
                     marks.push_back({r.pos, b});
                     return true;
