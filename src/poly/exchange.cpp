@@ -1,6 +1,7 @@
 #include "runtime.hpp"
 #include "resident_dma.hpp"
 #include "exchange_transfer.hpp"
+#include "no_disk.hpp"
 
 namespace strata::poly {
 void Engine::exchange_available() const {
@@ -29,10 +30,11 @@ void Engine::exchange_pair(int il, int hot, int cold, int fault, bool forced_ver
     Layer& l = layers_[(size_t) il];
     const auto h = l.resident_host.at((size_t) hot);
     uint8_t* const v = l.slot.at((size_t) cold);
-    const size_t raw = 2 * l.gu_bytes + l.d_bytes;
+    const ResidentLayout lay = resident_layout(l.gu_bytes, l.u_bytes, l.d_bytes);
+    const size_t raw = lay.raw;
     if (!expert_dma_ || !stage_ || !swap_st_ || !h.gate || l.slot[(size_t) hot] || !v ||
         l.resident_host[(size_t) cold].gate || raw > stage_bytes_ || l.slot_bytes < raw ||
-        h.up != h.gate + l.gu_bytes || h.down != h.gate + 2 * l.gu_bytes ||
+        h.up != h.gate + lay.up || h.down != h.gate + lay.down ||
         v < exp_ || (size_t) (v - exp_) > exp_at_ || l.slot_bytes > exp_at_ - (size_t) (v - exp_))
         throw std::logic_error("exchange: invalid ownership, layout or slot capacity");
     auto* r = const_cast<uint8_t*>(h.gate);
@@ -72,7 +74,7 @@ void Engine::exchange_pair(int il, int hot, int cold, int fault, bool forced_ver
     exchange_stats_.copy_ms += ms_since(tick);
     // The mixed expert path reads the host slot table on every call. GPU-only replay reads
     // d_slots_; invalidate its host mirror so card_moe() refreshes it before any later replay.
-    l.resident_host[(size_t) cold] = {r, r + l.gu_bytes, r + 2 * l.gu_bytes};
+    l.resident_host[(size_t) cold] = {r, r + lay.up, r + lay.down};
     l.resident_host[(size_t) hot] = {};
     l.slot[(size_t) cold] = nullptr;
     l.slot[(size_t) hot] = v;
@@ -108,7 +110,7 @@ void Engine::follow_exchange(int written) {
     for (int il = 0; il < (int) layers_.size(); ++il) {
         const Layer& l = layers_[(size_t) il];
         if (!l.moe || !l.slot_bytes) continue;
-        const size_t raw = 2 * l.gu_bytes + l.d_bytes;
+        const size_t raw = resident_layout(l.gu_bytes, l.u_bytes, l.d_bytes).raw;
         geometry[(size_t) il] = {raw, l.slot_bytes, raw};
         for (int e = 0; e < n_expert_; ++e) {
             const size_t i = (size_t) il * n_expert_ + e;

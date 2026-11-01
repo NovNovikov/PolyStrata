@@ -17,6 +17,17 @@ struct ResidentPlan {
     uint64_t ram = 0, vram = 0;
     size_t card_count = 0;
 };
+// Where one expert's three parts sit in a RAM copy and in a slot: gate at 0, up behind it, down behind up.  The
+// GPU paths read them from the same places (slot + gu_bytes, slot + Layer::gu2()), so one layout serves both.  A
+// file that quantizes gate and up apart (Flint NanoPlus) gives up its own u_bytes; every other file has
+// u_bytes == gu_bytes and the parts are 2*gu_bytes + d_bytes apart, as they always were.
+struct ResidentLayout {
+    size_t up = 0, down = 0, raw = 0;
+    bool operator==(const ResidentLayout&) const = default;
+};
+inline ResidentLayout resident_layout(size_t gu_bytes, size_t u_bytes, size_t d_bytes) {
+    return {gu_bytes, gu_bytes + u_bytes, gu_bytes + u_bytes + d_bytes};
+}
 inline uint64_t resident_add(uint64_t a, uint64_t b) {
     if (b > UINT64_MAX - a) throw std::runtime_error("no-disk: byte count overflow");
     return a + b;

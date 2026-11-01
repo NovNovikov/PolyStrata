@@ -13,6 +13,7 @@
 #include "runtime.hpp"
 #include "resident_memory.hpp"
 #include "resident_dma.hpp"
+#include "no_disk.hpp"
 #include "strata/poly/kernels.hpp"
 #include "strata/kernels/native_mmvq.hpp"
 #ifdef STRATA_GPU_PHASE_PROBE
@@ -1100,8 +1101,6 @@ void Engine::load_moe(int il, bool shared) {
                                      + std::to_string(L.gu_bytes) + " bytes, not a multiple of 8");
     }
     L.gu_step = L.gu2();
-    if (opt_.no_disk && L.mixed())
-        throw std::runtime_error("no-disk: experts with different gate and up types are not supported");
     if (L.mixed()) {   // Flint NanoPlus: 335,872 + 270,336 bytes, whole blocks of neither IQ2_S (82) nor IQ2_XXS (66)
         const size_t unit = std::lcm(std::lcm(ggml_type_size((ggml_type) L.gu_type), ggml_type_size((ggml_type) L.u_type)),
                                      size_t(8));
@@ -1313,7 +1312,7 @@ void Engine::print_memory(const char* when) const {
             const Layer& L = layers_[(size_t) owner / n_expert_];
             const size_t e = (size_t) owner % n_expert_;
             const auto h = host_expert(L, e);
-            const size_t raw = 2 * L.gu_bytes + L.d_bytes;
+            const size_t raw = resident_layout(L.gu_bytes, L.u_bytes, L.d_bytes).raw;
             if (L.slot[e] != stage_ + j * slot_max_) throw std::logic_error("staging cache owner mismatch");
             for (size_t at = 0; at < slot_max_;) {
                 const size_t n = std::min(check.size(), (at < raw ? raw : slot_max_) - at);
@@ -1969,8 +1968,9 @@ void Engine::follow_resident(int available) {
         if (!s) throw std::logic_error("no-disk: no free cache upload record");
         const Layer& L = layers_[(size_t) in.il];
         const auto h = host_expert(L, (size_t) in.e);
-        sources.emplace_back((size_t) (h.gate - expert_dma_->base()), 2 * L.gu_bytes + L.d_bytes);
-        audit::count("cache-upload-requested", 2*L.gu_bytes+L.d_bytes, audit::expert_id(in.il, in.e));
+        const size_t raw = resident_layout(L.gu_bytes, L.u_bytes, L.d_bytes).raw;
+        sources.emplace_back((size_t) (h.gate - expert_dma_->base()), raw);
+        audit::count("cache-upload-requested", raw, audit::expert_id(in.il, in.e));
         if (old >= 0) {
             audit::cache_evict(old / n_expert_, old % n_expert_, "cache-replacement");
             layers_[(size_t) old / n_expert_].slot[(size_t) old % n_expert_] = nullptr;
@@ -2000,7 +2000,7 @@ void Engine::follow_resident(int available) {
         if (s.at.load() != Swap::kAsked) continue;
         const Layer& L = layers_[(size_t) s.il];
         const auto h = host_expert(L, (size_t) s.e);
-        const size_t raw = 2 * L.gu_bytes + L.d_bytes;
+        const size_t raw = resident_layout(L.gu_bytes, L.u_bytes, L.d_bytes).raw;
         ck(PA_COPY(s.slot, h.gate, raw, cudaMemcpyHostToDevice, cs(swap_st_)), "no-disk: cache upload");
         ck(PA_ZERO(s.slot + raw, 0, slot_max_ - raw, cs(swap_st_)), "no-disk: cache tail");
         ck(cudaEventRecord(s.done, cs(swap_st_)), "no-disk: cache arrival");
@@ -2032,8 +2032,9 @@ void Engine::drop_resident_stage_cache() {
     for (int j = 0; j < n_swap_; ++j) {
         Swap& s = swap_[(size_t) j];
         if (s.at.load() != Swap::kFree) {
+            const Layer& L = layers_[(size_t) s.il];
             audit::count(s.at.load()==Swap::kSent ? "cache-upload-discarded-before-admission" : "cache-upload-cancelled-before-copy",
-                         2*layers_[(size_t)s.il].gu_bytes+layers_[(size_t)s.il].d_bytes, audit::expert_id(s.il,s.e));
+                         resident_layout(L.gu_bytes, L.u_bytes, L.d_bytes).raw, audit::expert_id(s.il,s.e));
             coming_[(size_t) s.il * n_expert_ + s.e] = 0;
         }
         s.at.store(Swap::kFree);
@@ -2073,7 +2074,9 @@ void Engine::follow(int written) {
             const cudaError_t arrived = cudaEventQuery(s.done);
             if (arrived == cudaErrorNotReady) continue;
             ck(arrived, "expert upload");
-            audit::cache_upload(s.il, s.e, 2*layers_[(size_t)s.il].gu_bytes + layers_[(size_t)s.il].d_bytes);
+            audit::cache_upload(s.il, s.e, resident_layout(layers_[(size_t) s.il].gu_bytes,
+                                                           layers_[(size_t) s.il].u_bytes,
+                                                           layers_[(size_t) s.il].d_bytes).raw);
             layers_[(size_t) s.il].slot[(size_t) s.e] = s.slot;
             if (opt_.no_disk) {
                 resident_stage_owners_.at(s.stage_slot) = s.il * n_expert_ + s.e;
@@ -3051,7 +3054,7 @@ void Engine::prepare_layer_dma(const Layer& L, int n) {
     // Ownership is settled at the eval/read boundary. Include every RAM source, even a
     // disposable cached copy: all rounds of this layer must remain covered after routing.
     size_t first = SIZE_MAX, last = 0;
-    const size_t bytes = 2 * L.gu_bytes + L.d_bytes;
+    const size_t bytes = resident_layout(L.gu_bytes, L.u_bytes, L.d_bytes).raw;
     for (const auto& h : L.resident_host) if (h.gate) {
         const size_t at = (size_t) (h.gate - expert_dma_->base());
         first = std::min(first, at);
@@ -3112,7 +3115,7 @@ void Engine::stage(const Layer& L, const int32_t* experts, int m, void* stream, 
             } else {
                 ck(PA_COPY(stage_ + (size_t) j * gu2, h.gate, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
                    "no-disk: expert gate");
-                ck(PA_COPY(stage_ + (size_t) j * gu2 + L.gu_bytes, h.up, L.gu_bytes, cudaMemcpyHostToDevice, cs(stream)),
+                ck(PA_COPY(stage_ + (size_t) j * gu2 + L.gu_bytes, h.up, L.u_bytes, cudaMemcpyHostToDevice, cs(stream)),
                    "no-disk: expert up");
             }
             ck(PA_COPY(stage_ + down_at + (size_t) j * L.d_bytes, h.down, L.d_bytes, cudaMemcpyHostToDevice, cs(stream)),

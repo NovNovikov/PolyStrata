@@ -15,6 +15,13 @@ template<class F> bool fails(F f) { try { f(); } catch (const std::exception&) {
 template<class T> void put(std::ofstream& f, T n) { f.write((const char*) &n, sizeof n); }
 }
 int main() {
+    // One expert's parts in a RAM copy and in a slot: gate at 0, up behind it, down behind up.  Equal gate and
+    // up sizes (every file but a mixed-type quantization) keep the old 2*gu_bytes + d_bytes apart.
+    check(resident_layout(600, 600, 300) == ResidentLayout{600, 1200, 1500});
+    // Flint NanoPlus's layer: gate IQ2_S 335,872 bytes, up IQ2_XXS 270,336, down 122,880.
+    check(resident_layout(335872, 270336, 122880) == ResidentLayout{335872, 606208, 729088});
+    // up larger than gate too.
+    check(resident_layout(1024, 2048, 512) == ResidentLayout{1024, 3072, 3584});
     // Only original source pages are registered. Adjacent/overlapping pages merge, including a partial last page.
     check(dma_ranges({}, 8193, 16384, 4096).empty());
     check(dma_ranges({{1, 1}, {4095, 2}, {8192, 1}}, 8193, 12288, 4096) ==

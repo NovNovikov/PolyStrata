@@ -62,7 +62,7 @@ void Engine::load_resident_experts() {
     for (int il = 0; il < (int) layers_.size(); ++il) {
         Layer& l = layers_[(size_t) il];
         if (!l.moe) continue;
-        const size_t raw = 2 * l.gu_bytes + l.d_bytes;
+        const size_t raw = resident_layout(l.gu_bytes, l.u_bytes, l.d_bytes).raw;
         const bool native = opt_.gpu_experts && kernels::native_mmvq_supported((int) l.gu_type) &&
                             kernels::native_mmvq_supported((int) l.d_type);
         if (native) {
@@ -196,22 +196,26 @@ void Engine::load_resident_experts() {
         const auto& e = experts[i];
         Layer& l = layers_[(size_t) e.layer];
         const size_t gu_off = (size_t) e.expert * l.gu_stride;
-        const size_t up_off = gu_off + (l.gate_tensor == l.up_tensor ? l.gu_bytes : 0);
+        // a combined gate|up tensor holds up gu_bytes behind gate's start; separate tensors stride apart
+        const size_t up_off = l.gate_tensor == l.up_tensor
+                                  ? gu_off + l.gu_bytes
+                                  : (size_t) e.expert * l.u_stride;
         const size_t down_off = (size_t) e.expert * l.d_bytes;
+        const ResidentLayout lay = resident_layout(l.gu_bytes, l.u_bytes, l.d_bytes);
         if (plan.on_card[i]) {
             uint8_t* dst = exp_ + exp_at_;
             l.slot[(size_t) e.expert] = dst;
             card_read(*l.gate_tensor, gu_off, dst, l.gu_bytes);
-            card_read(*l.up_tensor, up_off, dst + l.gu_bytes, l.gu_bytes);
-            card_read(*l.down_tensor, down_off, dst + 2 * l.gu_bytes, l.d_bytes);
+            card_read(*l.up_tensor, up_off, dst + lay.up, l.u_bytes);
+            card_read(*l.down_tensor, down_off, dst + lay.down, l.d_bytes);
             exp_at_ += l.slot_bytes;
             ++cached_;
         } else {
             uint8_t* dst = host + host_at;
-            l.resident_host[(size_t) e.expert] = {dst, dst + l.gu_bytes, dst + 2 * l.gu_bytes};
+            l.resident_host[(size_t) e.expert] = {dst, dst + lay.up, dst + lay.down};
             home(*l.gate_tensor).read(*l.gate_tensor, gu_off, dst, l.gu_bytes);
-            home(*l.up_tensor).read(*l.up_tensor, up_off, dst + l.gu_bytes, l.gu_bytes);
-            home(*l.down_tensor).read(*l.down_tensor, down_off, dst + 2 * l.gu_bytes, l.d_bytes);
+            home(*l.up_tensor).read(*l.up_tensor, up_off, dst + lay.up, l.u_bytes);
+            home(*l.down_tensor).read(*l.down_tensor, down_off, dst + lay.down, l.d_bytes);
             host_at += (size_t) e.ram;
         }
         if (e.expert == n_expert_ - 1)
