@@ -1,6 +1,7 @@
 // src/poly/glm5next.cpp - GLM 5.3 Flash's layers.  The reference for the math is llama.cpp's glm5-next graph.
 #include "glm5next.hpp"
 
+#include "glm5next_scratch.hpp"
 #include "mmq.hpp"
 #include "runtime.hpp"
 #include "strata/poly/kernels.hpp"
@@ -246,6 +247,50 @@ void Glm5Next::load_layer(int il) {
 // Per-token buffers hold rows_ tokens, row after row.
 void Glm5Next::assign_scratch() {
     const size_t n = (size_t) rows_, d = n * d_inner_;
+    if (opt_.compact_scratch) {
+        // All of these run on st_ in layer_head()'s order.  A layer is KDA or DSA and never both, and
+        // the batched MoE works in the MMQ buffers and g_/u_/h_/d_ plus the gu/hx/dx rows the engine
+        // placed at moe_scratch_at_: glm_scratch() folds each kind's phases onto the rows the other
+        // leaves, and mix_/hcw_, which stay live through the experts, sit behind those rows.
+        const size_t keys = (size_t) std::min(opt_.max_context, idx_top_k_ + kpool_ - 1);
+        const auto s = glm_scratch(moe_scratch_at_, scratch_at_, n, d, gate_rank_, q_rank_, kv_rank_, mla_k_, mla_v_,
+                                   idx_dim_, idx_heads_, n_head_, (size_t) score_rows_ * score_stride_,
+                                   std::min(n, (size_t) kAttnRows) * keys * kv_rank_,
+                                   std::min(n, (size_t) kAttnRows) * keys * n_head_, kHc);
+        const auto use = [&](ScratchSpan p, const char* name) {
+            scratch_at_ = p.at;
+            return fbuf(p.count, name);
+        };
+        mix_ = use(s.mix, "mix_ (hyper-connection mix)");
+        hcw_ = use(s.hcw, "hcw_ (hyper-connection weights)");
+        proj_ = use(s.proj, "proj_ (the KDA layer's q, k, v)");
+        qkv_ = use(s.qkv, "qkv_ (the convolved q, k, v)");
+        t1_ = use(s.t1, "t1_ (q lora)");
+        t2_ = use(s.t2, "t2_ (the latent's row)");
+        ikr_ = use(s.ikr, "ikr_ (the indexer key)");
+        ig_ = use(s.ig, "ig_ (the indexer's gate row)");
+        iw_ = use(s.iw, "iw_ (the indexer weights)");
+        kqv_ = use(s.kqv, "kqv_ (the gathered keys, then the heads)");
+        q_ = use(s.q, "q_ (the queries)");
+        kv_ = use(s.kv, "kv_ (the normed latent row)");
+        ik_ = use(s.ik, "ik_ (the normed indexer key)");
+        iq_ = use(s.iq, "iq_ (the indexer queries)");
+        gated_ = use(s.gated, "gated_ (the KDA step's output)");
+        vout_ = use(s.vout, "vout_ (the attention's heads)");
+        qabs_ = use(s.qabs, "qabs_ (the absorbed keys)");
+        score_ = use(s.score, "score_ (the indexer scores)");
+        ascore_ = use(s.ascore, "ascore_ (the attention's scores)");
+        g1_ = use(s.g1, "g1_ (the forget gate)");
+        akeys_ = use(s.akeys, "akeys_ (the selected keys)");
+        akeys_n_ = s.akeys.count;
+        g2_ = use(s.g2, "g2_ (the output gate)");
+        qr_ = use(s.qr, "qr_ (q lora normed)");
+        beta_ = use(s.beta, "beta_ (the KDA step's weights)");
+        fa_ = use(s.fa, "fa_ (the forget gate's lora)");
+        ga_ = use(s.ga, "ga_ (the output gate's lora)");
+        scratch_at_ = s.end;
+        return;
+    }
     mix_ = fbuf(n * (kHc * (2 + kHc) + 1));
     hcw_ = fbuf(n * (kHc + kHc * kHc));
 

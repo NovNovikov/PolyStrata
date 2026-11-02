@@ -1449,7 +1449,7 @@ void usage() {
                  "  --image-pad ID         the token whose runs in --tokens are the pictures' places, a token a row\n"
                  "  --dump-layers          print a checksum of every layer's stages to stderr\n"
                  "  --dump-buffers         print every allocation and scratch slice with its size and call site\n"
-                 "  --compact-scratch      DeepSeek4: reuse attention/MoE scratch between phases (opt-in)\n"
+                 "  --compact-scratch      DeepSeek4 and GLM 5.3 Flash: reuse attention scratch between phases (opt-in)\n"
                  "  --top-probs N          with --tokens: print the N most likely ids of every step to stderr\n"
                  "  --follow ID,ID,...     with --tokens: write these tokens in place of the ones picked, for\n"
                  "                         --top-probs of the same answer under other settings\n"

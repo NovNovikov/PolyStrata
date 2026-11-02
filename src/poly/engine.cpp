@@ -2433,7 +2433,7 @@ void Engine::follow(int written) {
 void Engine::load(const Options& o) {
     opt_ = o;
     if (opt_.compact_scratch && !supports_compact_scratch())
-        throw std::runtime_error("--compact-scratch currently supports only DeepSeek4");
+        throw std::runtime_error("--compact-scratch currently supports DeepSeek4 and GLM 5.3 Flash");
     if (opt_.compact_graphs && !supports_compact_graphs())
         throw std::runtime_error("--compact-graphs currently supports only DeepSeek4");
 #ifdef HIP_VERSION

@@ -51,7 +51,7 @@ attempt to read their payload fails instead of silently falling back to disk.
 | `--vram-reserve-mib N` | Keep this VRAM free, with the existing automatic reserve when omitted |
 | `--no-disk-vram-margin-mib N` | Additional headroom deducted from the permanent-expert budget for loading; default 512, 0 disables it |
 | `--stage-mib N` | VRAM through which RAM experts pass; at most one layer's experts |
-| `--compact-scratch` | DeepSeek4 only: reuse scratch between attention and MoE phases; off by default |
+| `--compact-scratch` | DeepSeek4 and GLM 5.3 Flash: reuse scratch between attention phases; off by default |
 
 `--compact-scratch` preserves precision, batch size and the number of experts computed. Attention preparation
 and its result share memory at different times; output projection keeps its
@@ -71,6 +71,15 @@ experts, not a throughput result. In no-disk mode the loader can spend the freed
 GPU experts; total allocated VRAM need not fall by that amount. `--dump-buffers` reports logical slice bytes,
 physical coverage and reused bytes separately when offsets overlap. See
 [the measurement record](../bench/results/2026-10-19-poly-compact-scratch/README.md) for validation and timings.
+
+For GLM 5.3 Flash the flag folds the layer's two attention kinds onto each other's rows: a layer is KDA
+or DSA and never both. The batched experts work over the rows the engine put at the arena's head (the MMQ
+buffers and the `gu_/hx_/dx_` rows), and the two hyper-connection buffers stay live from the layer's head
+through the experts to its tail, so they sit behind those rows; the test overwrites the expert rows
+between phases to hold that. The KDA products share addresses with the DSA temporaries and back, and the
+indexer's score and key buffers also serve as the KDA gates' rows. At prompt batch 4096 and context
+200000 that moves the architecture's scratch arena from 3128 MiB to 1834 MiB; the layout is checked by
+`poly_glm5next_scratch_test` against the live sets of `kda()`, `dsa()`, `dsa_store()` and `dsa_select()`.
 
 On Windows, current available RAM is diagnostic rather than a hard admission limit: the OS can reclaim pages
 from other processes when allocating and locking the model. The loader attempts `VirtualAlloc` and full

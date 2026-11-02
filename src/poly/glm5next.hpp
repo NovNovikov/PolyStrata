@@ -63,6 +63,7 @@ private:
     };
 
     bool batch_heads() const override { return true; }
+    bool supports_compact_scratch() const override { return true; }
     void kda(Block& B, int n);
     void dsa(Block& B, int64_t pos, int n);
     void dsa_store(Block& B, int64_t pos, int n);
