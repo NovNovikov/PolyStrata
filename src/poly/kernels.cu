@@ -675,13 +675,23 @@ __host__ __device__ inline int dsa_keys(int tok, long long pos, int dense_rows, 
     return tok >= dense_rows ? top_rows + int(n % kpool) : int(n);
 }
 
+// dsa_keys() when the launch reads the position from at_: one formula for both sides of the dense cut,
+// because the list holds every row the token sees while they all still fit.  It agrees with dsa_keys()
+// wherever dense_rows is the position's own cut.
+__device__ inline int dsa_keys_dev(int tok, long long pos, int top_rows, int kpool) {
+    const long long n = pos + tok + 1;
+    return int(n < top_rows + n % kpool ? n : top_rows + n % kpool);
+}
+
 // The keys of token first + blockIdx.y as float rows, n_keys of them; the rows past its last key are zero.  A
-// block copies KEY_BLOCK rows.
+// block copies KEY_BLOCK rows.  A recorded launch (at): the position from at_, every token's list, and the
+// n_keys of the widest list, which dsa_attend() sized the buffers for.
 __global__ void dsa_keys_kernel(const half* __restrict__ cache, const int32_t* __restrict__ sel_all, int sel_stride,
                                 int top_rows, int kpool, long long pos, int first, int dense_rows,
-                                float* __restrict__ keys, int rank, int n_keys) {
+                                float* __restrict__ keys, int rank, int n_keys, const long long* __restrict__ at) {
     const int tok = first + blockIdx.y;
-    const int n_sel = dsa_keys(tok, pos, dense_rows, top_rows, kpool);
+    const int n_sel =
+        at ? dsa_keys_dev(tok, *at, top_rows, kpool) : dsa_keys(tok, pos, dense_rows, top_rows, kpool);
     const int32_t* sel = tok >= dense_rows ? sel_all + size_t(tok - dense_rows) * sel_stride : nullptr;
     float* dst = keys + size_t(blockIdx.y) * n_keys * rank;
     const int j0 = blockIdx.x * KEY_BLOCK;
@@ -693,11 +703,13 @@ __global__ void dsa_keys_kernel(const half* __restrict__ cache, const int32_t* _
 }
 
 // Softmax in place over a head's scores of its token's keys; the entries past the last key become zero.  One
-// block per head and token.
+// block per head and token.  A recorded launch (at) reads its position from at_.
 __global__ void dsa_softmax_kernel(float* score, int n_keys, int top_rows, int kpool, long long pos, int first,
-                                   int dense_rows) {
+                                   int dense_rows, const long long* __restrict__ at) {
     __shared__ float part[8];
-    const int n_sel = dsa_keys(first + blockIdx.y, pos, dense_rows, top_rows, kpool);
+    const int n_sel =
+        at ? dsa_keys_dev(first + blockIdx.y, *at, top_rows, kpool) : dsa_keys(first + blockIdx.y, pos, dense_rows,
+                                                                               top_rows, kpool);
     float* row = score + (size_t(blockIdx.y) * gridDim.x + blockIdx.x) * n_keys;
     float mx = -INFINITY;
     for (int j = threadIdx.x; j < n_sel; j += blockDim.x) mx = fmaxf(mx, row[j]);
@@ -711,21 +723,24 @@ __global__ void dsa_softmax_kernel(float* score, int n_keys, int top_rows, int k
     for (int j = threadIdx.x; j < n_keys; j += blockDim.x) row[j] = j < n_sel ? row[j] * inv : 0.0f;
 }
 
-// One block per token from position pos.
+// One block per token from position pos; a recorded launch (at) reads its position from at_.
 __global__ void idx_store_kernel(const float* __restrict__ key, const float* __restrict__ gate,
-                                 float* __restrict__ ring, int ring_rows, int dim, long long pos) {
+                                 float* __restrict__ ring, int ring_rows, int dim, long long pos,
+                                 const long long* __restrict__ at) {
     const int d = threadIdx.x;
     if (d >= dim) return;
-    float* row = ring + size_t((pos + blockIdx.x) % ring_rows) * 2 * dim;
+    float* row = ring + size_t(((at ? *at : pos) + blockIdx.x) % ring_rows) * 2 * dim;
     row[d] = key[size_t(blockIdx.x) * dim + d];
     row[dim + d] = gate[size_t(blockIdx.x) * dim + d];
 }
 
-// One block per token from position pos; the ones that do not end a pool have nothing to do.
+// One block per token from position pos; the ones that do not end a pool have nothing to do.  A recorded
+// launch (at) reads its position from at_.
 __global__ void idx_pool_kernel(const float* __restrict__ ring, int ring_rows, float* __restrict__ pool,
-                                const float* __restrict__ ape, int dim, int kpool, long long pos) {
+                                const float* __restrict__ ape, int dim, int kpool, long long pos,
+                                const long long* __restrict__ at) {
     const int d = threadIdx.x;
-    const long long last = pos + blockIdx.x;
+    const long long last = (at ? *at : pos) + blockIdx.x;
     if (d >= dim || (last + 1) % kpool != 0) return;
     const auto row = [&](int k) { return ring + size_t((last - kpool + 1 + k) % ring_rows) * 2 * dim; };
     float mx = -INFINITY;
@@ -746,8 +761,9 @@ template <int DIM>
 __global__ void __launch_bounds__(IDX_WARPS * WARP)
     idx_score_kernel(const float* __restrict__ q, const float* __restrict__ w, const float* __restrict__ pool,
                      float* __restrict__ score, int score_stride, int n_head, int kpool, long long pos, float wscale,
-                     int run, int rows) {
+                     int run, int rows, const long long* __restrict__ at) {
     __shared__ float4 tile[IDX_TILE * DIM / 4];
+    if (at) pos = *at;   // a recorded launch: the position the card holds when it runs
     const int warps = blockDim.x / WARP, h = threadIdx.x % WARP;
     const int tok = blockIdx.y * warps + threadIdx.x / WARP;
     const int first = blockIdx.x * run;
@@ -866,11 +882,11 @@ __device__ __forceinline__ int block_before(int x, int* part, int* all) {
 // of the token's pools.  The block's shared memory holds the chosen pools and then their keys, n_top each.
 __global__ void __launch_bounds__(IDX_SELECT)
     idx_select_kernel(const float* __restrict__ score, int score_stride, int32_t* __restrict__ sel, int sel_stride,
-                      int n_top, int kpool, long long pos) {
+                      int n_top, int kpool, long long pos, const long long* __restrict__ at) {
     extern __shared__ uint32_t chosen[];
     __shared__ int hist[IDX_SELECT / WARP][256], part[IDX_SELECT / WARP], pick[2];
-    const long long at = pos + blockIdx.x;
-    const int n_pool = int((at + 1) / kpool);
+    const long long at_pos = ((at ? *at : pos)) + blockIdx.x;
+    const int n_pool = int((at_pos + 1) / kpool);
     const float* s = score + size_t(blockIdx.x) * score_stride;
     const int lane = threadIdx.x % WARP, wid = threadIdx.x / WARP;
     uint32_t cut = 0, mask = 0;
@@ -933,7 +949,7 @@ __global__ void __launch_bounds__(IDX_SELECT)
     }
     if (threadIdx.x != 0) return;
     int32_t* tail = sel + size_t(blockIdx.x) * sel_stride + size_t(n_top) * kpool;
-    for (long long p = (long long) n_pool * kpool; p <= at; ++p) *tail++ = int32_t(p);
+    for (long long p = (long long) n_pool * kpool; p <= at_pos; ++p) *tail++ = int32_t(p);
 }
 
 __global__ void swiglu_clamp_kernel(const float* __restrict__ gate, const float* __restrict__ up,
@@ -2827,28 +2843,31 @@ void store_q8_at(const float* x, int8_t* codes, uint16_t* scales, int n, const l
     store_q8_at_kernel<<<grid(all, 256), 256, 0, cs(stream)>>>(x, codes, (half*) scales, n, rows, nb, at, ring);
 }
 
+// A recorded launch (at): every token takes its list, the position and the dense cut come from at_, and the
+// chunks' GEMMs are sized for the widest list the buffers hold (sized) so one graph replays at every position.
 void dsa_attend(void* blas, const float* q, const uint16_t* cache, const int32_t* sel, int sel_stride, int top_rows,
                 int kpool, int64_t pos, int rows, int dense_rows, float* keys, float* score, int chunk, float* out,
-                int rank, int n_head, float scale, void* stream) {
+                int rank, int n_head, float scale, void* stream, const long long* at, int sized) {
     const cublasHandle_t h = (cublasHandle_t) blas;
     const float one = 1.0f, zero = 0.0f;
     const long long head = (long long) n_head * rank;
     for (int first = 0; first < rows; first += chunk) {
         const int c = std::min(chunk, rows - first);
-        int n_keys = 0;
-        for (int t = first; t < first + c; ++t)
-            n_keys = std::max(n_keys, dsa_keys(t, (long long) pos, dense_rows, top_rows, kpool));
+        int n_keys = at ? sized : 0;   // the recorded launch: the widest list, whatever the position
+        if (!at)
+            for (int t = first; t < first + c; ++t)
+                n_keys = std::max(n_keys, dsa_keys(t, (long long) pos, dense_rows, top_rows, kpool));
         const long long key_n = (long long) n_keys * rank, score_n = (long long) n_head * n_keys;
         dsa_keys_kernel<<<dim3(grid(n_keys, KEY_BLOCK), c), 256, 0, cs(stream)>>>(
             (const half*) cache, sel, sel_stride, top_rows, kpool, (long long) pos, first, dense_rows, keys, rank,
-            n_keys);
+            n_keys, at);
         // score[head][key] = scale * (q[head] . keys[key]).  cuBLAS reads a buffer of rows as the transpose.
         blas_ck(cublasSgemmStridedBatched(h, CUBLAS_OP_T, CUBLAS_OP_N, n_keys, n_head, rank, &scale, keys, rank,
                                           key_n, q + size_t(first) * head, rank, head, &zero, score, n_keys,
                                           score_n, c),
                 "attention scores");
         dsa_softmax_kernel<<<dim3(n_head, c), 256, 0, cs(stream)>>>(score, n_keys, top_rows, kpool, (long long) pos,
-                                                                   first, dense_rows);
+                                                                   first, dense_rows, at);
         // out[head] = sum over the keys of score[head][key] * keys[key]
         blas_ck(cublasSgemmStridedBatched(h, CUBLAS_OP_N, CUBLAS_OP_N, rank, n_head, n_keys, &one, keys, rank, key_n,
                                           score, n_keys, score_n, &zero, out + size_t(first) * head, rank, head, c),
@@ -2856,33 +2875,35 @@ void dsa_attend(void* blas, const float* q, const uint16_t* cache, const int32_t
     }
 }
 
+// The recorded launch (at) reads its position from at_; sized is the number of rows the recording was sized
+// for, and the grid covers its pools so one graph replays at every position of its bucket.
 void idx_store(const float* key, const float* gate, float* ring, int ring_rows, int dim, int64_t pos, int rows,
-               void* stream) {
-    idx_store_kernel<<<rows, 256, 0, cs(stream)>>>(key, gate, ring, ring_rows, dim, (long long) pos);
+               void* stream, const long long* at) {
+    idx_store_kernel<<<rows, 256, 0, cs(stream)>>>(key, gate, ring, ring_rows, dim, (long long) pos, at);
 }
 
 void idx_pool(const float* ring, int ring_rows, float* pool, const float* ape, int dim, int kpool, int64_t pos,
-              int rows, void* stream) {
-    idx_pool_kernel<<<rows, 256, 0, cs(stream)>>>(ring, ring_rows, pool, ape, dim, kpool, (long long) pos);
+              int rows, void* stream, const long long* at) {
+    idx_pool_kernel<<<rows, 256, 0, cs(stream)>>>(ring, ring_rows, pool, ape, dim, kpool, (long long) pos, at);
 }
 
 void idx_score(const float* q, const float* w, const float* pool, float* score, int score_stride, int dim,
-               int n_head, int kpool, int64_t pos, int rows, void* stream) {
+               int n_head, int kpool, int64_t pos, int rows, void* stream, const long long* at, int sized) {
     if (dim != IDX_DIM || n_head > WARP) throw std::invalid_argument("idx_score: 128 values a key, 32 heads at most");
-    const int n_pool = int((pos + rows) / kpool);   // the last token sees the most
+    const int n_pool = at ? sized / kpool : int((pos + rows) / kpool);   // the last token sees the most
     if (n_pool == 0) return;
     // whole tiles, and some 500 blocks at a long context
     const int run = std::max(IDX_TILE, std::min(1024, n_pool / 512 / IDX_TILE * IDX_TILE));
     const int warps = std::min(rows, IDX_WARPS);
     idx_score_kernel<IDX_DIM><<<dim3((n_pool + run - 1) / run, (rows + warps - 1) / warps), warps * WARP, 0,
                                 cs(stream)>>>(q, w, pool, score, score_stride, n_head, kpool, (long long) pos,
-                                              1.0f / std::sqrt(float(dim) * float(n_head)), run, rows);
+                                              1.0f / std::sqrt(float(dim) * float(n_head)), run, rows, at);
 }
 
 void idx_select(const float* score, int score_stride, int32_t* sel, int sel_stride, int n_top, int kpool,
-                int64_t pos, int rows, void* stream) {
+                int64_t pos, int rows, void* stream, const long long* at) {
     idx_select_kernel<<<rows, IDX_SELECT, 2 * size_t(n_top) * sizeof(uint32_t), cs(stream)>>>(
-        score, score_stride, sel, sel_stride, n_top, kpool, (long long) pos);
+        score, score_stride, sel, sel_stride, n_top, kpool, (long long) pos, at);
 }
 
 void idx_score_batch(void* blas, const float* q, const float* w, const float* pool, float* score, int score_stride,

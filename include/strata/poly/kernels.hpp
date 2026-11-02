@@ -137,7 +137,7 @@ void store_q8_at(const float* x, int8_t* codes, uint16_t* scales, int n, const l
 /// std::runtime_error.
 void dsa_attend(void* blas, const float* q, const uint16_t* cache, const int32_t* sel, int sel_stride, int top_rows,
                 int kpool, int64_t pos, int rows, int dense_rows, float* keys, float* score, int chunk, float* out,
-                int rank, int n_head, float scale, void* stream);
+                int rank, int n_head, float scale, void* stream, const long long* at = nullptr, int sized = 0);
 /// A cuBLAS handle that enqueues on `stream`, for dsa_attend and gemm_f32.  Throws std::runtime_error.
 void* blas_create(void* stream);
 void blas_destroy(void* blas);
@@ -145,17 +145,20 @@ void blas_destroy(void* blas);
 /// The indexer's cache: a pool's key once its kpool rows are in, dim floats a pool in `pool`, and the latest rows'
 /// keys and gates in `ring`, key (dim) | gate (dim) a row, the row of position p at p % ring_rows.  fp32.
 /// Stores the tokens' keys and gates from position `pos`.
+/// A recorded launch reads its position from the card instead (`at`, as in store_f16_at); `sized` is then the
+/// number of rows the recording is sized for, and the grid covers their pools for every position of its bucket.
 void idx_store(const float* key, const float* gate, float* ring, int ring_rows, int dim, int64_t pos, int rows,
-               void* stream);
+               void* stream, const long long* at = nullptr);
 /// For each of the positions from `pos` that ends a pool: the pool's key from its kpool rows.  ape: (dim, kpool).
 void idx_pool(const float* ring, int ring_rows, float* pool, const float* ape, int dim, int kpool, int64_t pos,
-              int rows, void* stream);
+              int rows, void* stream, const long long* at = nullptr);
 /// For the tokens from position `pos`: score[p] = sum_h relu(q[h] . pool[p]) * w[h] for the pools p that are
 /// complete at the token's position.  A token's scores start score_stride apart.  w is the raw indexer_proj
 /// output; the 1/sqrt(dim * n_head) factor is applied here.  Throws std::invalid_argument unless dim is 128 and
 /// n_head 32 or less.
 void idx_score(const float* q, const float* w, const float* pool, float* score, int score_stride, int dim,
-               int n_head, int kpool, int64_t pos, int rows, void* stream);
+               int n_head, int kpool, int64_t pos, int rows, void* stream, const long long* at = nullptr,
+               int sized = 0);
 /// idx_score() for a prompt batch: the products of the queries and the pools' keys through cuBLAS, as many tokens
 /// at a time as have theirs in the work_floats floats of `work`, n_head for each pool of the call's last token.
 /// A score has other last bits than idx_score()'s.  Throws std::runtime_error, and std::invalid_argument when
@@ -165,10 +168,11 @@ void idx_score_batch(void* blas, const float* q, const float* w, const float* po
                      void* stream);
 /// For each of the tokens from position `pos`, from its scores: the n_top pools with the highest, the lower pool
 /// first among equals, as their kpool rows each in that order, then the rows that are in no whole pool yet.  A
-/// token's list starts sel_stride apart and takes n_top * kpool + kpool - 1 at most.  Every token has n_top
-/// whole pools or more.
+/// token's list starts sel_stride apart and takes n_top * kpool + kpool - 1 at most.  A token with fewer than
+/// n_top whole pools takes all of them; a recorded launch (at) reads its position from the card, so its list is
+/// complete at every position and the launch of a dense token holds the rows plain attention reads, in order.
 void idx_select(const float* score, int score_stride, int32_t* sel, int sel_stride, int n_top, int kpool,
-                int64_t pos, int rows, void* stream);
+                int64_t pos, int rows, void* stream, const long long* at = nullptr);
 
 /// out = silu(min(gate, limit)) * clamp(up, -limit, limit).
 void swiglu_clamp(const float* gate, const float* up, float* out, int n, float limit, void* stream);

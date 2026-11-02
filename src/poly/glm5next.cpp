@@ -178,7 +178,7 @@ void Glm5Next::load_layer(int il) {
     }
 
     B.dsa = has("attn_q_a.weight");
-    L.fixed = !B.dsa;   // the sparse attention's launches take the position
+    L.fixed = true;   // the attention's launches read the position on the card when recorded; head_key() numbers their sizes
     if (B.dsa) {
         B.q_a = mat("attn_q_a.weight", n_embd_, q_rank_);
         B.q_a_norm = f32("attn_q_a_norm.weight", q_rank_);
@@ -360,6 +360,7 @@ void Glm5Next::alloc_caches() {
     score_stride_ = opt_.max_context / kpool_ + 1;
     score_rows_ = (int) std::clamp<size_t>(kScoreBytes / (score_stride_ * sizeof(float)), 1, (size_t) rows_);
     sel_stride_ = idx_top_k_ + kpool_;
+    dsa_keys_cap_ = std::min(opt_.max_context, idx_top_k_ + kpool_ - 1);   // the widest list dsa_attend() sizes for
     const size_t n = (size_t) rows_;
     if (!sel_) sel_ = (int32_t*) dmalloc(n * sel_stride_ * sizeof(int32_t), "scratch");
 }
@@ -493,8 +494,10 @@ void Glm5Next::kda(Block& B, int n) {
 }
 
 // For the n tokens from row `first` of a call whose first token is at `at`: the n_top pools with the highest
-// indexer score, expanded to their rows, then the tail that is in no pool yet.  It only runs past top_k tokens.
-void Glm5Next::dsa_select(Block& B, int64_t at, int first, int n) {
+// indexer score, expanded to their rows, then the tail that is in no pool yet.  It only runs past top_k tokens
+// unless the launch is recorded (pos_at): its list is then complete at every position, and it holds the rows
+// plain attention reads, in order, while they all still fit.
+void Glm5Next::dsa_select(Block& B, int64_t at, int first, int n, const long long* pos_at) {
     const int64_t pos = at + first;
     const int n_top = idx_top_k_ / kpool_;
     lin(B.idx_q_b, qr_ + (size_t) first * q_rank_, iq_, n);
@@ -502,38 +505,44 @@ void Glm5Next::dsa_select(Block& B, int64_t at, int first, int n) {
         (const uint8_t*) xq_ + (size_t) first * kernels::native_q8_1_bytes(n_embd_));
     // A prompt batch's scores are products through cuBLAS, with the attention's scratch for them.  A few tokens
     // take the kernel that gives a token the same bits in any company.  At a long context score_ has room for
-    // only some of a batch's tokens, and they take turns.
+    // only some of a batch's tokens, and they take turns.  A recorded launch scores the bucket's pools, whatever
+    // the position: the ones past it are neither written nor read.
     for (int t = 0, c = 0; t < n; t += c) {
         c = std::min(score_rows_, n - t);
         const float *q = iq_ + (size_t) t * idx_heads_ * idx_dim_, *w = iw_ + (size_t) t * idx_heads_;
-        if (n >= kStageRows)
+        if (pos_at)
+            idx_score(q, w, B.pool, score_, score_stride_, idx_dim_, idx_heads_, kpool_, pos + t, c, st_,
+                      pos_at + 2 * t, room(first + n));
+        else if (n >= kStageRows)
             idx_score_batch(blas_, q, w, B.pool, score_, score_stride_, idx_dim_, idx_heads_, kpool_, pos + t, c,
                             akeys_, akeys_n_, st_);
         else
             idx_score(q, w, B.pool, score_, score_stride_, idx_dim_, idx_heads_, kpool_, pos + t, c, st_);
         idx_select(score_, score_stride_, sel_ + (size_t) t * sel_stride_, sel_stride_, n_top, kpool_, pos + t, c,
-                   st_);
+                   st_, pos_at ? pos_at + 2 * t : nullptr);
     }
 }
 
 // The rows n tokens from position `pos` leave in a sparse-attention layer's caches: the latent the attention
 // reads, the indexer's key and gate, and the keys of the pools they fill.  xn_ and xq_ hold the layer's input.
-void Glm5Next::dsa_store(Block& B, int64_t pos, int n) {
+// A recorded launch (pos_at) takes the position from the card, at_ and its rows after it.
+void Glm5Next::dsa_store(Block& B, int64_t pos, int n, const long long* pos_at) {
     lin(B.kv_a, xn_, t2_, n, xq_);
     rms_norm(t2_, fp(B.kv_a_norm), kv_, kv_rank_, n, rms_eps_, st_);
-    store_f16(kv_, B.lat, kv_rank_, pos, n, st_);
+    if (pos_at) store_f16_at(kv_, B.lat, kv_rank_, pos_at, n, 0, st_);   // the lat cache's rows are positions
+    else store_f16(kv_, B.lat, kv_rank_, pos, n, st_);
 
     lin(B.idx_k, xn_, ikr_, n, xq_);
     layer_norm(ikr_, fp(B.idx_k_norm), fp(B.idx_k_norm_b), ik_, idx_dim_, n, norm_eps_, st_);
     lin(B.idx_gate, xn_, ig_, n, xq_);
-    idx_store(ik_, ig_, B.ring, ring_, idx_dim_, pos, n, st_);
-    idx_pool(B.ring, ring_, B.pool, fp(B.idx_ape), idx_dim_, kpool_, pos, n, st_);
+    idx_store(ik_, ig_, B.ring, ring_, idx_dim_, pos, n, st_, pos_at);
+    idx_pool(B.ring, ring_, B.pool, fp(B.idx_ape), idx_dim_, kpool_, pos, n, st_, pos_at);
 }
 
-void Glm5Next::dsa(Block& B, int64_t pos, int n) {
+void Glm5Next::dsa(Block& B, int64_t pos, int n, const long long* pos_at) {
     if (rows_of_) {
-        // step(): a row at a time, the whole layer, with the row's sequence's latents, pools and ring; its
-        // kernels take their positions as arguments, so the layer is not recorded either way
+        // step(): a row at a time, the whole layer, with the row's sequence's latents, pools and ring, and its
+        // own place in the positions the recorded kernels read
         const Row* rows = std::exchange(rows_of_, nullptr);
         float *const xn = xn_, *const ao = ao_;
         void* const xq = xq_;
@@ -547,7 +556,7 @@ void Glm5Next::dsa(Block& B, int64_t pos, int n) {
             xn_ = xn + (size_t) i * n_embd_;
             xq_ = (uint8_t*) xq + (size_t) i * q8;
             ao_ = ao + (size_t) i * n_embd_;
-            dsa(one, rows[i].pos, 1);
+            dsa(one, rows[i].pos, 1, pos_at ? pos_at + 2 * i : nullptr);
         }
         xn_ = xn;
         xq_ = xq;
@@ -560,19 +569,21 @@ void Glm5Next::dsa(Block& B, int64_t pos, int n) {
     lin(B.q_b, qr_, q_, n);
     lin(B.k_b, q_, qabs_, n, nullptr, kv_rank_);   // the key projection, absorbed into the query: per head
 
-    dsa_store(B, pos, n);
+    dsa_store(B, pos, n, pos_at);
 
     // While a token's pools all fit in top_k, every one is selected and its attention is plain causal attention.
-    // That holds up to a position, so the tokens of a call are dense first and sparse after.
+    // That holds up to a position, so the tokens of a call are dense first and sparse after.  A recorded launch
+    // cannot tell them apart: every token's list is complete (its rows in order while they all fit), and the
+    // products are sized for the widest list, masked to the position's own on the card.
     const int64_t last_dense = (int64_t) idx_top_k_ + kpool_ - 2;
-    const int dense = (int) std::clamp<int64_t>(last_dense - pos + 1, 0, n);
-    if (dense < n) dsa_select(B, pos, dense, n - dense);
+    const int dense = pos_at ? 0 : (int) std::clamp<int64_t>(last_dense - pos + 1, 0, n);
+    if (dense < n) dsa_select(B, pos, dense, n - dense, pos_at);
     // A prompt batch's tokens share their products, padded to the token with the most keys.  A few tokens get a
     // product each: a token of a window must come out as it would alone, to the last bit, and cuBLAS rounds a
     // product of another size another way.
     const int together = n < kStageRows ? 1 : std::min(rows_, kAttnRows);
     dsa_attend(blas_, qabs_, B.lat, sel_, sel_stride_, idx_top_k_, kpool_, pos, n, dense, akeys_, ascore_,
-               together, kqv_, kv_rank_, n_head_, 1.f / std::sqrt((float) mla_k_), st_);
+               together, kqv_, kv_rank_, n_head_, 1.f / std::sqrt((float) mla_k_), st_, pos_at, dsa_keys_cap_);
     lin(B.v_b, kqv_, vout_, n, nullptr, mla_v_);
     lin(B.wo, vout_, ao_, n);
 }
@@ -633,7 +644,7 @@ void Glm5Next::layer_head(Layer& L, int il, int n) {
     rms_norm(cur_, fp(L.attn_norm), xn_, n_embd_, n, rms_eps_, st_);
     kernels::native_quantize_q8_1(xn_, xq_, n_embd_ * n, 1, st_);
     dbg("attn_in", il, xn_, n_embd_);
-    if (B.dsa) dsa(B, pos_, n);
+    if (B.dsa) dsa(B, pos_, n, recording_ ? at_ : nullptr);
     else kda(B, n);
     dbg("attn", il, ao_, n_embd_);
     hc_post(ao_, hcw_, r_, n_embd_, n, st_);
@@ -652,8 +663,13 @@ void Glm5Next::layer_head(Layer& L, int il, int n) {
     }
 }
 
-// The draft block is one more sparse-attention layer.
-void Glm5Next::block_attend(int64_t pos, int n) { dsa(blocks_[(size_t) n_layer_], pos, n); }
-void Glm5Next::block_rows(int64_t pos, int n) { dsa_store(blocks_[(size_t) n_layer_], pos, n); }
+// The draft block is one more sparse-attention layer.  Its rows are written by draft_rows() and read by
+// draft_step(), both outside the recorded launches: their positions come from the host.
+void Glm5Next::block_attend(int64_t pos, int n) { dsa(blocks_[(size_t) n_layer_], pos, n, nullptr); }
+void Glm5Next::block_rows(int64_t pos, int n) { dsa_store(blocks_[(size_t) n_layer_], pos, n, nullptr); }
+
+// The sparse attention's recorded launches are sized for a bucket of rows; a KDA layer's are the same at
+// every position and need no bucket of their own.
+int Glm5Next::head_key(int il, int n) const { return blocks_[(size_t) il].dsa ? room_key(n) : 0; }
 
 }  // namespace strata::poly

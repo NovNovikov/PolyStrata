@@ -64,10 +64,11 @@ private:
 
     bool batch_heads() const override { return true; }
     bool supports_compact_scratch() const override { return true; }
+    int head_key(int il, int n) const override;
     void kda(Block& B, int n);
-    void dsa(Block& B, int64_t pos, int n);
-    void dsa_store(Block& B, int64_t pos, int n);
-    void dsa_select(Block& B, int64_t pos, int first, int n);
+    void dsa(Block& B, int64_t pos, int n, const long long* pos_at);
+    void dsa_store(Block& B, int64_t pos, int n, const long long* pos_at);
+    void dsa_select(Block& B, int64_t pos, int first, int n, const long long* pos_at);
     void dense_ffn(Block& B, int il, int n);
 
     std::vector<Block> blocks_;   ///< one a layer of layers_
@@ -78,6 +79,7 @@ private:
     int sinkhorn_ = 0;
     int score_stride_ = 0, sel_stride_ = 0;   ///< one token's indexer scores, and its selected cache rows
     int score_rows_ = 0;   ///< the tokens whose scores score_ holds at once
+    int dsa_keys_cap_ = 0;   ///< the rows of the widest list dsa_attend()'s recorded products are sized for
     int ring_ = 0;   ///< the rows of a Block's ring: a call's and the pool before it
     int64_t gate_rank_ = 0;   ///< the widest low-rank gate projection of the KDA layers
     float hc_eps_ = 0, norm_eps_ = 0, kda_lb_ = 0, w_scale_ = 1;
