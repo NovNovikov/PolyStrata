@@ -53,8 +53,11 @@ with an automatic resume and an isolated explicit restore. Both runs printed
 | restart, isolated RESTORE | 10639 | 4 | 1162 | 5906 | 1161 |
 
 Reading: the number of executions grows with every new form the replay caches see
-(`(room_key, rec)` pairs), is kept after the form is no longer used (last row: +164 executions after
-returning from `room_key` 4 to 3), and is bounded by the slot table (6680), not by the position.
+(`(room_key, rec)` pairs) and is kept after the form is no longer used (last row: +164 executions
+after returning from `room_key` 4 to 3). The 6680 is the size of the growing slot vectors
+(`resize(key + 1)`), not a measured ceiling: a 4096-token run reached 7196 slots. The keys are
+bounded in principle (eight `room_key` buckets at this context, `recs` recordings each), but no
+repeated warmed cycle was run, so a memory plateau is not shown here.
 A restart does not inherit the previous process's graphs: the cache rebuilds them (`646 -> 1162`).
 `batch` in that line is `opt_.batch` (extra sequences; 0 here), not `--prompt-batch`;
 the label is misleading and will be renamed when the file is next built for other reasons.
@@ -107,11 +110,12 @@ not isolated.
   graphs. The growth the checkpoint series recorded (explicit 22423.61 MiB constant, whole-device free
   falling to 0) therefore sits outside those allocators.
 - CUDA graph executions are that owner: they are created by `Engine::record()` and freed only at
-  process exit, they cost device memory outside `device_sizes_`, and removing them keeps the free
-  VRAM above the reserve in the same scenario.
-- The growth is bounded by the replay-cache slot count (6680 slots here), not unbounded in time; but a
-  series of new `room_key`/`rec` forms permanently adds executions, and returning to an earlier form
-  creates more instead of reusing the old ones.
+  process exit, they cost device memory outside `device_sizes_`. Disabling them moves free VRAM from
+  0.00 to a minimum of 255.39 MiB in this scenario, still marginally below the 256 MiB reserve at the
+  lowest point, and back to 352.93 at the end.
+- The growth follows new `(room_key, rec)` keys. An existing key is reused (`if (!made[key])`), so
+  returning to an earlier form does not re-record it; a new key does, and it stays until exit. No
+  repeated warmed cycle was run, so whether the count reaches a plateau is not measured.
 
 ## Not established
 
