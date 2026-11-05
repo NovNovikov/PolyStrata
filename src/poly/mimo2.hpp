@@ -44,6 +44,7 @@ protected:
     bool batch_heads() const override { return true; }
     bool sees() const override { return true; }   // strata-vision's rows stand where the template's image pads are
     void load_drafter() override;
+    int draft_layers() const override { return n_draft_; }
     bool draft_file_needs_router() const override { return false; }   // the MTP block's layer is dense
     void block_rows(int64_t pos, int n) override;
     void block_attend(int64_t pos, int n) override;
@@ -61,11 +62,15 @@ private:
         Dev ffn_gate, ffn_up, ffn_down;   ///< a dense layer's FFN
         std::vector<float> probs_b;       ///< the bias the routed experts' pick adds to the sigmoids
         Dev probs_b_dev;
+        Dev nextn_proj, nextn_enorm, nextn_hnorm;   ///< a chain block's own joining parts; the first block shares
+        Dev out_norm;                               ///<   the engine's d_proj_, d_enorm_, d_hnorm_ and d_head_
     };
 
     void attn(Block& B, int64_t pos, int n);
     void attn_rows(Block& B, int n);
     void block_qkv(Block& B, int64_t pos, int n);
+    void block_attend_to(Block& B, int64_t pos, int n);
+    void block_input(int32_t token, int64_t row, const float* h, int il);
     void store(const float* x, const Block& B, int64_t pos, int n, bool value);
     void dense_ffn(Block& B, int il, int n);
     template <class F>
@@ -82,6 +87,7 @@ private:
     bool w_norm_ = true;       ///< the picked experts' weights are made to sum to one
     float w_scale_ = 0;        ///< and then scaled by this, when it is not 0
     int window_ = 0;           ///< the tokens a window layer attends, the token itself among them
+    int n_draft_ = 1;          ///< the nextn blocks the MTP file chains: guesses take them in their order
     int ring_ = 0;             ///< rows of a window layer's caches: the window and a call's tokens
     int keep_ = 0;             ///< rows of a window layer a sequence's state keeps
 

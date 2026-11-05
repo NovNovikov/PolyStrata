@@ -427,6 +427,10 @@ protected:
     /// Whether a block taken from another file must carry the model's router: an architecture whose block runs a
     /// dense layer (MiMo) weighs its shapes where its layers are read, and leaves this false.
     virtual bool draft_file_needs_router() const { return true; }
+    /// How many block layers follow the model's when the block comes from another file: the files that chain
+    /// several nextn blocks (MiMo's MTP) raise this; every other architecture's block is the one the engine's
+    /// draft_step() already runs.
+    virtual int draft_layers() const { return 1; }
     /// The weights of what guesses ahead, to VRAM.  The engine's own: the draft block's parts beside its layer.
     virtual void load_drafter();
     /// One guess (draft()): the token through what guesses ahead, its scores into logits_.  hn_'s first row is the

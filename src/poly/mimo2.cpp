@@ -64,18 +64,26 @@ void Mimo2::load_geometry() {
         kv_[(size_t) il] = h;
         n_kv_max_ = std::max(n_kv_max_, h);
     }
-    // the block that guesses ahead, when it comes from another file: its geometry is that file's, one layer
-    // after the model's (the MTP sidecars give its pattern and heads over all 51 layers of their own count)
+    // the block that guesses ahead, when it comes from another file: its geometry is that file's, and its file
+    // may chain several blocks after the model's (MiMo's MTP gives three, over all 51 layers of its own count)
+    n_draft_ = 1;
     if (block_ && block_ != gg_.get()) {
         const MetaValue* bp = meta_in(*block_, "attention.sliding_window_pattern");
         const MetaValue* bh = meta_in(*block_, "attention.head_count_kv");
         need(bp && bh && bp->type == MetaType::ARRAY && bh->type == MetaType::ARRAY,
              "the draft model gives no per-layer window pattern or key heads");
-        swa_.push_back(of_layer(*bp, n_layer_) != 0 ? 1 : 0);
-        const int h = (int) of_layer(*bh, n_layer_);
-        need(h > 0 && n_head_ % h == 0, "the draft layer's key heads do not divide its query heads");
-        kv_.push_back(h);
-        n_kv_max_ = std::max(n_kv_max_, h);
+        const MetaValue* nn = meta_in(*block_, "nextn_predict_layers");
+        const MetaValue* bc = meta_in(*block_, "block_count");
+        if (nn && nn->u >= 1) n_draft_ = (int) nn->u;
+        else if (bc && bc->u > n_layer_) n_draft_ = (int) (bc->u - n_layer_);
+        n_draft_ = std::max(1, std::min(n_draft_, 4));   // of_layer() refuses a block its file's arrays end before
+        for (int d = 0; d < n_draft_; ++d) {
+            swa_.push_back(of_layer(*bp, n_layer_ + d) != 0 ? 1 : 0);
+            const int h = (int) of_layer(*bh, n_layer_ + d);
+            need(h > 0 && n_head_ % h == 0, "the draft layer's key heads do not divide its query heads");
+            kv_.push_back(h);
+            n_kv_max_ = std::max(n_kv_max_, h);
+        }
     }
     qkv_wide_ = dim_k_ * (n_head_ + n_kv_max_) + dim_v_ * n_kv_max_;
 
@@ -95,8 +103,8 @@ void Mimo2::load_geometry() {
     n_ff_ = shape_i("feed_forward_length");   // the dense first layer's FFN
     need(n_ff_ > 0, "bad feed_forward_length");
 
-    // this architecture puts no limit on a SwiGLU's inputs
-    clamp_exp_.assign((size_t) n_layer_ + 1, INFINITY);
+    // this architecture puts no limit on a SwiGLU's inputs (the draft chain's blocks have FFNs too)
+    clamp_exp_.assign((size_t) n_layer_ + n_draft_, INFINITY);
     clamp_shexp_ = clamp_exp_;
 }
 
@@ -131,12 +139,12 @@ void Mimo2::load_layer(int il) {
         throw std::runtime_error(blk(il, "attn_sinks.weight") + ": a sink on a layer that attends the whole "
                                  "conversation, which the mimo2 reference does not read");
 
-    if (!tensor(il, "ffn_gate_exps.weight") || il == n_layer_) {   // the reference reads the dense FFN where
-        // there are no experts - and the block that guesses ahead must be such a dense layer, which is what
+    if (!tensor(il, "ffn_gate_exps.weight") || il >= n_layer_) {   // the reference reads the dense FFN where
+        // there are no experts - and every block that guesses ahead must be such a dense layer, which is what
         // draft_step() runs; a block with routed experts is not one this draft path runs.
-        if (il == n_layer_ && !tensor(il, "ffn_gate.weight"))
+        if (il >= n_layer_ && !tensor(il, "ffn_gate.weight"))
             throw std::runtime_error("the block that guesses ahead is not a dense mimo2 layer: no " +
-                                     blk(n_layer_, "ffn_gate.weight") + "; --no-draft loads the model without it");
+                                     blk(il, "ffn_gate.weight") + "; --no-draft loads the model without it");
         B.ffn_gate = mat("ffn_gate.weight", n_embd_, n_ff_);
         B.ffn_up = mat("ffn_up.weight", n_embd_, n_ff_);
         B.ffn_down = mat("ffn_down.weight", n_ff_, n_embd_);
@@ -373,6 +381,23 @@ void Mimo2::load_drafter() {
     Engine::load_drafter();
     const TensorInfo* n = tensor(n_layer_, "layer_output_norm.weight");
     if (n) d_head_ = upload(n, blk(n_layer_, "layer_output_norm.weight"), n_embd_, 1, kF32);
+    // the first block joins and answers with the parts the engine loaded for it; every further block of the
+    // chain carries its own nextn trio and its own answer norm, which the shared parts hold no place for
+    Block& first = blocks_[(size_t) n_layer_];
+    first.nextn_proj = d_proj_;
+    first.nextn_enorm = d_enorm_;
+    first.nextn_hnorm = d_hnorm_;
+    first.out_norm = d_head_;
+    for (int d = 1; d < n_draft_; ++d) {
+        const int il = n_layer_ + d;
+        Block& B = blocks_[(size_t) il];
+        B.nextn_proj = upload(tensor(il, "nextn.eh_proj.weight"), blk(il, "nextn.eh_proj.weight"), 2 * n_embd_,
+                              n_embd_, kAnyMat);
+        B.nextn_enorm = upload(tensor(il, "nextn.enorm.weight"), blk(il, "nextn.enorm.weight"), n_embd_, 1, kF32);
+        B.nextn_hnorm = upload(tensor(il, "nextn.hnorm.weight"), blk(il, "nextn.hnorm.weight"), n_embd_, 1, kF32);
+        const TensorInfo* on = tensor(il, "layer_output_norm.weight");
+        B.out_norm = on ? upload(on, blk(il, "layer_output_norm.weight"), n_embd_, 1, kF32) : out_norm_;
+    }
 }
 
 // The block that guesses ahead: its projection, its turn and its caches, with the positions from the host - the
@@ -393,8 +418,7 @@ void Mimo2::block_qkv(Block& B, int64_t pos, int n) {
 void Mimo2::block_rows(int64_t pos, int n) { block_qkv(blocks_[(size_t) n_layer_], pos, n); }
 
 // A guess's attention: its own row in the ring, then the window it attends, the sink among it, the output.
-void Mimo2::block_attend(int64_t pos, int n) {
-    Block& B = blocks_[(size_t) n_layer_];
+void Mimo2::block_attend_to(Block& B, int64_t pos, int n) {
     block_qkv(B, pos, n);
     const float scale = 1.f / std::sqrt((float) dim_k_);
     mimo2_attend(q_, B.keys, B.vals, pos, n, att_, dim_k_, dim_v_, n_head_, B.n_kv, scale, st_,
@@ -403,21 +427,55 @@ void Mimo2::block_attend(int64_t pos, int n) {
     if (value_scale_ != 1.f) axpy(ao_, value_scale_, ao_, n * n_embd_, false, st_);
 }
 
-// One token through the MTP block: its embedding and the model's hidden state, each turned by its own norm and
-// joined by the projection, then the block's dense window layer as the model's own layers run, then the
-// model's head - the block has no head of its own, and its file's token table and output matrix go unread.
+void Mimo2::block_attend(int64_t pos, int n) { block_attend_to(blocks_[(size_t) n_layer_], pos, n); }
+
+// The row a chained block reads: the token's embedding and the row the block before it left, each turned by
+// this block's own norm and joined by this block's own projection.  The host scratch and the event are the
+// engine's own draft_input() uses too - a read's draft turn may still have the row before it leaving for the
+// card, so the copy waits for it, as there.
+void Mimo2::block_input(int32_t token, int64_t row, const float* h, int il) {
+    if (ev_hr_) ck(PA_WAIT_EVENT((cudaEvent_t) ev_hr_), "embed");
+    input(token, row, h_r_);
+    PA_COPY2_KERNEL(cur_, h_r_, n_embd_, nullptr, nullptr, 0, st_);
+    if (!ev_hr_) {
+        cudaEvent_t ev = nullptr;
+        ck(cudaEventCreateWithFlags(&ev, cudaEventDisableTiming), "cudaEventCreate");
+        ev_hr_ = ev;
+    }
+    ck(cudaEventRecord((cudaEvent_t) ev_hr_, cs(st_)), "embed");
+    Block& B = blocks_[(size_t) il];
+    const size_t e = (size_t) n_embd_;
+    rms_norm(cur_, fp(B.nextn_enorm), r_, n_embd_, 1, rms_eps_, st_, 2 * n_embd_);
+    rms_norm(h, fp(B.nextn_hnorm), r_ + e, n_embd_, 1, rms_eps_, st_, 2 * n_embd_);
+    float* x = r_ + 2 * e;
+    lin(B.nextn_proj, r_, x, 1);
+    rms_norm(x, fp(layers_[(size_t) il].attn_norm), xn_, n_embd_, 1, rms_eps_, st_);
+    kernels::native_quantize_q8_1(xn_, xq_, n_embd_, 1, st_);
+}
+
+// One token through the chain of MTP blocks: guess i goes through the i-th block - its embedding and the row
+// the block before it left, each turned by that block's own norm and joined by that block's own projection,
+// then the block's dense window layer as the model's own layers run, then that block's answer norm and the
+// model's head.  The blocks have no heads of their own, and their file's token table and output matrix go
+// unread; a guess deeper than the chain re-uses its last block, and its probability falls off on its own.
 void Mimo2::draft_step(int32_t token, int i) {
-    Layer& L = layers_[(size_t) n_layer_];
-    Block& B = blocks_[(size_t) n_layer_];
-    float* own = hn_ + n_embd_;   // the block's output, which stands in for the model's from the second guess on
-    float* x = draft_input(&token, pos_ + i, i == 0 ? hn_ : own, 1);
-    block_attend(pos_ + i, 1);
+    const int il = n_layer_ + std::min(i, n_draft_ - 1);
+    Layer& L = layers_[(size_t) il];
+    Block& B = blocks_[(size_t) il];
+    float* own = hn_ + n_embd_;   // the chain's last output, which stands in for the model's from the first join on
+    float* x;
+    if (i == 0) x = draft_input(&token, pos_ + i, hn_, 1);   // the first block: the engine's own joining parts
+    else {
+        block_input(token, pos_ + i, own, il);
+        x = r_ + 2 * (size_t) n_embd_;
+    }
+    block_attend_to(B, pos_ + i, 1);
     axpy(ao_, 1.f, x, n_embd_, true, st_);
     rms_norm(x, fp(L.ffn_norm), xn_, n_embd_, 1, rms_eps_, st_);
     kernels::native_quantize_q8_1(xn_, xq_, n_embd_, 1, st_);
-    dense_ffn(B, n_layer_, 1);
+    dense_ffn(B, il, 1);
     axpy(fo_, 1.f, x, n_embd_, true, st_);
-    rms_norm(x, fp(d_head_), own, n_embd_, 1, rms_eps_, st_);
+    rms_norm(x, fp(B.out_norm), own, n_embd_, 1, rms_eps_, st_);
     Dev head = output_;   // the matrix's first rows are the common tokens'
     head.n_out = draft_rows();
     lin(head, own, logits_, 1);

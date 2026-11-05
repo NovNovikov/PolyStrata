@@ -2563,7 +2563,7 @@ void Engine::load(const Options& o) {
 
     // twice: the first pass adds up the arena, the second fills it
     for (int pass = 0; pass < 2; ++pass) {
-        const int n_all = n_layer_ + (block_layer_ ? 1 : 0);
+        const int n_all = n_layer_ + (block_layer_ ? draft_layers() : 0);
         layers_.assign((size_t) n_all, Layer{});
         n_moe_ = 0;
         dense_at_ = 0;
