@@ -3806,6 +3806,21 @@ class Service:
             print(f"[strata] auto slot store skipped: {e}", flush=True)
             return None
 
+    def auto_log(self, msg: str) -> None:
+        """An auto-slot event: the console AND <store>/auto-slot.log.
+
+        The console lives in a window nobody has open when the question is asked, and the
+        engine's log file never carries server prints - while "was a checkpoint written,
+        and if not, why" is exactly the question of an hour later.  A log that cannot be
+        written must never fail the request, so the mirror is best-effort."""
+        print(f"[strata] {msg}", flush=True)
+        try:
+            if self.slot_save_path:
+                with open(os.path.join(self.slot_save_path, "auto-slot.log"), "a", encoding="utf-8") as f:
+                    f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+        except OSError:
+            pass
+
     def auto_save_session(self, ids, gen_ids, sampling, acquire=False) -> None:
         """SAVE this finished conversation for later requests (never fails the request).
 
@@ -3844,19 +3859,19 @@ class Service:
         entries = self._auto_index.entries(store)
         try:
             if auto_sessions.covered(store, self.model, keys, sha_full, entries):
-                print("[strata] auto slot save skipped: this exact state is already stored", flush=True)
+                self.auto_log("auto slot save skipped: this exact state is already stored")
                 return                                    # this exact session is already stored
         except OSError as e:                              # the store scan failed: the request must not eat it
-            print(f"[strata] auto slot save skipped: the store scan failed: {e}", flush=True)
+            self.auto_log(f"auto slot save skipped: the store scan failed: {e}")
             return
         session = auto_sessions.entry_name(sha_full, len(full))
         try:
             r = self.engine.session_file("save", str(store / session))
         except (SessionRefused, ValueError, EngineDied, EngineSilent) as e:
-            print(f"[strata] auto slot save skipped: {e}", flush=True)
+            self.auto_log(f"auto slot save skipped: {e}")
             return
         except OSError as e:
-            print(f"[strata] auto slot save skipped: {e}", flush=True)
+            self.auto_log(f"auto slot save skipped: {e}")
             return
         try:
             auto_sessions.write_meta(store, session, {"model": self.model, "keys": keys,
@@ -3870,10 +3885,10 @@ class Service:
                                 self._auto_index.entries(store))
             self._auto_index.invalidate()
         except OSError as e:
-            print(f"[strata] auto slot save index skipped: {e}", flush=True)
+            self.auto_log(f"auto slot save index skipped: {e}")
             return
-        print(f"[strata] auto slot saved: {session} ({r.get('tokens')} tokens, "
-              f"{len(pairs)} prefixes)", flush=True)
+        self.auto_log(f"auto slot saved: {session} ({r.get('tokens')} tokens, "
+                      f"{len(pairs)} prefixes)")
 
     def auto_restore_session(self, ids, sampling) -> int:
         """RESTORE the longest stored prefix of this prompt (0: none; never fails the request)."""
