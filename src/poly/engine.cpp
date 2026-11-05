@@ -1150,7 +1150,7 @@ void Engine::load_shape() {
     need(n_used_ >= 1 && n_used_ <= kMaxUsed && n_used_ <= n_expert_, "bad expert_used_count");
 
     // a block from another file must be this model's: a pruned model's has fewer experts to choose among
-    if (block_ && block_ != gg_.get()) {
+    if (block_ && block_ != gg_.get() && draft_file_needs_router()) {
         const TensorInfo* gate = tensor(n_layer_, "ffn_gate_inp.weight");
         if (!gate || gate->shape.size() != 2 || (int64_t) gate->shape[0] != n_embd_ ||
             (int64_t) gate->shape[1] != n_expert_)

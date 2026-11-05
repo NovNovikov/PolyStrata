@@ -42,6 +42,10 @@ protected:
     void load_extra(const uint8_t* src, int64_t pos) override;
     int head_key(int il, int n) const override;
     bool batch_heads() const override { return true; }
+    bool draft_file_needs_router() const override { return false; }   // the MTP block's layer is dense
+    void block_rows(int64_t pos, int n) override;
+    void block_attend(int64_t pos, int n) override;
+    void draft_step(int32_t token, int i) override;
 
 private:
     /// A layer's weights beside the ones every architecture has (Layer), and its caches.
@@ -59,6 +63,7 @@ private:
 
     void attn(Block& B, int64_t pos, int n);
     void attn_rows(Block& B, int n);
+    void block_qkv(Block& B, int64_t pos, int n);
     void store(const float* x, const Block& B, int64_t pos, int n, bool value);
     void dense_ffn(Block& B, int il, int n);
     template <class F>

@@ -64,6 +64,19 @@ void Mimo2::load_geometry() {
         kv_[(size_t) il] = h;
         n_kv_max_ = std::max(n_kv_max_, h);
     }
+    // the block that guesses ahead, when it comes from another file: its geometry is that file's, one layer
+    // after the model's (the MTP sidecars give its pattern and heads over all 51 layers of their own count)
+    if (block_ && block_ != gg_.get()) {
+        const MetaValue* bp = meta_in(*block_, "attention.sliding_window_pattern");
+        const MetaValue* bh = meta_in(*block_, "attention.head_count_kv");
+        need(bp && bh && bp->type == MetaType::ARRAY && bh->type == MetaType::ARRAY,
+             "the draft model gives no per-layer window pattern or key heads");
+        swa_.push_back(of_layer(*bp, n_layer_) != 0 ? 1 : 0);
+        const int h = (int) of_layer(*bh, n_layer_);
+        need(h > 0 && n_head_ % h == 0, "the draft layer's key heads do not divide its query heads");
+        kv_.push_back(h);
+        n_kv_max_ = std::max(n_kv_max_, h);
+    }
     qkv_wide_ = dim_k_ * (n_head_ + n_kv_max_) + dim_v_ * n_kv_max_;
 
     window_ = shape_i("attention.sliding_window");
@@ -118,7 +131,12 @@ void Mimo2::load_layer(int il) {
         throw std::runtime_error(blk(il, "attn_sinks.weight") + ": a sink on a layer that attends the whole "
                                  "conversation, which the mimo2 reference does not read");
 
-    if (!tensor(il, "ffn_gate_exps.weight")) {   // the reference reads the dense FFN where there are no experts
+    if (!tensor(il, "ffn_gate_exps.weight") || il == n_layer_) {   // the reference reads the dense FFN where
+        // there are no experts - and the block that guesses ahead must be such a dense layer, which is what
+        // draft_step() runs; a block with routed experts is not one this draft path runs.
+        if (il == n_layer_ && !tensor(il, "ffn_gate.weight"))
+            throw std::runtime_error("the block that guesses ahead is not a dense mimo2 layer: no " +
+                                     blk(n_layer_, "ffn_gate.weight") + "; --no-draft loads the model without it");
         B.ffn_gate = mat("ffn_gate.weight", n_embd_, n_ff_);
         B.ffn_up = mat("ffn_up.weight", n_embd_, n_ff_);
         B.ffn_down = mat("ffn_down.weight", n_ff_, n_embd_);
@@ -344,6 +362,55 @@ void Mimo2::attn_rows(Block& B, int n) {
     }
     lin(B.wo, att_, ao_, n);
     if (value_scale_ != 1.f) axpy(ao_, value_scale_, ao_, n * n_embd_, false, st_);
+}
+
+// The block that guesses ahead: its projection, its turn and its caches, with the positions from the host - the
+// guess runs outside the recorded launches, as every layer's store() already takes the position as a number.
+void Mimo2::block_qkv(Block& B, int64_t pos, int n) {
+    const float theta = B.swa ? theta_swa_ : theta_global_;
+    const bool was_recording = recording_;   // read()'s draft turn runs between recorded rows: a guess's rows
+    recording_ = false;                      // stand where the host says, never where a recorded row would go
+    lin(B.wqkv, xn_, qkv_, n, xq_);
+    mimo2_rope_split(qkv_, B.qkv_rows, n, q_, k_, v_, dim_k_, dim_v_, n_head_, B.n_kv, n_rot_, theta, pos, st_,
+                     nullptr);
+    store(k_, B, pos, n, false);
+    store(v_, B, pos, n, true);
+    recording_ = was_recording;
+}
+
+// The rows the real tokens leave in the block's ring: the block reads nothing of them but the caches.
+void Mimo2::block_rows(int64_t pos, int n) { block_qkv(blocks_[(size_t) n_layer_], pos, n); }
+
+// A guess's attention: its own row in the ring, then the window it attends, the sink among it, the output.
+void Mimo2::block_attend(int64_t pos, int n) {
+    Block& B = blocks_[(size_t) n_layer_];
+    block_qkv(B, pos, n);
+    const float scale = 1.f / std::sqrt((float) dim_k_);
+    mimo2_attend(q_, B.keys, B.vals, pos, n, att_, dim_k_, dim_v_, n_head_, B.n_kv, scale, st_,
+                 B.swa ? window_ : 0, B.swa ? ring_ : 0, nullptr, 0, B.swa ? fp(B.sinks) : nullptr);
+    lin(B.wo, att_, ao_, n);
+    if (value_scale_ != 1.f) axpy(ao_, value_scale_, ao_, n * n_embd_, false, st_);
+}
+
+// One token through the MTP block: its embedding and the model's hidden state, each turned by its own norm and
+// joined by the projection, then the block's dense window layer as the model's own layers run, then the
+// model's head - the block has no head of its own, and its file's token table and output matrix go unread.
+void Mimo2::draft_step(int32_t token, int i) {
+    Layer& L = layers_[(size_t) n_layer_];
+    Block& B = blocks_[(size_t) n_layer_];
+    float* own = hn_ + n_embd_;   // the block's output, which stands in for the model's from the second guess on
+    float* x = draft_input(&token, pos_ + i, i == 0 ? hn_ : own, 1);
+    block_attend(pos_ + i, 1);
+    axpy(ao_, 1.f, x, n_embd_, true, st_);
+    rms_norm(x, fp(L.ffn_norm), xn_, n_embd_, 1, rms_eps_, st_);
+    kernels::native_quantize_q8_1(xn_, xq_, n_embd_, 1, st_);
+    dense_ffn(B, n_layer_, 1);
+    axpy(fo_, 1.f, x, n_embd_, true, st_);
+    rms_norm(x, fp(d_head_), own, n_embd_, 1, rms_eps_, st_);
+    Dev head = output_;   // the matrix's first rows are the common tokens'
+    head.n_out = draft_rows();
+    lin(head, own, logits_, 1);
+    finish_logits(logits_, 1);
 }
 
 // The dense first layer's FFN: a SwiGLU of 16384 hidden values.

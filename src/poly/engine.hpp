@@ -424,6 +424,9 @@ protected:
     virtual void begin_pass() {}
     /// Throws when the draft block is not one the architecture runs.
     virtual void check_draft_block() {}
+    /// Whether a block taken from another file must carry the model's router: an architecture whose block runs a
+    /// dense layer (MiMo) weighs its shapes where its layers are read, and leaves this false.
+    virtual bool draft_file_needs_router() const { return true; }
     /// The weights of what guesses ahead, to VRAM.  The engine's own: the draft block's parts beside its layer.
     virtual void load_drafter();
     /// One guess (draft()): the token through what guesses ahead, its scores into logits_.  hn_'s first row is the
