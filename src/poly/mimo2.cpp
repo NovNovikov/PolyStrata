@@ -364,6 +364,17 @@ void Mimo2::attn_rows(Block& B, int n) {
     if (value_scale_ != 1.f) axpy(ao_, value_scale_, ao_, n * n_embd_, false, st_);
 }
 
+// The block's parts: the shared ones - and, for this model, the norm its own layer carries.  The reference graph
+// answers for the head what the block has, in its order: nextn.shared_head_norm, the block's layer_output_norm,
+// the model's output_norm - and a MiMo MTP file gives every block a layer_output_norm while the main model has
+// none at all, so the block's norm is the one its guesses were trained with.  Other architectures keep the
+// shared choice: only this file knows its block.
+void Mimo2::load_drafter() {
+    Engine::load_drafter();
+    const TensorInfo* n = tensor(n_layer_, "layer_output_norm.weight");
+    if (n) d_head_ = upload(n, blk(n_layer_, "layer_output_norm.weight"), n_embd_, 1, kF32);
+}
+
 // The block that guesses ahead: its projection, its turn and its caches, with the positions from the host - the
 // guess runs outside the recorded launches, as every layer's store() already takes the position as a number.
 void Mimo2::block_qkv(Block& B, int64_t pos, int n) {
