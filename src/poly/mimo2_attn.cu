@@ -161,12 +161,13 @@ void mimo2_attend(const float* q, const uint16_t* kcache, const uint16_t* vcache
     if (dim_k % WARP || dim_v % WARP || dim_v > 8 * WARP || dim_k > kMaxDims)
         throw std::invalid_argument("mimo2_attend: a head's values must split over a warp");
     if (n_head % kv_heads) throw std::invalid_argument("mimo2_attend: the heads do not divide");
-    if (at && room < 1) throw std::invalid_argument("mimo2_attend: a position on the card needs its room");
-    const int sized = at ? room : rows;
-    if (sized < 1) return;
+    // one block per query head and token: a position on the card changes where the rows read, not how many
+    // there are - and a room over 65535 (gridDim.y's ceiling) would refuse the launch outright
+    (void) room;
+    if (rows < 1) return;
     const int warps = 4;
     const size_t merge_bytes = size_t(2 * WARP + warps * dim_v) * sizeof(float);
-    const dim3 grid(n_head, sized);
+    const dim3 grid(n_head, rows);
     mimo2_attend_kernel<<<grid, warps * WARP, merge_bytes, (cudaStream_t) stream>>>(
         q, kcache, vcache, (long long) pos, rows, out, dim_k, dim_v, n_head, kv_heads, scale, window, ring, at,
         sinks);

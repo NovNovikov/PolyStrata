@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -227,7 +228,9 @@ void test_layer(int n_kv, bool swa, long long pos, int rows, bool with_at, int w
             }
         }
     }
-    if (nan) std::printf("FAIL   %s: NaN in output\n", name);
+    // a NaN must reach report(): std::max keeps its first argument against a NaN, so without this the
+    // difference stays a number, report() calls it ok, and a NaN output exits 0 with one printed line
+    if (nan) most = std::numeric_limits<double>::quiet_NaN();
     std::snprintf(name, sizeof(name), "attend   n_kv %d %s win %d pos %lld rows %d%s", n_kv, swa ? "swa" : "global",
                   swa ? window : 0, pos, rows, with_at ? " (pos on card)" : "");
     report(name, most, 2e-3);
