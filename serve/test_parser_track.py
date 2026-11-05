@@ -25,6 +25,10 @@ class ReferenceParser(OutputParser):
                     self.ticks = 0
                 else:
                     self.ticks += line.count("`")
+                    if self.ticks % 2 == 1:
+                        after = line[line.rfind("`") + 1:].strip()
+                        if after and not after.startswith("<"):
+                            self.ticks -= 1   # the last mark closed the inline code (#4923)
             else:
                 self.line += part
         return text
