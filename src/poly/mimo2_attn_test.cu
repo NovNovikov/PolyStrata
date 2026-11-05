@@ -145,11 +145,11 @@ void test_layer(int n_kv, bool swa, long long pos, int rows, bool with_at, int w
         for (int h = 0; h < n_kv; ++h)
             for (int i = 0; i < kDimK; ++i)
                 kcache[size_t(cr) * n_kv * kDimK + size_t(h) * kDimK + i] =
-                    __float2half_rn(kflat[size_t(t) * n_kv * kDimK + size_t(h) * kDimK + i]);
+                    __half_as_ushort(__float2half_rn(kflat[size_t(t) * n_kv * kDimK + size_t(h) * kDimK + i]));
         for (int h = 0; h < n_kv; ++h)
             for (int i = 0; i < kDimV; ++i)
                 vcache[size_t(cr) * n_kv * kDimV + size_t(h) * kDimV + i] =
-                    __float2half_rn(vflat[size_t(t) * n_kv * kDimV + size_t(h) * kDimV + i]);
+                    __half_as_ushort(__float2half_rn(vflat[size_t(t) * n_kv * kDimV + size_t(h) * kDimV + i]));
     };
     for (long long p = first; p < pos; ++p) {   // the rows the call attends that it did not write itself
         std::vector<float> kprev(kDimK * n_kv), vprev(kDimV * n_kv);
@@ -162,13 +162,17 @@ void test_layer(int n_kv, bool swa, long long pos, int rows, bool with_at, int w
     for (size_t r = 0; r < kref.size(); ++r) {
         kref[r].assign(size_t(n_kv) * kDimK, 0.f);
         vref[r].assign(size_t(n_kv) * kDimV, 0.f);
-        for (int i = 0; i < n_kv * kDimK; ++i) kref[r][i] = __half2float(kcache[size_t(r) * n_kv * kDimK + i]);
-        for (int i = 0; i < n_kv * kDimV; ++i) vref[r][i] = __half2float(vcache[size_t(r) * n_kv * kDimV + i]);
+        for (int i = 0; i < n_kv * kDimK; ++i)
+            kref[r][i] = __half2float(__ushort_as_half(kcache[size_t(r) * n_kv * kDimK + i]));
+        for (int i = 0; i < n_kv * kDimV; ++i)
+            vref[r][i] = __half2float(__ushort_as_half(vcache[size_t(r) * n_kv * kDimV + i]));
     }
     for (int t = 0; t < rows; ++t) store_row(pos + t, dk, dv, t);   // this call's rows, as the engine stores them
     for (size_t r = 0; r < kref.size(); ++r) {
-        for (int i = 0; i < n_kv * kDimK; ++i) kref[r][i] = __half2float(kcache[size_t(r) * n_kv * kDimK + i]);
-        for (int i = 0; i < n_kv * kDimV; ++i) vref[r][i] = __half2float(vcache[size_t(r) * n_kv * kDimV + i]);
+        for (int i = 0; i < n_kv * kDimK; ++i)
+            kref[r][i] = __half2float(__ushort_as_half(kcache[size_t(r) * n_kv * kDimK + i]));
+        for (int i = 0; i < n_kv * kDimV; ++i)
+            vref[r][i] = __half2float(__ushort_as_half(vcache[size_t(r) * n_kv * kDimV + i]));
     }
 
     std::vector<float> sinks(kHeads);

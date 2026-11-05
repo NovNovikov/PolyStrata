@@ -104,7 +104,7 @@ __global__ void mimo2_attend_kernel(const float* __restrict__ q, const uint16_t*
         const long long cr = ring ? row % ring : row;   // a ring layer's row p lies at cache row p % ring
         const uint16_t* krow = kc + size_t(cr) * kv_heads * dim_k;
         float dot = 0.f;
-        for (int i = lane; i < dim_k; i += WARP) dot += qs[i] * __half2float(krow[i]);
+        for (int i = lane; i < dim_k; i += WARP) dot += qs[i] * __half2float(__ushort_as_half(krow[i]));
 #pragma unroll
         for (int d = WARP / 2; d >= 1; d >>= 1) dot += __shfl_down_sync(0xffffffffu, dot, d);
         const float score = __shfl_sync(0xffffffffu, dot, 0) * scale;
@@ -113,7 +113,7 @@ __global__ void mimo2_attend_kernel(const float* __restrict__ q, const uint16_t*
         s = s * shrink + add;
         const uint16_t* vrow = vc + size_t(cr) * kv_heads * dim_v;
         for (int j = 0; j < vpr; ++j) {
-            acc[j] = acc[j] * shrink + add * __half2float(vrow[WARP * j + lane]);
+            acc[j] = acc[j] * shrink + add * __half2float(__ushort_as_half(vrow[WARP * j + lane]));
         }
         m = nm;
     }
