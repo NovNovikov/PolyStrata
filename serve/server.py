@@ -5597,8 +5597,7 @@ class Service:
                                     and n > 0 and len(ids) >= self.slot_save_min_tokens):
                                 # the request WAS save-sized: say out loud when a step skips the checkpoint -
                                 # every one of these reasons used to be silent, which made "no saves" a hunt
-                                why = ("the reply delivered a tool call, a step of the turn" if saw_tool_call
-                                       else f"finish is {finish}" if finish in ("cancel", "disconnect", "error")
+                                why = (f"finish is {finish}" if finish in ("cancel", "disconnect", "error")
                                        else "strata_checkpoint is False"
                                        if (sampling or {}).get("strata_checkpoint") is False else None)
                                 if why is not None:
@@ -5606,9 +5605,11 @@ class Service:
                                                   f"({len(ids)} + {n} tokens; armed for the idle flush)")
                             if (not par and n > 0
                                     and finish not in ("cancel", "disconnect", "error")
-                                    and not saw_tool_call        # an agent's turn ends with the call-free answer,
-                                                                   # and only there: the calls in between are steps,
-                                                                   # a checkpoint each would be a 2 GiB write per step
+                                    # every step of an agent's turn checkpoints, as before 7e38f74c: the tool's
+                                    # answer arrives within seconds, before the idle flush of slot_save_idle_seconds
+                                    # could ever come, and the next request then re-prefills everything past the
+                                    # stale checkpoint - hundreds of thousands of tokens every step.  The write per
+                                    # step is what buys "prompt cache: reused <almost all>" on the call after it.
                                     and (sampling or {}).get("strata_checkpoint") is not False):
                                 self.auto_save_session(ids, raw_ids, sampling)
                             now = time.time()
