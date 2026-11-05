@@ -887,6 +887,18 @@ __global__ void __launch_bounds__(IDX_SELECT)
     __shared__ int hist[IDX_SELECT / WARP][256], part[IDX_SELECT / WARP], pick[2];
     const long long at_pos = ((at ? *at : pos)) + blockIdx.x;
     const int n_pool = int((at_pos + 1) / kpool);
+    // A recorded launch runs at every position, so a token may own fewer whole pools than it selects.  All of
+    // them are then its list, in the order plain attention reads, and the rows no pool has yet follow it: the
+    // radix below would leave the places it never filled - chosen[] and the ranks built from it - uninitialized,
+    // and dsa_keys_kernel would read a cache row through that garbage.  A host launch never comes here: it runs
+    // past the dense cut, where the token has more than n_top pools.
+    if (n_pool <= n_top) {
+        if (threadIdx.x == 0) {
+            int32_t* row = sel + size_t(blockIdx.x) * sel_stride;
+            for (long long p = 0; p <= at_pos; ++p) *row++ = int32_t(p);
+        }
+        return;
+    }
     const float* s = score + size_t(blockIdx.x) * score_stride;
     const int lane = threadIdx.x % WARP, wid = threadIdx.x / WARP;
     uint32_t cut = 0, mask = 0;
