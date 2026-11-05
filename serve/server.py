@@ -3803,7 +3803,7 @@ class Service:
         try:
             return auto_sessions.auto_dir(self.slot_save_path)
         except OSError as e:
-            print(f"[strata] auto slot store skipped: {e}", flush=True)
+            self.auto_log(f"auto slot store skipped: {e}")
             return None
 
     def auto_log(self, msg: str) -> None:
@@ -3837,7 +3837,7 @@ class Service:
             return
         if acquire:
             if not self.fifo.acquire(timeout=30):
-                print("[strata] auto slot save skipped: engine busy at shutdown", flush=True)
+                self.auto_log("auto slot save skipped: engine busy at shutdown")
                 return
             try:
                 self._auto_save_locked(full, ids, sampling)
@@ -3921,7 +3921,7 @@ class Service:
                 why = f"all {wrong_keys} stored pairs carry another sampling fingerprint"
             else:
                 why = f"no stored pair reaches {self.slot_save_min_tokens} tokens"
-            print(f"[strata] auto slot restore none: {why}", flush=True)
+            self.auto_log(f"auto slot restore none: {why}")
             return 0
         session, meta = found
         try:
@@ -3932,18 +3932,17 @@ class Service:
             # attempt.  Everything else (foreign model/config, corrupt format) cannot be
             # fixed by waiting: drop the pair so no later request trips on it again.
             if "not enough RAM" in str(e):
-                print(f"[strata] auto slot restore skipped ({session}): {e} "
-                      "(kept: RAM moves)", flush=True)
+                self.auto_log(f"auto slot restore skipped ({session}): {e} (kept: RAM moves)")
                 return 0
-            print(f"[strata] auto slot restore rejected ({session}): {e}", flush=True)
+            self.auto_log(f"auto slot restore rejected ({session}): {e}")
             auto_sessions.remove_pair(store, session)
             self._auto_index.invalidate()
             return 0
         except (ValueError, EngineDied, EngineSilent, OSError) as e:
-            print(f"[strata] auto slot restore skipped ({session}): {e}", flush=True)
+            self.auto_log(f"auto slot restore skipped ({session}): {e}")
             return 0
         n = int(meta.get("ntokens") or 0)
-        print(f"[strata] auto slot restored: {session} ({r.get('tokens')} tokens, {n} prefix)", flush=True)
+        self.auto_log(f"auto slot restored: {session} ({r.get('tokens')} tokens, {n} prefix)")
         return n
 
     def auto_idle_save(self) -> None:
@@ -3971,8 +3970,7 @@ class Service:
         if (not self.slot_save_auto or self.slot_save_idle_seconds < 0
                 or getattr(self.engine, "batch", 0)):
             return
-        print(f"[strata] auto slot sessions flush after {self.slot_save_idle_seconds:g} s without requests",
-              flush=True)
+        self.auto_log(f"auto slot sessions flush after {self.slot_save_idle_seconds:g} s without requests")
 
         def loop():
             while True:
@@ -3980,7 +3978,7 @@ class Service:
                 try:
                     self.auto_idle_save()
                 except Exception as e:                    # tried again at the next turn; the thread keeps running
-                    print(f"[strata] auto slot idle flush: {e}", flush=True)
+                    self.auto_log(f"auto slot idle flush: {e}")
         threading.Thread(target=loop, name="auto-slot-idle", daemon=True).start()
 
     def auto_save_at_shutdown(self) -> None:
@@ -5555,8 +5553,8 @@ class Service:
                                        else "strata_checkpoint is False"
                                        if (sampling or {}).get("strata_checkpoint") is False else None)
                                 if why is not None:
-                                    print(f"[strata] auto slot save skipped: {why} "
-                                          f"({len(ids)} + {n} tokens; armed for the idle flush)", flush=True)
+                                    self.auto_log(f"auto slot save skipped: {why} "
+                                                  f"({len(ids)} + {n} tokens; armed for the idle flush)")
                             if (not par and not emb and n > 0
                                     and finish not in ("cancel", "disconnect", "error")
                                     and not saw_tool_call        # an agent's turn ends with the call-free answer,
@@ -8218,12 +8216,12 @@ def main() -> int:
     if idle_given and not auto:
         raise SystemExit("[strata] --slot-save-idle-seconds requires --slot-save-auto")
     if svc.slot_save_auto:
-        print(f"[strata] auto slot sessions on: {svc.slot_save_path} (max {svc.slot_save_max_count or 'unlimited'} "
-              f"sessions, {svc.slot_save_max_bytes // (1024 * 1024) if svc.slot_save_max_bytes else 'unlimited'} MiB, "
-              f"floor {svc.slot_save_min_tokens} tokens; manual saves are never touched)", flush=True)
+        svc.auto_log(f"auto slot sessions on: {svc.slot_save_path} (max {svc.slot_save_max_count or 'unlimited'} "
+                     f"sessions, {svc.slot_save_max_bytes // (1024 * 1024) if svc.slot_save_max_bytes else 'unlimited'} "
+                     f"MiB, floor {svc.slot_save_min_tokens} tokens; manual saves are never touched)")
         if getattr(engine, "batch", 0):
-            print("[strata] auto slot sessions stay off: session files are unavailable with parallel requests "
-                  "(\"parallel\" / --batch), as with manual saves", flush=True)
+            svc.auto_log("auto slot sessions stay off: session files are unavailable with parallel requests "
+                         "(\"parallel\" / --batch), as with manual saves")
     etu = cfg.get("env_to_user", False)                # opt-in: see frontend._env_to_user
     if not isinstance(etu, bool):
         raise SystemExit(f"[strata] config \"env_to_user\" must be true or false, not {etu!r}")
@@ -8307,7 +8305,7 @@ def main() -> int:
         except KeyboardInterrupt:
             pass
         except Exception as e:  # noqa: BLE001 - never block the exit
-            print(f"[strata] auto slot save at shutdown skipped: {e}", flush=True)
+            svc.auto_log(f"auto slot save at shutdown skipped: {e}")
         shutdown(svc, httpd, hub)
         print("[strata] stopped", flush=True)
     return 0
