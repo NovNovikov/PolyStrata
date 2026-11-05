@@ -5128,6 +5128,7 @@ class Service:
         parser = OutputParser(thinking=thinking, tools=tools, stream_tools=True, recover=self.tool_call_recovery,
                               call_format=self.call_format, opened=opened)
         detok, n, finish = Detokenizer(self.tok), 0, "length"
+        saw_tool_call = False       # the reply delivered a tool call: the agent's turn is not over
         run_tok, run_len, repeated = None, 0, False     # #606: the current run of one repeated token
         thinking_n = 0                                  # tokens written while thinking (Responses' reasoning_tokens)
         stop_list = stop_strings(sampling)
@@ -5303,6 +5304,8 @@ class Service:
                                         reasoning_text += ev.text or ""
                                     if ev.kind in ("content", "tool_start", "tool_call"):
                                         answered = True
+                                    if ev.kind == "tool_call":
+                                        saw_tool_call = True    # one more step of the turn, not its end
                                     yield "event", ev
                                 if evs:
                                     last_out = time.perf_counter()
@@ -5528,6 +5531,9 @@ class Service:
                                 self._auto_last = (list(ids), list(raw_ids), dict(sampling or {}))
                             if (not par and not emb and n > 0
                                     and finish not in ("cancel", "disconnect", "error")
+                                    and not saw_tool_call        # an agent's turn ends with the call-free answer,
+                                                                   # and only there: the calls in between are steps,
+                                                                   # a checkpoint each would be a 2 GiB write per step
                                     and (sampling or {}).get("strata_checkpoint") is not False):
                                 self.auto_save_session(ids, raw_ids, sampling)
                             now = time.time()
