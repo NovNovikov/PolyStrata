@@ -42,6 +42,7 @@ protected:
     void load_extra(const uint8_t* src, int64_t pos) override;
     int head_key(int il, int n) const override;
     bool batch_heads() const override { return true; }
+    bool sees() const override { return true; }   // strata-vision's rows stand where the template's image pads are
     bool draft_file_needs_router() const override { return false; }   // the MTP block's layer is dense
     void block_rows(int64_t pos, int n) override;
     void block_attend(int64_t pos, int n) override;
