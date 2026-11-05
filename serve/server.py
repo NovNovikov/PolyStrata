@@ -3882,11 +3882,29 @@ class Service:
             return 0
         keys = self.auto_session_keys(ids, sampling)
         try:
-            found = auto_sessions.find_best(store, ids, keys, self.model, self.slot_save_min_tokens,
-                                            self._auto_index.entries(store))
+            entries = self._auto_index.entries(store)
+            found = auto_sessions.find_best(store, ids, keys, self.model, self.slot_save_min_tokens, entries)
         except OSError:
             return 0
         if found is None:
+            # The request is not blamed on this: say why no file was picked, the way the save line does.
+            # A restart's cold first read usually ends here, and the reason decides what to fix - a stale
+            # fingerprint (keys or model), a token-prefix that hashes differently, or no file deep enough.
+            pairs = [meta for _, meta in entries if meta.get("model") == self.model]
+            wrong_keys = sum(1 for meta in pairs if meta.get("keys") != keys)
+            deepest = 0
+            for meta in pairs:
+                if meta.get("keys") != keys:
+                    continue
+                for length, _hash in auto_sessions.entry_pairs(meta):
+                    deepest = max(deepest, length)
+            if pairs and not wrong_keys and deepest >= self.slot_save_min_tokens:
+                why = f"no stored prefix hashes alike (deepest stored prefix {deepest} of {len(ids)} tokens)"
+            elif wrong_keys and wrong_keys == len(pairs):
+                why = f"all {wrong_keys} stored pairs carry another sampling fingerprint"
+            else:
+                why = f"no stored pair reaches {self.slot_save_min_tokens} tokens"
+            print(f"[strata] auto slot restore none: {why}", flush=True)
             return 0
         session, meta = found
         try:
