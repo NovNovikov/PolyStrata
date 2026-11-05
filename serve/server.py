@@ -5550,6 +5550,8 @@ class Service:
                                 # every one of these reasons used to be silent, which made "no saves" a hunt
                                 why = ("the reply delivered a tool call, a step of the turn" if saw_tool_call
                                        else f"finish is {finish}" if finish in ("cancel", "disconnect", "error")
+                                       else "the request carried pictures, and a session file stores no vision rows"
+                                       if emb
                                        else "strata_checkpoint is False"
                                        if (sampling or {}).get("strata_checkpoint") is False else None)
                                 if why is not None:
