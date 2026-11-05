@@ -244,6 +244,23 @@ class WindowsDetection(unittest.TestCase):
         self.assertEqual(setup.win_amd_arch(0x73DF, "AMD Radeon RX 6800M"), "gfx1031")
         self.assertIsNone(setup.amd_problem({"arch": "gfx1031"}))
 
+    def test_rx_6650_xt_is_gfx1032(self):
+        """Issue 121: PCI 73EF (RX 6650 XT) and 73FF (RX 6600 / 6600 XT) are gfx1032, and so is the name of one
+        whose id is not listed."""
+        self.assertEqual(setup.win_amd_arch(0x73EF, "AMD Radeon RX 6650 XT"), "gfx1032")
+        self.assertEqual(setup.win_amd_arch(0x73FF, "AMD Radeon RX 6600"), "gfx1032")
+        self.assertEqual(setup.win_amd_arch(0x1234, "AMD Radeon RX 6600 XT"), "gfx1032")
+        self.assertIsNone(setup.amd_problem({"arch": "gfx1032"}))
+
+    def test_rx_5700_xt_is_gfx1010(self):
+        """PCI 731F (RX 5600 XT / 5700 / 5700 XT, Navi 10) is gfx1010, and so is the name of one whose id is not
+        listed; the RX 5500 (gfx1012, Navi 14) is not taken for it."""
+        self.assertEqual(setup.win_amd_arch(0x731F, "AMD Radeon RX 5700 XT"), "gfx1010")
+        self.assertEqual(setup.win_amd_arch(0x1234, "AMD Radeon RX 5600 XT"), "gfx1010")
+        self.assertEqual(setup.win_amd_arch(0x1234, "AMD Radeon RX 5700"), "gfx1010")
+        self.assertEqual(setup.win_amd_arch(0x7340, "AMD Radeon RX 5500 XT"), "")
+        self.assertIsNone(setup.amd_problem({"arch": "gfx1010"}))
+
     def test_cpu_vision_build_uses_the_visual_studio_environment(self):
         """#881: build_vision_cpu on Windows hands cmake_build the vcvars file and a real .bat name (it passed None and
         an empty name before)."""
@@ -258,7 +275,8 @@ class WindowsDetection(unittest.TestCase):
     def test_registry_alone(self):
         """No WMI answer: the registry's own list (which can hold a removed card)."""
         g = setup.amd_gpus_windows([], self.REGISTRY)
-        self.assertEqual([x["arch"] for x in g if not x["arch"].startswith("unknown")], ["gfx1201", "gfx1101"])
+        self.assertEqual([x["arch"] for x in g if not x["arch"].startswith("unknown")],
+                         ["gfx1032", "gfx1201", "gfx1101"])   # the removed RX 6600 too
 
     def test_arch_names(self):
         for name, arch in (("AMD Radeon RX 9070 GRE", "gfx1201"), ("AMD Radeon AI PRO R9700", "gfx1201"),

@@ -14,7 +14,8 @@ Images (optional, when the config has a "vision" entry): OpenAI image_url parts 
 data, http(s) URLs or local file paths) go through `strata-vision` (the model's mmproj file) and reach the engine as
 embeddings (`GENI`).  JPEG/PNG/BMP/GIF go straight in; WebP, TIFF, AVIF, ... (agents like omp send WebP) are
 converted to PNG first with Pillow.
-Requests whose prompt plus max tokens exceed the engine's context are REJECTED with 400, never truncated.
+Requests whose prompt plus max tokens exceed the engine's context are rejected with 400 by default. The opt-in
+`truncate_middle` setting can trim an oversized text prompt while keeping its beginning and ending.
 An unset (or 0, or -1) max tokens means "unlimited": whatever the prompt leaves of the context.
 
 The engine boundary is `Engine.generate(prompt_ids, max_new, sampling, cancel) -> iterator of token ids`.
@@ -846,6 +847,10 @@ class StrataEngine:
     last_err = None                      # #997: an ERR that was its last stdout line (death_note says it)
     batch = 0                            # --batch: the engine's batch slots (0: one request at a time)
     turn_ids = frozenset()               # Service: the tokens that open a chat turn (turn_key()); survives restart()
+    # Service: the tokens the engine itself ends a reply on (its default --eos-ids); survives restart().  A slot request
+    # whose last token is one of them has its BDONE right behind it.  EOS_IDS is ChatML's: a Gemma reply ending at
+    # <turn|> was taken for a consumer that left early, and the slot went down the BSTOP path (#1994, #1603).
+    eos_ids = frozenset(EOS_IDS)
 
     # `last`: the figures of the engine's last DONE line.  With batch slots several requests run at once, each on its
     # own thread, so each one reads its own request's figures (Service.run records them); one at a time, the one dict.
@@ -1482,6 +1487,8 @@ class StrataEngine:
         says BDONE (in the background).  `stream`: the prompt and every token of it so far - with the tokens still to
         come before BDONE, all but the last are what the slot holds then (the next turn of its conversation)."""
         if slot >= len(self.slot_q):                    # the engine restarted with fewer slots: this one is gone
+            with self.slot_cv:
+                self.slot_claims.discard(slot)
             return
         try:
             self._send(f"BSTOP {slot}")
@@ -1489,7 +1496,14 @@ class StrataEngine:
             pass
         q, busy, held = self.slot_q[slot], self.slot_busy, self.slot_held   # this process's: restart() replaces them
         releasing = self.slot_releasing
-        releasing.add(slot)
+        # The BDONE wait owns it from here, and the request's claim goes in the same step, before the wait starts.
+        # Dropped after it (the caller did), a BDONE already queued let the wait free the slot and the next request
+        # claim it first: the drop then took THAT request's claim, the reaper freed the slot under it as ownerless,
+        # and the engine refused the BGEN that followed (#1994, #1603).
+        with self.slot_cv:
+            releasing.add(slot)
+            self.slot_claims.discard(slot)
+            self._orphan_seen.pop(slot, None)
 
         def wait():
             end = time.monotonic() + 600.0
@@ -1518,6 +1532,14 @@ class StrataEngine:
                 self.slot_cv.notify_all()
         threading.Thread(target=wait, daemon=True).start()
 
+    def _claim_slot(self, slot: int) -> None:
+        """A request takes `slot` (the caller holds slot_cv).  Its earlier sighting as ownerless is dropped: kept, the
+        next moment it looked ownerless (a hand-over) counted from that old sighting, and the reaper freed a slot in use
+        at once instead of after ORPHAN_SLOT_S."""
+        self.slot_busy[slot] = True
+        self.slot_claims.add(slot)
+        self._orphan_seen.pop(slot, None)
+
     BGEN_REFUSALS_MAX = 6    # #1994: how often one request tries another slot after the engine refused a BGEN
     SLOT_PARK_S = 2.0        # ... and how long a refused slot stays out of the picks
 
@@ -1527,6 +1549,7 @@ class StrataEngine:
         with self.slot_cv:
             self.slot_claims.discard(slot)
             self.slot_busy[slot] = True
+            self._orphan_seen.pop(slot, None)
         busy = self.slot_busy
 
         def free():
@@ -1702,8 +1725,7 @@ class StrataEngine:
                             with self.slot_cv:          # the slot the part read will wait in
                                 reserved = self.pick_slot(prompt)
                                 if reserved is not None:
-                                    self.slot_busy[reserved] = True
-                                    self.slot_claims.add(reserved)
+                                    self._claim_slot(reserved)
                             if reserved is not None:
                                 self._send(f"BYIELD {reserved}")
                     for x in self._control(cancel, pending.append, stop_when=others, on_quiet=give_way):
@@ -1732,7 +1754,7 @@ class StrataEngine:
                     if slot is None:
                         finish = (self.last or {}).get("finish") if isinstance(self.last, dict) else None
                         left = int(max_new) - len(out)
-                        if cancel.is_set() or left <= 0 or finish in ("stop", "length") or (out and out[-1] in EOS_IDS):
+                        if cancel.is_set() or left <= 0 or finish in ("stop", "length") or (out and out[-1] in self.eos_ids):
                             return
                         if reused0 is None:
                             reused0 = (self.last or {}).get("reused")
@@ -1750,8 +1772,7 @@ class StrataEngine:
                             with self.slot_cv:
                                 slot = self.pick_slot(prompt)
                                 if slot is not None:
-                                    self.slot_busy[slot] = True
-                                    self.slot_claims.add(slot)
+                                    self._claim_slot(slot)
                                     if admit_wait:
                                         admit_wait = False
                                         self.admitting = max(0, self.admitting - 1)
@@ -1897,7 +1918,7 @@ class StrataEngine:
                             self.slot_held[slot] = []
                             raise EngineNonFinite("the engine's logits became non-finite (#879)")
                         if (going_solo and f[3:4] == ["cancel"] and not cancel.is_set() and len(out) < int(max_new)
-                                and not (out and out[-1] in EOS_IDS)):
+                                and not (out and out[-1] in self.eos_ids)):
                             # the solo path continues it: the engine copies the slot's sessions back (all but the
                             # last token are in them) and decodes with MTP drafts again
                             carry_leg(carry, self.last)         # #1869: the solo path's DONE replaces these figures
@@ -1933,7 +1954,7 @@ class StrataEngine:
             except EngineDied:
                 pass
             bdone_in = False
-            if phase == "slot" and slot is not None and out and out[-1] in EOS_IDS and self.gen == born:
+            if phase == "slot" and slot is not None and out and out[-1] in self.eos_ids and self.gen == born:
                 bd = self._bdone_after_eos(slot)            # (#1869) the slot's figures, not the admission's
                 if bd is not None:
                     self._apply_bdone(bd.split())
@@ -1965,8 +1986,7 @@ class StrataEngine:
                 elif phase == "slot":
                     self.slot_held[slot] = []
                     stream = list(prompt) + out[gen0:] if gen0 is not None and len(out) > gen0 else None
-                    self._release_slot_when_done(slot, stream)    # freed at its BDONE
-                    self.slot_claims.discard(slot)                # (the BDONE wait owns it now)
+                    self._release_slot_when_done(slot, stream)    # freed at its BDONE (the wait owns it now)
                 else:
                     with self.slot_cv:
                         self.slot_busy[slot] = False
@@ -3263,6 +3283,7 @@ class Service:
         self.engine, self.tok, self.template, self.model, self.vision = engine, tokenizer, template, model_name, vision
         self.fit_max_tokens = fit_max_tokens          # --fit-max-tokens: clamp the output cap instead of 400
         self.drop_oldest = False                      # #17 (opt-in): a conversation too long loses its oldest turns
+        self.truncate_middle = False                  # opt-in: keep a prompt's beginning and ending when it will not fit
         self.preserve_thinking = False                # #25 (opt-in): earlier turns keep their thinking in the prompt
         self.reasoning_memory: collections.OrderedDict[str, str] = collections.OrderedDict()   # remember_reasoning()
         self.aliases: list[str] = []                  # #297: other names of the model (the config's `aliases`)
@@ -3381,6 +3402,10 @@ class Service:
             special = getattr(tokenizer, "special_ids", None) or {}
             self.stop_ids = {special[k] for k in ("tokenizer.ggml.eos_token_id", "tokenizer.ggml.eot_token_id",
                                                   "tokenizer.ggml.eom_token_id") if k in special}
+        # these are exactly the engine's default --eos-ids (a ChatML model's <|im_end|> and <|endoftext|>, else the
+        # GGUF's eos, eot and eom): what it ends a slot's reply on.  The model-specific stops added below are not.
+        if self.stop_ids:
+            self.engine.eos_ids = frozenset(self.stop_ids)
         # the tokenizer's own tokens under the names a template knows them by (Gemma's starts with bos_token)
         special = getattr(tokenizer, "special_ids", None) or {}
         self.template_tokens = {name: tokenizer.decode([special[key]]) for name, key in (
@@ -4778,6 +4803,26 @@ class Service:
                   f"were left out (drop_oldest)", flush=True)
         return messages, ids
 
+    def truncate_prompt_middle(self, ids, max_new):
+        """With "truncate_middle": true, keep the prompt's beginning and ending when text alone exceeds context.
+
+        Leave room for an explicitly requested answer, or one eighth of the context when no answer limit was given.
+        Image prompts are excluded by the caller because cutting encoded image embeddings would corrupt their layout.
+        """
+        ctx = self.engine.max_context or getattr(self.engine, "known_ctx", 0)
+        if ctx <= 0:
+            return ids
+        answer_room = max_new if max_new is not None and max_new > 0 else ctx // 8
+        prompt_room = ctx - CTX_SLACK - answer_room
+        if prompt_room < 1 or len(ids) <= prompt_room:
+            return ids
+        keep_start = (prompt_room + 1) // 2
+        keep_end = prompt_room - keep_start
+        removed = len(ids) - prompt_room
+        print(f"[strata] the prompt did not fit the context ({ctx} tokens): its {removed} middle tokens were "
+              f"left out (truncate_middle)", flush=True)
+        return ids[:keep_start] + (ids[-keep_end:] if keep_end else [])
+
     def forget_prompt(self, ids):
         if self.prompts is not None:
             self.prompts.forget(ids)
@@ -4798,10 +4843,13 @@ class Service:
             encoded_ids = ids
         if force and kwargs.get("enable_thinking", True) is False:
             ids = ids + self.tok.encode(force, parse_special=True)
+        images = images_of(messages)
+        if self.truncate_middle and not images:
+            ids = self.truncate_prompt_middle(ids, max_new)
+        # positions are taken AFTER a middle-trim: they must describe the ids that are actually sent
         checkpoint_positions = self.assistant_checkpoint_positions(messages, tools, kwargs, ids)
         self.embeddings.path = None
         self.embeddings.keys = None
-        images = images_of(messages)
         if images:
             if self.vision is None:
                 raise ValueError("this server was started without the vision encoder (run setup again and choose "
@@ -7783,6 +7831,7 @@ def model_settings(cfg: dict, overrides: dict | None = None) -> dict:
         "fit_max_tokens": bool(over.get("fit_max_tokens")) or cfg.get("fit_max_tokens") is True,
         "reasoning_close_retry": cfg.get("reasoning_close_retry") is True,   # #1053: opt-in, off by default
         "drop_oldest": cfg.get("drop_oldest") is True,                       # #17: opt-in, off by default
+        "truncate_middle": cfg.get("truncate_middle") is True,               # opt-in, off by default
         "preserve_thinking": cfg.get("preserve_thinking") is True,           # #25: opt-in, off by default
         "config_effort": effort,
         "codex_thread_titles": cfg.get("codex_thread_titles") is True,       # #923: opt-in, off by default
