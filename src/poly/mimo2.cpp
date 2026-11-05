@@ -272,8 +272,10 @@ void Mimo2::save_layer(int il, int64_t pos, uint8_t* dst) {
     const size_t krow = (size_t) B.n_kv * dim_k_ * sizeof(uint16_t);
     const size_t vrow = (size_t) B.n_kv * dim_v_ * sizeof(uint16_t);
     dst += state_n_ * sizeof(float);
+    // every earlier window layer's own width: the layers of one file may answer with different key-head counts
     for (int j = 0; j < il; ++j)
-        if (blocks_[(size_t) j].swa) dst += (size_t) keep_ * (krow + vrow);
+        if (blocks_[(size_t) j].swa)
+            dst += (size_t) keep_ * blocks_[(size_t) j].n_kv * (dim_k_ + dim_v_) * sizeof(uint16_t);
     const uint16_t* cache[2] = {B.keys, B.vals};
     const size_t row[2] = {krow, vrow};
     for (int side = 0; side < 2; ++side) {
@@ -414,8 +416,26 @@ void Mimo2::block_qkv(Block& B, int64_t pos, int n) {
     recording_ = was_recording;
 }
 
-// The rows the real tokens leave in the block's ring: the block reads nothing of them but the caches.
-void Mimo2::block_rows(int64_t pos, int n) { block_qkv(blocks_[(size_t) n_layer_], pos, n); }
+// The rows the real tokens leave in the chain's rings: the blocks read nothing of them but the caches.  The
+// first block reads the joined rows draft_input() quantized for the whole call; every other block of the chain
+// joins with its own norms and so runs one token at a time.  Without these rows the chained blocks would see
+// a window of never-written ring places on a session's first guess - the card hands out cudaMalloc memory
+// as it lies - and a rejected guess would stand in a later token's place: a window's place is read before
+// its position is next reached, and the training of these blocks knows only streams of real tokens.
+void Mimo2::block_rows(int64_t pos, int n) {
+    block_qkv(blocks_[(size_t) n_layer_], pos, n);
+    if (!tok_) return;   // without the read's tokens nothing can be joined: the first block's rows, as before
+    const size_t e = (size_t) n_embd_;
+    for (int t = 0; t < n; ++t) {
+        const int64_t at = pos + t;
+        const int32_t token = tok_[at - pos_];   // tok_'s row 0 stands at pos_, as every read leaves it
+        for (int d = 1; d < n_draft_; ++d) {
+            const int il = n_layer_ + d;
+            block_input(token, at, hn_ + (size_t) (at - pos_) * e, il);
+            block_qkv(blocks_[(size_t) il], at, 1);
+        }
+    }
+}
 
 // A guess's attention: its own row in the ring, then the window it attends, the sink among it, the output.
 void Mimo2::block_attend_to(Block& B, int64_t pos, int n) {
@@ -481,6 +501,16 @@ void Mimo2::draft_step(int32_t token, int i) {
     head.n_out = draft_rows();
     lin(head, xn_, logits_, 1);
     finish_logits(logits_, 1);
+    // The token being answered for leaves its row in the rings of every block of the chain, not just the one
+    // the guess ran through: block_rows() covers a read's tokens and the guesses cover their own places, and
+    // this is the decode step's place.  A window that skipped a position reads that ring place for a whole
+    // window after it - a rejected guess's row, or memory the card never wrote.
+    if (i == 0)
+        for (int d = 1; d < n_draft_; ++d) {
+            const int il = n_layer_ + d;
+            block_input(token, pos_, hn_, il);
+            block_qkv(blocks_[(size_t) il], pos_, 1);
+        }
 }
 
 // The dense first layer's FFN: a SwiGLU of 16384 hidden values.
