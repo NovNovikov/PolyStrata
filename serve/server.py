@@ -3844,8 +3844,10 @@ class Service:
         entries = self._auto_index.entries(store)
         try:
             if auto_sessions.covered(store, self.model, keys, sha_full, entries):
+                print("[strata] auto slot save skipped: this exact state is already stored", flush=True)
                 return                                    # this exact session is already stored
-        except OSError:
+        except OSError as e:                              # the store scan failed: the request must not eat it
+            print(f"[strata] auto slot save skipped: the store scan failed: {e}", flush=True)
             return
         session = auto_sessions.entry_name(sha_full, len(full))
         try:
@@ -5529,6 +5531,17 @@ class Service:
                             if (not par and not emb and n > 0 and self.slot_save_auto
                                     and self.slot_save_path):
                                 self._auto_last = (list(ids), list(raw_ids), dict(sampling or {}))
+                            if (self.slot_save_auto and self.slot_save_path and not par and not emb
+                                    and n > 0 and len(ids) >= self.slot_save_min_tokens):
+                                # the request WAS save-sized: say out loud when a step skips the checkpoint -
+                                # every one of these reasons used to be silent, which made "no saves" a hunt
+                                why = ("the reply delivered a tool call, a step of the turn" if saw_tool_call
+                                       else f"finish is {finish}" if finish in ("cancel", "disconnect", "error")
+                                       else "strata_checkpoint is False"
+                                       if (sampling or {}).get("strata_checkpoint") is False else None)
+                                if why is not None:
+                                    print(f"[strata] auto slot save skipped: {why} "
+                                          f"({len(ids)} + {n} tokens; armed for the idle flush)", flush=True)
                             if (not par and not emb and n > 0
                                     and finish not in ("cancel", "disconnect", "error")
                                     and not saw_tool_call        # an agent's turn ends with the call-free answer,
