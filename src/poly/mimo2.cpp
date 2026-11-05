@@ -436,7 +436,7 @@ void Mimo2::block_attend(int64_t pos, int n) { block_attend_to(blocks_[(size_t) 
 void Mimo2::block_input(int32_t token, int64_t row, const float* h, int il) {
     if (ev_hr_) ck(PA_WAIT_EVENT((cudaEvent_t) ev_hr_), "embed");
     input(token, row, h_r_);
-    PA_COPY2_KERNEL(cur_, h_r_, n_embd_, nullptr, nullptr, 0, st_);
+    PA_COPY2_KERNEL(h_r_, cur_, n_embd_, nullptr, nullptr, 0, st_);   // host's row into the card's, as draft_input()
     if (!ev_hr_) {
         cudaEvent_t ev = nullptr;
         ck(cudaEventCreateWithFlags(&ev, cudaEventDisableTiming), "cudaEventCreate");
@@ -474,11 +474,12 @@ void Mimo2::draft_step(int32_t token, int i) {
     rms_norm(x, fp(L.ffn_norm), xn_, n_embd_, 1, rms_eps_, st_);
     kernels::native_quantize_q8_1(xn_, xq_, n_embd_, 1, st_);
     dense_ffn(B, il, 1);
-    axpy(fo_, 1.f, x, n_embd_, true, st_);
-    rms_norm(x, fp(B.out_norm), own, n_embd_, 1, rms_eps_, st_);
+    axpy(fo_, 1.f, x, n_embd_, true, st_);   // x is now the block's residual - what the graph hands on uncropped
+    PA_COPY2_KERNEL(x, own, n_embd_, nullptr, nullptr, 0, st_);
+    rms_norm(own, fp(B.out_norm), xn_, n_embd_, 1, rms_eps_, st_);   // and the head reads it normed, as a copy
     Dev head = output_;   // the matrix's first rows are the common tokens'
     head.n_out = draft_rows();
-    lin(head, own, logits_, 1);
+    lin(head, xn_, logits_, 1);
     finish_logits(logits_, 1);
 }
 
