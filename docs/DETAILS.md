@@ -1318,8 +1318,12 @@ only: manual saves are never touched; 0 = unlimited). Completions save; a sessio
 longer than `--slot-save-idle-seconds` (default 60, -1 = disabled) is flushed, and the
 last finished one is saved at shutdown. The store carries an in-memory index (one
 readdir per change, not per request). One-shot calls
-(`"strata_checkpoint": false`), image requests, cancelled requests and parallel requests
-are never auto-saved (replicas have no session files, as with manual saves). When a restore is refused for RAM
+(`"strata_checkpoint": false`), cancelled requests and parallel requests
+are never auto-saved (replicas have no session files, as with manual saves). Requests
+that carried pictures are saved and restored like any other: the session file stores
+each picture's key, and the engine reuses a saved state only when the prompt's tokens
+and its pictures' keys match (#2228), so a different picture at the same place re-reads
+instead of reusing wrong K/V. When a restore is refused for RAM
 shortage, the pair is kept and the attempt repeats later (RAM moves), and the engine first gives up the outgoing
 session's reconstructible caches once (parked conversations, the retained K/V, unpinned checkpoints: the file
 replaces them whole), which measured this working at 72k-token sessions where the plain check refused. Stage 1 saved whole sessions under one prefix each; stage 2

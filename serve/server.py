@@ -5228,7 +5228,8 @@ class Service:
                                    "reasoning_tokens": 0, "reasoning_recoveries": 0}
                     return
             with turn:
-                if not par and not emb:
+                if not par:      # picture sessions restore too: the engine only reuses a prefix whose
+                                 # image keys match the request's (#2228), so a wrong picture re-reads, never lies
                     self.auto_restore_session(ids, sampling)
                 try:
                     with self.status_lock:
@@ -5541,23 +5542,21 @@ class Service:
                                 timings = request_timings(seen, n, last)
                                 self.last_timings = dict(timings, at=int(time.time())) if timings else None
                             self.last_request_at = time.time()
-                            if (not par and not emb and n > 0 and self.slot_save_auto
+                            if (not par and n > 0 and self.slot_save_auto
                                     and self.slot_save_path):
                                 self._auto_last = (list(ids), list(raw_ids), dict(sampling or {}))
-                            if (self.slot_save_auto and self.slot_save_path and not par and not emb
+                            if (self.slot_save_auto and self.slot_save_path and not par
                                     and n > 0 and len(ids) >= self.slot_save_min_tokens):
                                 # the request WAS save-sized: say out loud when a step skips the checkpoint -
                                 # every one of these reasons used to be silent, which made "no saves" a hunt
                                 why = ("the reply delivered a tool call, a step of the turn" if saw_tool_call
                                        else f"finish is {finish}" if finish in ("cancel", "disconnect", "error")
-                                       else "the request carried pictures, and a session file stores no vision rows"
-                                       if emb
                                        else "strata_checkpoint is False"
                                        if (sampling or {}).get("strata_checkpoint") is False else None)
                                 if why is not None:
                                     self.auto_log(f"auto slot save skipped: {why} "
                                                   f"({len(ids)} + {n} tokens; armed for the idle flush)")
-                            if (not par and not emb and n > 0
+                            if (not par and n > 0
                                     and finish not in ("cancel", "disconnect", "error")
                                     and not saw_tool_call        # an agent's turn ends with the call-free answer,
                                                                    # and only there: the calls in between are steps,
