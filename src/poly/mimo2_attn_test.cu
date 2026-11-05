@@ -21,8 +21,10 @@ namespace {
 
 using namespace strata::poly;
 
-// MiMo's own numbers, kept small where the test does not need the whole model
-constexpr int kDimK = 192, kDimV = 128, kHeads = 8, kRot = 64;
+// MiMo's own numbers: key 192, value 128, the rope's 64 of the key, the base 1e7 and 1e4 (theta as
+// powers of it stay the test's own, both sides turn by the same scale).  The head count is a
+// parameter: the cheap cases run 8, the cases below run the model's 64 with its true ratios.
+constexpr int kDimK = 192, kDimV = 128, kRot = 64;
 constexpr float kThetaGlobal = 0.9f, kThetaSwa = 0.7f;
 
 unsigned rng_state = 12345;
@@ -67,15 +69,16 @@ void ref_rope(const float* head, int dim, int n_rot, float theta_scale, long lon
 
 // one test: a random fused row per token; the kernel splits and turns it, the host does the same twice over.
 // then the q/k/v go through fp16 into caches and the attention runs against the host's sums.
-void test_layer(int n_kv, bool swa, long long pos, int rows, bool with_at, int window = 64) {
+void test_layer(int n_head, int n_kv, bool swa, long long pos, int rows, bool with_at, int window = 64,
+                int room = 0) {
     const int kWindow = window;
-    const int row = kDimK * (kHeads + n_kv) + kDimV * n_kv;
+    const int row = kDimK * (n_head + n_kv) + kDimV * n_kv;
     const int ring = swa ? kWindow + 8 : 0;
     std::vector<float> src(size_t(rows) * row);
     for (float& x : src) x = frand();
 
     float* dsrc = upload(src);
-    std::vector<float> dq(size_t(rows) * kHeads * kDimK, -777.f), dk(size_t(rows) * n_kv * kDimK, -777.f),
+    std::vector<float> dq(size_t(rows) * n_head * kDimK, -777.f), dk(size_t(rows) * n_kv * kDimK, -777.f),
         dv(size_t(rows) * n_kv * kDimV, -777.f);
     float *dq_d = nullptr, *dk_d = nullptr, *dv_d = nullptr;
     cudaMalloc(&dq_d, dq.size() * sizeof(float));
@@ -86,44 +89,48 @@ void test_layer(int n_kv, bool swa, long long pos, int rows, bool with_at, int w
     if (with_at) {
         cudaMalloc(&at_d, sizeof(long long));
         cudaMemcpy(at_d, &pos, sizeof(long long), cudaMemcpyHostToDevice);
-        mimo2_rope_split(dsrc, row, rows, dq_d, dk_d, dv_d, kDimK, kDimV, kHeads, n_kv, kRot,
+        mimo2_rope_split(dsrc, row, rows, dq_d, dk_d, dv_d, kDimK, kDimV, n_head, n_kv, kRot,
                          swa ? kThetaSwa : kThetaGlobal, 0, nullptr, at_d);
     } else {
-        mimo2_rope_split(dsrc, row, rows, dq_d, dk_d, dv_d, kDimK, kDimV, kHeads, n_kv, kRot,
+        mimo2_rope_split(dsrc, row, rows, dq_d, dk_d, dv_d, kDimK, kDimV, n_head, n_kv, kRot,
                          swa ? kThetaSwa : kThetaGlobal, pos, nullptr, nullptr);
     }
     dq = download(dq_d, dq.size());
     dk = download(dk_d, dk.size());
     dv = download(dv_d, dv.size());
 
-    // the host split and turn, in double over the same floats
+    // the host split and turn, in double over the same floats.  A turn of 100000 radians is stored in a
+    // float, and a float at that size has steps of 0.0078: the angle alone moves sin and cos by about
+    // that, the same in the engine's kernel and in llama.cpp's rope.  The tolerance grows with the
+    // position so a deep conversation tests the split and the pairs, not the float's ceiling.
+    const double rope_tol = std::max(3e-5, double(pos) * 2.5e-7);
     double most = 0.;
     std::vector<float> y;
     for (int t = 0; t < rows; ++t) {
         const float* src_row = src.data() + size_t(t) * row;
-        for (int h = 0; h < kHeads; ++h) {
+        for (int h = 0; h < n_head; ++h) {
             ref_rope(src_row + size_t(h) * kDimK, kDimK, kRot, swa ? kThetaSwa : kThetaGlobal, pos + t, y);
             for (int i = 0; i < kDimK; ++i) {
-                const double d = std::fabs(y[i] - dq[size_t(t) * kHeads * kDimK + size_t(h) * kDimK + i]);
-                if (d == most && most > 3e-5)
+                const double d = std::fabs(y[i] - dq[size_t(t) * n_head * kDimK + size_t(h) * kDimK + i]);
+                if (d == most && most > rope_tol)
                     std::printf("  first diff: t %d h %d i %d want %.6g got %.6g\n", t, h, i, y[i],
-                                dq[size_t(t) * kHeads * kDimK + size_t(h) * kDimK + i]);
+                                dq[size_t(t) * n_head * kDimK + size_t(h) * kDimK + i]);
                 most = std::max(most, d);
             }
         }
         for (int h = 0; h < n_kv; ++h) {
-            ref_rope(src_row + size_t(kHeads + h) * kDimK, kDimK, kRot, swa ? kThetaSwa : kThetaGlobal, pos + t, y);
+            ref_rope(src_row + size_t(n_head + h) * kDimK, kDimK, kRot, swa ? kThetaSwa : kThetaGlobal, pos + t, y);
             for (int i = 0; i < kDimK; ++i) {
                 const double d = std::fabs(y[i] - dk[size_t(t) * n_kv * kDimK + size_t(h) * kDimK + i]);
-                if (d > 3e-5)
+                if (d > rope_tol)
                     std::printf("  k diff: t %d h %d i %d want %.6g got %.6g\n", t, h, i, y[i],
                                 dk[size_t(t) * n_kv * kDimK + size_t(h) * kDimK + i]);
                 most = std::max(most, d);
             }
             for (int i = 0; i < kDimV; ++i) {   // the rows v is packed dim_v a head, after the keys dim_k a head
-                const double want = src_row[size_t(kHeads + n_kv) * kDimK + size_t(h) * kDimV + i];
+                const double want = src_row[size_t(n_head + n_kv) * kDimK + size_t(h) * kDimV + i];
                 const double d = std::fabs(want - dv[size_t(t) * n_kv * kDimV + size_t(h) * kDimV + i]);
-                if (d > 3e-5)
+                if (d > rope_tol)
                     std::printf("  v diff: t %d h %d i %d want %.6g got %.6g\n", t, h, i, want,
                                 dv[size_t(t) * n_kv * kDimV + size_t(h) * kDimV + i]);
                 most = std::max(most, d);
@@ -131,9 +138,9 @@ void test_layer(int n_kv, bool swa, long long pos, int rows, bool with_at, int w
         }
     }
     char name[160];
-    std::snprintf(name, sizeof(name), "rope_split n_kv %d %s win %d pos %lld rows %d%s", n_kv, swa ? "swa" : "global",
-                  swa ? window : 0, pos, rows, with_at ? " (pos on card)" : "");
-    report(name, most, 3e-5);
+    std::snprintf(name, sizeof(name), "rope_split %d/%d %s win %d pos %lld rows %d%s", n_head, n_kv,
+                  swa ? "swa" : "global", swa ? window : 0, pos, rows, with_at ? " (pos on card)" : "");
+    report(name, most, rope_tol);
 
     // ---- the attention: the fp16-rounded sides become the caches, and past rows come from a filled cache ----
     // rows before the call: a fresh fill per position, stored the way the engine stores (pos % ring)
@@ -176,24 +183,26 @@ void test_layer(int n_kv, bool swa, long long pos, int rows, bool with_at, int w
             vref[r][i] = __half2float(__ushort_as_half(vcache[size_t(r) * n_kv * kDimV + i]));
     }
 
-    std::vector<float> sinks(kHeads);
+    std::vector<float> sinks(n_head);
     if (swa) for (float& x : sinks) x = frand() * 3.f;
     uint16_t* dkc = upload(kcache);
     uint16_t* dvc = upload(vcache);
     float* dsinks = swa ? upload(sinks) : nullptr;
     float* dout_d = nullptr;
-    cudaMalloc(&dout_d, size_t(rows) * kHeads * kDimV * sizeof(float));
+    cudaMalloc(&dout_d, size_t(rows) * n_head * kDimV * sizeof(float));
     if (with_at) {
         cudaMemcpy(at_d, &pos, sizeof(long long), cudaMemcpyHostToDevice);
-        mimo2_attend(dq_d, (uint16_t*) dkc, (uint16_t*) dvc, 0, rows, dout_d, kDimK, kDimV, kHeads, n_kv,
+        // the room the engine would give a recorded launch at this position: the sizes that ran the
+        // grid past gridDim.y's ceiling before (window layers a small one, global layers room(n))
+        mimo2_attend(dq_d, (uint16_t*) dkc, (uint16_t*) dvc, 0, rows, dout_d, kDimK, kDimV, n_head, n_kv,
                      1.f / std::sqrt((float) kDimK), nullptr, swa ? kWindow : 0, ring, at_d,
-                     std::max(rows, 8), swa ? dsinks : nullptr);
+                     room ? room : std::max(rows, 8), swa ? dsinks : nullptr);
     } else {
-        mimo2_attend(dq_d, (uint16_t*) dkc, (uint16_t*) dvc, pos, rows, dout_d, kDimK, kDimV, kHeads, n_kv,
+        mimo2_attend(dq_d, (uint16_t*) dkc, (uint16_t*) dvc, pos, rows, dout_d, kDimK, kDimV, n_head, n_kv,
                      1.f / std::sqrt((float) kDimK), nullptr, swa ? kWindow : 0, ring, nullptr, 0,
                      swa ? dsinks : nullptr);
     }
-    const std::vector<float> got = download(dout_d, size_t(rows) * kHeads * kDimV);
+    const std::vector<float> got = download(dout_d, size_t(rows) * n_head * kDimV);
 
     const double scale = 1.0 / std::sqrt((double) kDimK);
     most = 0.;
@@ -201,9 +210,9 @@ void test_layer(int n_kv, bool swa, long long pos, int rows, bool with_at, int w
     for (int t = 0; t < rows; ++t) {
         const long long p = pos + t;
         const long long lo = swa && p >= kWindow ? p - kWindow + 1 : 0;
-        for (int h = 0; h < kHeads; ++h) {
-            const int kvh = h / (kHeads / n_kv);
-            const float* q = qh.data() + (size_t(t) * kHeads + h) * kDimK;
+        for (int h = 0; h < n_head; ++h) {
+            const int kvh = h / (n_head / n_kv);
+            const float* q = qh.data() + (size_t(t) * n_head + h) * kDimK;
             std::vector<double> score;
             std::vector<const std::vector<float>*> rows_of;
             double mx = swa ? sinks[h] : -INFINITY;
@@ -222,7 +231,7 @@ void test_layer(int n_kv, bool swa, long long pos, int rows, bool with_at, int w
                 double acc = 0.;
                 for (size_t j = 0; j < score.size(); ++j)
                     acc += std::exp(score[j] - mx) / sum * (*rows_of[j])[size_t(kvh) * kDimV + i];
-                const double gotv = got[size_t(t) * kHeads * kDimV + size_t(h) * kDimV + i];
+                const double gotv = got[size_t(t) * n_head * kDimV + size_t(h) * kDimV + i];
                 if (std::isnan(gotv) || std::isinf(gotv)) nan = true;
                 most = std::max(most, std::fabs(acc - gotv));
             }
@@ -231,8 +240,8 @@ void test_layer(int n_kv, bool swa, long long pos, int rows, bool with_at, int w
     // a NaN must reach report(): std::max keeps its first argument against a NaN, so without this the
     // difference stays a number, report() calls it ok, and a NaN output exits 0 with one printed line
     if (nan) most = std::numeric_limits<double>::quiet_NaN();
-    std::snprintf(name, sizeof(name), "attend   n_kv %d %s win %d pos %lld rows %d%s", n_kv, swa ? "swa" : "global",
-                  swa ? window : 0, pos, rows, with_at ? " (pos on card)" : "");
+    std::snprintf(name, sizeof(name), "attend   %d/%d %s win %d pos %lld rows %d%s", n_head, n_kv,
+                  swa ? "swa" : "global", swa ? window : 0, pos, rows, with_at ? " (pos on card)" : "");
     report(name, most, 2e-3);
 
     cudaFree(dsrc); cudaFree(dq_d); cudaFree(dk_d); cudaFree(dv_d); cudaFree(dkc); cudaFree(dvc);
@@ -242,27 +251,39 @@ void test_layer(int n_kv, bool swa, long long pos, int rows, bool with_at, int w
 }  // namespace
 
 int main() {
-    // a global layer: 4 kv heads, no window, rows from 0; then one deep in a long conversation
-    test_layer(4, false, 0, 1, false);
-    test_layer(4, false, 7, 4, false);
-    test_layer(4, false, 333, 1, false);
-    test_layer(4, false, 333, 1, true);          // the recorded launch's position, on the card
+    // a global layer: 4 kv heads, no window, rows from 0; then one deep in a long conversation.
+    // 8 query heads: cheap cases where only the split, the ring and the window edges are under test
+    test_layer(8, 4, false, 0, 1, false);
+    test_layer(8, 4, false, 7, 4, false);
+    test_layer(8, 4, false, 333, 1, false);
+    test_layer(8, 4, false, 333, 1, true);       // the recorded launch's position, on the card
     // a window layer: the window's edges 127/128/129 (kWindow 64 here), the ring's wrap and a window of guesses
-    test_layer(8, true, 62, 1, false);
-    test_layer(8, true, 63, 1, false);
-    test_layer(8, true, 64, 1, false);           // the first key hidden
-    test_layer(8, true, 65, 3, false);           // tokens of one call see each other's rows
-    test_layer(8, true, 71, 1, false);           // the ring has wrapped once (ring = window + 8)
-    test_layer(8, true, 72, 8, false);
-    test_layer(8, true, 150, 2, true);           // wrapped again, position on the card
-    test_layer(4, true, 140, 1, false);
+    test_layer(8, 8, true, 62, 1, false);
+    test_layer(8, 8, true, 63, 1, false);
+    test_layer(8, 8, true, 64, 1, false);        // the first key hidden
+    test_layer(8, 8, true, 65, 3, false);        // tokens of one call see each other's rows
+    test_layer(8, 8, true, 71, 1, false);        // the ring has wrapped once (ring = window + 8)
+    test_layer(8, 8, true, 72, 8, false);
+    test_layer(8, 8, true, 150, 2, true);        // wrapped again, position on the card
+    test_layer(8, 4, true, 140, 1, false);
     // the model's own window of 128 and its exact edges 127 / 128 / 129, and a ring that has wrapped (ring 136)
-    test_layer(8, true, 126, 1, false, 128);
-    test_layer(8, true, 127, 1, false, 128);
-    test_layer(8, true, 128, 1, false, 128);
-    test_layer(8, true, 129, 1, false, 128);
-    test_layer(8, true, 260, 2, false, 128);
-    test_layer(8, true, 260, 8, true, 128);
+    test_layer(8, 8, true, 126, 1, false, 128);
+    test_layer(8, 8, true, 127, 1, false, 128);
+    test_layer(8, 8, true, 128, 1, false, 128);
+    test_layer(8, 8, true, 129, 1, false, 128);
+    test_layer(8, 8, true, 260, 2, false, 128);
+    test_layer(8, 8, true, 260, 8, true, 128);
+    // the model's real geometry: 64 query heads over 4 key heads global (16 to 1) and 8 window (8 to
+    // 1), read at a position a long conversation actually stands at - the ratios the engine runs and
+    // the only head counts its files give.  The host sums over the whole global history, so these two
+    // are the slow cases of this test, a few seconds each.
+    test_layer(64, 8, true, 100000, 1, false, 128);
+    test_layer(64, 4, false, 100000, 1, false);
+    // the grid's own regression: a recorded launch (the position on the card) at the room a global
+    // layer reaches past 65535 tokens - grid.y of n_head x room is past CUDA's ceiling there, and the
+    // launch of n_head x rows the kernel keeps is the whole point
+    test_layer(64, 4, false, 100000, 1, true, 128, 131072);
+    test_layer(64, 8, true, 100000, 1, true, 128, 128);
     std::printf(fails ? "FAIL %d cases\n" : "ok  all cases passed\n", fails);
     return fails ? 1 : 0;
 }
