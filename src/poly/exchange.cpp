@@ -21,6 +21,9 @@ void Engine::init_exchange() {
                          "budget=%.1f%% of preceding eval; no extra weight arena\n",
                  full_cached_, opt_.no_disk_exchange_cache ? "enabled (swap scratch keeps the first slot)" : "disabled",
                  slot_max_, opt_.exchange_max, opt_.exchange_cooldown, opt_.exchange_budget_pct);
+    if (opt_.expert_swaps == 0)   // follow_exchange() and the copy cache both sit behind --expert-swaps
+        std::fprintf(stderr, "strata-poly: expert exchange: --expert-swaps 0 - no exchange and no copy "
+                             "cache will ever run, the mode is inert\n");
 }
 
 void Engine::exchange_pair(int il, int hot, int cold, int fault, bool forced_verify) {
