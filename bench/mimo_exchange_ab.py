@@ -115,10 +115,15 @@ class Encoder:
         return self.tok.decode(ids)
 
 
+EXPERIMENT = ("--no-disk-expert-exchange", "--no-disk-exchange-cache")
+
+
 def fresh_args(base_args, work, extra):
     """base_args with the session dir and expert profile redirected into `work` and the phase's
-    flags appended. The originals are only read."""
-    args = list(base_args) + list(extra)
+    flags appended. Both experiment flags are stripped from the config's args first: a config used
+    for everyday running with the cache on must not hand that flag to the plain phase too. The
+    originals are only read."""
+    args = [a for a in base_args if a not in EXPERIMENT] + list(extra)
     work.mkdir(parents=True, exist_ok=False)
     (work / "sessions").mkdir()
     args[args.index("--session-dir") + 1] = str(work / "sessions")
@@ -154,13 +159,18 @@ def run_phase(name, base_args, extra, enc, prompts, out, say, exe, env):
     threading.Thread(target=reader, daemon=True).start()
     protocol = open(out / f"protocol-{name}.txt", "w", encoding="utf8", buffering=1)
 
-    def line():
+    def line(what, timeout):
+        # a live but wedged engine never closes stdout and never answers: each wait has its own
+        # deadline, and the raise runs the finally (QUIT, then kill after 120 s)
+        end = time.monotonic() + timeout
         while True:
             try:
                 ln = lines.get(timeout=2)
             except queue.Empty:
                 if p.poll() is not None:
                     raise RuntimeError(f"движок вышел раньше срока (код {p.poll()}, см. engine-{name}.stderr)")
+                if time.monotonic() > end:
+                    raise RuntimeError(f"нет ответа ({what}) больше {timeout} с при живом процессе - останавливаю фазу")
                 continue
             if ln is None:
                 raise RuntimeError(f"stdout движка закрылся (код {p.poll()}, см. engine-{name}.stderr)")
@@ -175,7 +185,7 @@ def run_phase(name, base_args, extra, enc, prompts, out, say, exe, env):
         p.stdin.flush()
         toks, stamps = [], []
         while True:
-            ln = line()
+            ln = line(f"DONE запроса {number}", 900)
             if ln.startswith("T "):
                 toks.append(int(ln.split()[1]))
                 stamps.append(time.monotonic())
@@ -201,7 +211,7 @@ def run_phase(name, base_args, extra, enc, prompts, out, say, exe, env):
 
     requests, error = [], None
     try:
-        while not line().startswith("READY "):
+        while not line("READY", 1800).startswith("READY "):
             pass
         say(f"READY за {time.monotonic() - t0:.1f} с")
         requests.append(generate(1, prompts["req1"], prompts["max_new"]))
