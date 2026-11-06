@@ -59,6 +59,7 @@ struct Options {
     std::string profile;          ///< expert use counts; orders the expert cache, and save_profile() adds to it
     bool gpu_experts = true;
     bool no_disk_expert_exchange = false; ///< opt-in: exchange ownership of RAM and main GPU slots
+    bool no_disk_exchange_cache = false; ///< opt-in: staging's spare slots keep RAM-expert copies during decode next to the exchanges
     int exchange_max = 1;        ///< completed exchanges per eval boundary
     int exchange_cooldown = 0;   ///< evaluated decode rows before either expert can exchange again
     float exchange_budget_pct = 10.f; ///< soft budget for further exchanges vs preceding eval; always allow first

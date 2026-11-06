@@ -1232,6 +1232,8 @@ std::unique_ptr<Engine> Engine::open(const Options& o) {
         throw std::runtime_error("--coalesce-expert-dma requires --no-disk");
     if (o.no_disk_expert_exchange && !o.no_disk)
         throw std::runtime_error("--no-disk-expert-exchange requires --no-disk");
+    if (o.no_disk_exchange_cache && !o.no_disk_expert_exchange)
+        throw std::runtime_error("--no-disk-exchange-cache requires --no-disk-expert-exchange");
     if (o.no_disk_expert_exchange && (o.exchange_max < 1 || o.exchange_max > 64 || o.exchange_cooldown < 0 ||
         !std::isfinite(o.exchange_budget_pct) || o.exchange_budget_pct <= 0 || o.exchange_budget_pct > 100))
         throw std::runtime_error("exchange: max must be 1..64, cooldown nonnegative, budget 0..100 percent");
@@ -1489,9 +1491,13 @@ void Engine::print_memory(const char* when) const {
                  when, device_, mib(device), mib(dense), mib(experts), mib(kv), mib(staging), mib(rows), mib(other),
                  opt_.vram_reserve_mib >= 0 ? std::max(opt_.vram_reserve_mib, 256) : reserve_mib_);
     if (opt_.no_disk_expert_exchange)
-        std::fprintf(stderr, "strata-poly: memory[%s] expert placement: adaptive_main=%d, staging_cache=disabled, "
+        std::fprintf(stderr, "strata-poly: memory[%s] expert placement: adaptive_main=%d, staging_cache=%s, "
                              "temporary_capacity=%zu bytes inside staging; exchanges=%llu verified=%llu\n",
-                     when, full_cached_, slot_max_, (unsigned long long) exchange_stats_.completed,
+                     when, full_cached_,
+                     opt_.no_disk_exchange_cache
+                         ? (resident_stage_active_ ? "copies active" : "copies ready, none cached")
+                         : "disabled",
+                     slot_max_, (unsigned long long) exchange_stats_.completed,
                      (unsigned long long) exchange_stats_.verified);
     else if (opt_.no_disk)
         std::fprintf(stderr, "strata-poly: memory[%s] expert placement: permanent=%d, staging_cache=%zu/%zu "
@@ -1761,10 +1767,20 @@ void Engine::fill_expert_cache() {
 
 // The thread and the stream that bring experts into the cache while an answer is written (follow()).
 void Engine::start_swaps() {
-    if (opt_.no_disk_expert_exchange) { init_exchange(); return; }
-    if (swap_ || (!opt_.no_disk && cached_ == 0) || opt_.expert_swaps == 0) return;
+    if (opt_.no_disk_expert_exchange) {
+        init_exchange();
+        // Without --no-disk-exchange-cache the staging is only the swap's scratch, as it always was. With it,
+        // the same slots follow_resident() uses in plain --no-disk keep copies of RAM experts during decode:
+        // the swap transaction writes stage_[0, raw) with raw <= slot_max_, so the first slot stays scratch
+        // and the cache copies start at the second one; nothing else about the exchange changes.
+        if (!opt_.no_disk_exchange_cache) return;
+    } else if (swap_ || (!opt_.no_disk && cached_ == 0) || opt_.expert_swaps == 0) return;
+    if (swap_ || opt_.expert_swaps == 0 || (!opt_.no_disk && cached_ == 0)) return;
     if (opt_.no_disk) {
-        if (!expert_dma_ || !stage_ || !slot_max_ || stage_bytes_ < slot_max_) return;
+        const size_t spare = opt_.no_disk_expert_exchange ? 1 : 0;   // the swap's scratch slot, see above
+        if (!expert_dma_ || !stage_ || !slot_max_ || stage_bytes_ < (spare + 1) * slot_max_) return;
+        // every slot keeps its address j*slot_max_ and an owner entry; in exchange mode slot 0's entry stays
+        // -1 forever - follow_resident() starts its scan one slot later (resident_exchange_scratch())
         resident_stage_owners_.assign(stage_bytes_ / slot_max_, -1);
     }
     swap_ = std::make_unique<Swap[]>((size_t) opt_.expert_swaps);
@@ -2133,7 +2149,9 @@ void Engine::follow_resident(int available) {
     };
     std::stable_sort(incoming.begin(), incoming.end(), more);
     std::vector<size_t> slots;
-    for (size_t j = 0; j < resident_stage_owners_.size(); ++j)
+    // in exchange mode slot 0 is the swap transaction's scratch (exchange_transfer writes stage_[0, raw),
+    // raw <= slot_max_): its owner entry exists but stays free and is never offered to a copy
+    for (size_t j = opt_.no_disk_expert_exchange ? 1 : 0; j < resident_stage_owners_.size(); ++j)
         if (resident_stage_owners_[j] != -2) slots.push_back(j); // an upload owns its destination until arrival
     std::stable_sort(slots.begin(), slots.end(), [&](size_t a, size_t b) {
         const int x = resident_stage_owners_[a], y = resident_stage_owners_[b];
@@ -2299,8 +2317,12 @@ void Engine::follow(int written) {
         n_free += s.at.load() == Swap::kFree;
     }
     if (written <= 0) return;
-    const float keep = std::exp2(-(float) written / (float) kSwapHalf);
-    for (float& r : recent_) r *= keep;
+    // the recency counts decay once per eval: in exchange mode follow_exchange() decays them (kExchangeHalf),
+    // here nobody else must halve them again in the same breath
+    if (!opt_.no_disk_expert_exchange) {
+        const float keep = std::exp2(-(float) written / (float) kSwapHalf);
+        for (float& r : recent_) r *= keep;
+    }
     if (n_free == 0) return;
     if (opt_.no_disk) {
         try { follow_resident(n_free); }

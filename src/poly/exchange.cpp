@@ -16,10 +16,11 @@ void Engine::init_exchange() {
     cudaStream_t stream = nullptr;
     ck(PA_CREATE_STREAM(&stream, cudaStreamNonBlocking), "exchange stream");
     swap_st_ = stream;
-    std::fprintf(stderr, "strata-poly: expert exchange enabled: main_gpu=%d, staging copies disabled, "
+    std::fprintf(stderr, "strata-poly: expert exchange enabled: main_gpu=%d, staging copies %s, "
                          "temporary_bytes=%zu inside staging, max=%d per eval, cooldown=%d evaluated rows, "
                          "budget=%.1f%% of preceding eval; no extra weight arena\n",
-                 full_cached_, slot_max_, opt_.exchange_max, opt_.exchange_cooldown, opt_.exchange_budget_pct);
+                 full_cached_, opt_.no_disk_exchange_cache ? "enabled (swap scratch keeps the first slot)" : "disabled",
+                 slot_max_, opt_.exchange_max, opt_.exchange_cooldown, opt_.exchange_budget_pct);
 }
 
 void Engine::exchange_pair(int il, int hot, int cold, int fault, bool forced_verify) {
@@ -32,7 +33,10 @@ void Engine::exchange_pair(int il, int hot, int cold, int fault, bool forced_ver
     uint8_t* const v = l.slot.at((size_t) cold);
     const ResidentLayout lay = resident_layout(l.gu_bytes, l.u_bytes, l.d_bytes);
     const size_t raw = lay.raw;
-    if (!expert_dma_ || !stage_ || !swap_st_ || !h.gate || l.slot[(size_t) hot] || !v ||
+    // an expert whose staging copy is in flight is never a promotion pair (follow_exchange marks it locked;
+    // this is the last gate before the only weights move)
+    const bool copy_in_flight = !coming_.empty() && coming_[(size_t) il * n_expert_ + hot];
+    if (!expert_dma_ || !stage_ || !swap_st_ || !h.gate || copy_in_flight || l.slot[(size_t) hot] || !v ||
         l.resident_host[(size_t) cold].gate || raw > stage_bytes_ || l.slot_bytes < raw ||
         h.up != h.gate + lay.up || h.down != h.gate + lay.down ||
         v < exp_ || (size_t) (v - exp_) > exp_at_ || l.slot_bytes > exp_at_ - (size_t) (v - exp_))
@@ -116,10 +120,16 @@ void Engine::follow_exchange(int written) {
             const size_t i = (size_t) il * n_expert_ + e;
             ExchangeExpert x;
             x.layer = il; x.expert = e;
-            x.home = l.resident_host[(size_t) e].gate ? ExchangeHome::ram : ExchangeHome::vram;
+            const bool ram_twin = l.resident_host[(size_t) e].gate != nullptr;
+            x.home = ram_twin ? ExchangeHome::ram : ExchangeHome::vram;
             x.payload_bytes = raw; x.slot_bytes = l.slot_bytes; x.recent = recent_[i];
             x.prior = prior_.empty() ? 0 : prior_[i];
-            x.locked = exchange_clock_ < exchange_until_[i];
+            // With --no-disk-exchange-cache the staging keeps disposable copies of RAM experts. A RAM expert
+            // whose copy stands on staging (slot set with a twin) or is on its way there (coming_) must not
+            // be promoted to a sole weight in the same breath: the cache owns that arrival and would later
+            // evict through a slot the exchange had just claimed. Neither side may touch such an expert;
+            // the swap's own cooldown locks are unchanged.
+            x.locked = exchange_clock_ < exchange_until_[i] || coming_[(size_t) i] || (ram_twin && l.slot[(size_t) e]);
             experts.push_back(x);
         }
     }
