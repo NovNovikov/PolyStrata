@@ -173,6 +173,14 @@ void Mimo2::alloc_caches() {
         if (runs(il) && blocks_[(size_t) il].swa)
             rings += (size_t) ring_ * blocks_[(size_t) il].n_kv * (dim_k_ + dim_v_);
     uint16_t* kv = rings ? (uint16_t*) seq_alloc(rings * sizeof(uint16_t), "the attention cache") : nullptr;
+    // zeroed, not as the card hands it out: a guess at pos reads the ring places pos-window+1..pos, and the
+    // chain's blocks 49/50 are read at positions their token did not write (guess 2 stands at pos_+2 while
+    // the block's own row for pos_+1 only arrives with the next step's chain).  In a stream of accepted
+    // guesses every such place was written by the step before, as in the trained graph; on a session's first
+    // guess the card's fresh memory is whatever it lies as.  Zero makes that place a number: a key of
+    // zeros scores flat under any query, the softmax spends its weight on a value of zeros, and two runs
+    // of the same conversation answer the same.
+    if (kv) ck(cudaMemset(kv, 0, rings * sizeof(uint16_t)), "the ring zeroes");
     for (int il = 0; il < (int) blocks_.size(); ++il) {
         Block& B = blocks_[(size_t) il];
         if (!runs(il)) continue;
@@ -507,9 +515,9 @@ void Mimo2::draft_step(int32_t token, int i) {
     // window after it - a rejected guess's row, or memory the card never wrote.
     if (i == 0)
         for (int d = 1; d < n_draft_; ++d) {
-            const int il = n_layer_ + d;
-            block_input(token, pos_, hn_, il);
-            block_qkv(blocks_[(size_t) il], pos_, 1);
+            const int dl = n_layer_ + d;
+            block_input(token, pos_, hn_, dl);
+            block_qkv(blocks_[(size_t) dl], pos_, 1);
         }
 }
 
