@@ -1778,15 +1778,28 @@ void Engine::start_swaps() {
     if (swap_ || opt_.expert_swaps == 0 || (!opt_.no_disk && cached_ == 0)) return;
     if (opt_.no_disk) {
         const size_t spare = opt_.no_disk_expert_exchange ? 1 : 0;   // the swap's scratch slot, see above
-        if (!expert_dma_ || !stage_ || !slot_max_ || stage_bytes_ < (spare + 1) * slot_max_) return;
+        if (!expert_dma_ || !stage_ || !slot_max_ || stage_bytes_ < (spare + 1) * slot_max_) {
+            // the exchange's own init already promised the copies; say here, once, that they did not start
+            if (opt_.no_disk_exchange_cache)
+                std::fprintf(stderr, "strata-poly: exchange cache: NOT started (%s), staging stays the swap's scratch\n",
+                             !expert_dma_ ? "no registered DMA window" : !stage_ ? "no staging buffer" :
+                             !slot_max_ ? "no expert slot size" : "staging holds less than the swap scratch plus one copy slot");
+            return;
+        }
         // every slot keeps its address j*slot_max_ and an owner entry; in exchange mode slot 0's entry stays
         // -1 forever - follow_resident() starts its scan one slot later (resident_exchange_scratch())
         resident_stage_owners_.assign(stage_bytes_ / slot_max_, -1);
+        if (opt_.no_disk_expert_exchange)
+            std::fprintf(stderr, "strata-poly: exchange cache: %zu staging slots hold copies, the first stays the "
+                                 "swap's scratch (slot=%zu bytes, staging=%zu MiB)\n",
+                         resident_stage_owners_.size() - 1, slot_max_, stage_bytes_ >> 20);
     }
     swap_ = std::make_unique<Swap[]>((size_t) opt_.expert_swaps);
-    cudaStream_t up = nullptr;
-    ck(PA_CREATE_STREAM(&up, cudaStreamNonBlocking), "cudaStreamCreate");
-    swap_st_ = up;
+    if (!swap_st_) {   // in exchange mode init_exchange() made the stream already: reuse it, do not leak it
+        cudaStream_t up = nullptr;
+        ck(PA_CREATE_STREAM(&up, cudaStreamNonBlocking), "cudaStreamCreate");
+        swap_st_ = up;
+    }
     const int count = opt_.no_disk ? std::min(opt_.expert_swaps, (int) resident_stage_owners_.size()) : opt_.expert_swaps;
     for (; n_swap_ < count; ++n_swap_)
         ck(cudaEventCreateWithFlags(&swap_[(size_t) n_swap_].done, cudaEventDisableTiming), "cudaEventCreate");
