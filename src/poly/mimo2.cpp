@@ -173,14 +173,16 @@ void Mimo2::alloc_caches() {
         if (runs(il) && blocks_[(size_t) il].swa)
             rings += (size_t) ring_ * blocks_[(size_t) il].n_kv * (dim_k_ + dim_v_);
     uint16_t* kv = rings ? (uint16_t*) seq_alloc(rings * sizeof(uint16_t), "the attention cache") : nullptr;
-    // zeroed, not as the card hands it out: a guess at pos reads the ring places pos-window+1..pos, and the
-    // chain's blocks 49/50 are read at positions their token did not write (guess 2 stands at pos_+2 while
-    // the block's own row for pos_+1 only arrives with the next step's chain).  In a stream of accepted
-    // guesses every such place was written by the step before, as in the trained graph; on a session's first
-    // guess the card's fresh memory is whatever it lies as.  Zero makes that place a number: a key of
-    // zeros scores flat under any query, the softmax spends its weight on a value of zeros, and two runs
-    // of the same conversation answer the same.
-    if (kv) ck(cudaMemset(kv, 0, rings * sizeof(uint16_t)), "the ring zeroes");
+    // zeroed when the pool is newly allocated, never when take_bound() hands a sequence its buffers again
+    // (again_ counts them out): a rebound sequence's rings hold its window rows, and wiping them would wipe
+    // its conversation.  Fresh memory is what must not stand as the card left it: a guess chain reads the
+    // ring places of its own forward positions - block 50 answers at pos_+2 and its window spans the place
+    // of pos_+1, which only a neighbouring step's chain writes - and on a sequence's first draft turn such
+    // a place was never written at all.  Zero makes it a number: an all-zeros key scores flat under any
+    // query, the softmax spends its weight on a value of zeros, and two runs of one conversation answer
+    // the same.  In a stream of accepted guesses the neighbouring chain fills every such place, as the
+    // trained graph's per-position chain does; a resume's load_card_rows overwrites the saved ones.
+    if (kv && again_ == SIZE_MAX) zero_vram(kv, rings * sizeof(uint16_t));
     for (int il = 0; il < (int) blocks_.size(); ++il) {
         Block& B = blocks_[(size_t) il];
         if (!runs(il)) continue;
