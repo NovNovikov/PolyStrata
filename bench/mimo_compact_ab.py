@@ -278,6 +278,9 @@ def main():
         "plain": [],
         "scratch": ["--compact-scratch"],
         "both": ["--compact-scratch", "--compact-graphs"],
+        # one engine start, --trace-graphs on: the fixed ~5.5 s per new prompt size either
+        # shows up as a block of graph-create lines inside it, or it does not - no third answer
+        "trace": ["--trace-graphs"],
     }
     phases = [(n, all_phases[n]) for n in args.phases.split(",") if n]
     if any(n not in all_phases for n, _ in phases):
