@@ -64,10 +64,16 @@ void Engine::load_resident_experts() {
         if (!l.moe) continue;
         const size_t raw = resident_layout(l.gu_bytes, l.u_bytes, l.d_bytes).raw;
         const bool native = opt_.gpu_experts && kernels::native_mmvq_supported((int) l.gu_type) &&
+                            kernels::native_mmvq_supported((int) l.u_type) &&
                             kernels::native_mmvq_supported((int) l.d_type);
         if (native) {
-            const size_t unit = std::lcm(std::lcm(ggml_type_size((ggml_type) l.gu_type),
-                                                  ggml_type_size((ggml_type) l.d_type)), size_t(8));
+            // the same three-type rule and slot alignment as Engine::fill_expert_cache(): a model whose
+            // up matrix has a type of its own must neither claim a kernel it lacks nor stride its
+            // VRAM slots past a stride the up blocks cannot start at
+            const size_t unit = std::lcm(std::lcm(std::lcm(ggml_type_size((ggml_type) l.gu_type),
+                                                           ggml_type_size((ggml_type) l.u_type)),
+                                                  ggml_type_size((ggml_type) l.d_type)),
+                                         size_t(8));
             l.slot_bytes = (raw + kTail + unit - 1) / unit * unit;
             slot_max_ = std::max(slot_max_, l.slot_bytes);
         }
