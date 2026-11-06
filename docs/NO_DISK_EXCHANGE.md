@@ -67,4 +67,8 @@ The native serve protocol exposes `EXCHANGE [fault]` only with `STRATA_EXCHANGE_
 It forces a same-layer pair and verifies both payloads; fault points -1, 1, 2, 3 exercise rollback.
 It is a test hook, not an HTTP endpoint. `poly_exchange_test` checks planning without a model;
 `poly_exchange_gpu_test` exercises 1000 in-place exchanges, rollback, payload hashes, tails,
-canaries and bounded registration reuse without loading model weights.
+canaries and bounded registration reuse without loading model weights. `poly_exchange_cache_test
+MODEL.gguf` runs both mechanisms together on the real engine with `STRATA_VERIFY_EXCHANGE` and
+`STRATA_VERIFY_STAGE_CACHE` on: after every 32 decoded tokens it walks every expert and requires
+the permanent-slot / host-twin / staging-owner witnesses to agree, and at the end it fails if
+either mechanism stayed idle.

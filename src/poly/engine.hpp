@@ -370,6 +370,10 @@ public:
     /// is given back.
     void trim();
     int cached_experts() const { return cached_ + (next_ ? next_->cached_experts() : 0); }
+    struct ResidentOwnership { int hot = 0, ram = 0, staging = 0, staging_free = 0; };
+    /// test hook (poly_exchange_cache_test): where each resident expert's weights stand, counted; throws when
+    /// slot, host twin and staging owner disagree, or when a copy stands in the exchange's scratch slot
+    ResidentOwnership check_resident_ownership_for_test() const;
     /// The RAM held for the experts outside VRAM, in MiB, as load() settled Options::ram_experts_mib (-1: all of
     /// them), and those experts' GiB.
     int64_t ram_experts_mib() const { return opt_.ram_experts_mib; }

@@ -2264,6 +2264,49 @@ void Engine::drop_resident_stage_cache() {
                          "permanent GPU experts and RAM weights retained\n", discarded);
 }
 
+// The test hook's walk: every moe expert's weights stand in exactly one of the three places, and each place's
+// witnesses agree - a permanent slot has no host twin (its RAM bytes are gone), a staging copy has one, stands
+// on the slot grid, is named by its owner entry and, in exchange mode, is not the exchange's scratch slot; an
+// owner entry names an expert whose slot is that very address.
+Engine::ResidentOwnership Engine::check_resident_ownership_for_test() const {
+    ResidentOwnership r;
+    const auto fail = [](const char* what, int il, int e) {
+        throw std::runtime_error(std::string("resident ownership: ") + what + " at layer " + std::to_string(il) +
+                                 " expert " + std::to_string(e));
+    };
+    for (int il = 0; il < (int) layers_.size(); ++il) {
+        const Layer& L = layers_[(size_t) il];
+        if (!L.moe) continue;
+        for (int e = 0; e < n_expert_; ++e) {
+            const uint8_t* s = L.slot[(size_t) e];
+            const bool twin = L.resident_host[(size_t) e].gate != nullptr;
+            if (!s) { if (twin) ++r.ram; else fail("no weights anywhere", il, e); continue; }
+            if (exp_ && s >= exp_ && s < exp_ + exp_at_) {
+                if (twin) fail("a permanent slot with a host twin", il, e);
+                ++r.hot; continue;
+            }
+            if (stage_ && s >= stage_ && s < stage_ + stage_bytes_) {
+                if (!twin) fail("a staging copy without a host twin", il, e);
+                if (!slot_max_ || (size_t) (s - stage_) % slot_max_) fail("a copy off the staging slot grid", il, e);
+                const size_t j = (size_t) (s - stage_) / slot_max_;
+                if (opt_.no_disk_expert_exchange && j == 0) fail("a copy in the swap's scratch slot", il, e);
+                if (j >= resident_stage_owners_.size() || resident_stage_owners_[(size_t) j] != il * n_expert_ + e)
+                    fail("the owner entry does not name its copy", il, e);
+                ++r.staging; continue;
+            }
+            fail("a slot owned by neither the arena nor staging", il, e);
+        }
+    }
+    for (size_t j = 0; j < resident_stage_owners_.size(); ++j) {
+        const int owner = resident_stage_owners_[j];
+        if (owner < 0) { if (owner == -1) ++r.staging_free; continue; }
+        const Layer& L = layers_[(size_t) owner / n_expert_];
+        if (L.slot[(size_t) owner % n_expert_] != stage_ + j * slot_max_)
+            throw std::runtime_error("resident ownership: an owner entry without its copy at slot " + std::to_string(j));
+    }
+    return r;
+}
+
 // The cache follows what is written.  Called at the start of an eval, where nothing queued reads the cache, with
 // the number of tokens the eval writes (0 for a prompt batch).  The experts whose upload has arrived get their
 // slots.  Then, for written tokens, the experts used lately that the cache lacks start on their way, each to the
