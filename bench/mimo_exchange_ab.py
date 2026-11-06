@@ -254,6 +254,11 @@ def run_phase(name, base_args, extra, enc, prompts, out, say, exe, env):
     for ln in text.splitlines():
         if "exchange" in ln.lower() and "strata-poly:" in ln:
             say(f"  [stderr] {ln.strip()}")
+    # a cache phase where the engine refused the cache measures the exchange against itself: not a result
+    if "--no-disk-exchange-cache" in extra and "exchange cache: NOT started" in text:
+        error = ("the cache phase is invalid: the engine reported 'exchange cache: NOT started' "
+                 "(see engine-%s.stderr for the reason) - both phases ran the same mode" % name)
+        say(f"ФАЗА НЕДЕЙСТВИТЕЛЬНА: {error}")
     return requests, error
 
 
