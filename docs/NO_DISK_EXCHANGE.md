@@ -20,7 +20,11 @@ the swap transaction writes the first staging slot only, copies live from the se
 expert whose copy stands on staging or is on its way there takes no part in an exchange until the
 cache lets it go, so the two mechanisms never claim the same expert at once; a completed exchange
 leaves a copy of the demoted expert valid, because its RAM twin receives the bytes the permanent
-slot had. A prompt batch drops the copies, as in the plain mode.
+slot had. A prompt batch drops the copies, as in the plain mode. Measured 2026-11-06 with MiMo
+V2.6 Flash MOPD Q2_K on an RTX 4090 (`--stage-mib 2048`, warm agent repeats, two runs): decode
+27.5-27.7 -> 29.5-29.7 tok/s (+7.1..7.2%), expert hit 44-45% -> 50-52%, exchanges completed
+unchanged, none failed; the cache phase's first two requests wait 0.13-0.2 s once for copies
+already in flight.
 
 Options (all opt-in through the main flag):
 
