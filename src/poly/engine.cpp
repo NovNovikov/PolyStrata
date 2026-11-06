@@ -2513,9 +2513,9 @@ void Engine::follow(int written) {
 void Engine::load(const Options& o) {
     opt_ = o;
     if (opt_.compact_scratch && !supports_compact_scratch())
-        throw std::runtime_error("--compact-scratch currently supports DeepSeek4 and GLM 5.3 Flash");
+        throw std::runtime_error("--compact-scratch currently supports DeepSeek4, GLM 5.3 Flash and MiMo-V2.6-Flash");
     if (opt_.compact_graphs && !supports_compact_graphs())
-        throw std::runtime_error("--compact-graphs currently supports only DeepSeek4");
+        throw std::runtime_error("--compact-graphs currently supports DeepSeek4 and MiMo-V2.6-Flash");
 #ifdef HIP_VERSION
     if (opt_.compact_graphs)
         throw std::runtime_error("--compact-graphs currently requires CUDA external graph events");
@@ -4622,8 +4622,12 @@ void Engine::compact_head(int il, int m, size_t rec, bool launch) {
         void* old = made;
         void*& source = graph_templates_[{bound_, il, head}];
         made = record([&] {
-            if (il > lo_) layer_tail(layers_[(size_t) il - 1], il - 1, m);
+            // a dense layer's head already ends at the summed rows (the per-layer loop never runs its
+            // tail), so the chain picks up a previous tail only where a tail exists at all; the router's
+            // event and the shared expert belong to moe layers only
+            if (il > lo_ && layers_[(size_t) il - 1].moe) layer_tail(layers_[(size_t) il - 1], il - 1, m);
             layer_head(L, il, m);
+            if (!L.moe) return;
             // An ordinary captured event is a graph dependency, not notification to the host router.
             ck(cudaEventRecordWithFlags((cudaEvent_t) ev_, cs(st_), cudaEventRecordExternal), "packed router");
             moe_shared(L, il, m);
@@ -4642,7 +4646,7 @@ void Engine::prepare_compact_graphs() {
 #ifndef HIP_VERSION
     if (!opt_.compact_graphs || !opt_.graphs || opt_.dump || split_) return;
     for (int il = lo_; il < hi_; ++il)
-        if (!layers_[(size_t) il].fixed || !layers_[(size_t) il].moe) return;
+        if (!layers_[(size_t) il].fixed) return;   // a dense layer rides the chain as its head alone
     ck(PA_WAIT_STREAM(cs(st_)), "before preparing graphs");
     size_t before = 0, after = 0, total = 0;
     ck(cudaMemGetInfo(&before, &total), "before preparing graphs memory");
@@ -4778,7 +4782,7 @@ void Engine::run(const int32_t* tokens, int n) {
     const size_t wn = (size_t) opt_.window, recs = 3 * wn + (size_t) opt_.batch + 1;   // step()'s rows after
     bool packed = opt_.compact_graphs && replay && !split_;
     for (int il = lo_; il < hi_ && packed; ++il)
-        packed = layers_[(size_t) il].fixed && layers_[(size_t) il].moe;
+        packed = layers_[(size_t) il].fixed;   // dense layers ride the chain as their head alone
     const auto up = [&](int il, int m, size_t rec) {
         Layer& L = layers_[(size_t) il];
         const size_t head = (size_t) head_key(il, m) * recs + rec;

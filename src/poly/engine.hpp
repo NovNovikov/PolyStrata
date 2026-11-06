@@ -71,7 +71,7 @@ struct Options {
     int64_t ram_limit_mib = 0;   ///< no-disk host cap; 0: allocation/lock on Windows, available RAM elsewhere
     bool dump = false;            ///< print a checksum of every stage, for comparing against llama.cpp
     bool dump_buffers = false;    ///< print every VRAM/RAM allocation and scratch slice with its size and call site
-    bool compact_scratch = false; ///< DeepSeek4: share scratch between phases with disjoint lifetimes
+    bool compact_scratch = false; ///< DeepSeek4/GLM/MiMo: share scratch between phases with disjoint lifetimes
     // A prompt batch.  More tokens a call and a larger staging buffer read a prompt faster, and both take VRAM
     // that the expert cache, and so decoding, does without.
     int prompt_batch = 1024;      ///< prompt tokens one eval() takes; the scratch is about 1.4 MiB of VRAM a token
@@ -101,7 +101,7 @@ struct Options {
     bool stay_near = true;        ///< with several NUMA nodes, keep the CPU threads on the one that holds the experts
     bool graphs = true;           ///< a token's fixed launches are recorded once, a CUDA graph a layer, and replayed
     bool trace_graphs = false;   ///< fence and measure graph capture/instantiate; diagnostic, changes timings
-    bool compact_graphs = false; ///< DeepSeek4/CUDA: one graph per CPU-expert boundary, preserving launch order
+    bool compact_graphs = false; ///< DeepSeek4/MiMo/CUDA: one graph per CPU-expert boundary, preserving launch order
     bool kv_grow = true;          ///< the attention caches get VRAM as the sequence grows, where the card can map it
                                   ///< so; false: for the whole context at load, as the expert cache gets the rest
     KvFmt kv_format = KvFmt::kFp16;   ///< the K and V caches' format; fp16 by default (byte-identical path)

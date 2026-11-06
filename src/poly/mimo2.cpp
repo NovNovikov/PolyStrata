@@ -2,6 +2,7 @@
 // (src/models/mimo2.cpp), and the geometry this file checks is the MOPD/RL Q2_K GGUF's own metadata.
 #include "mimo2.hpp"
 #include "mimo2_attn.hpp"
+#include "mimo2_scratch.hpp"
 
 #include "runtime.hpp"
 #include "strata/poly/kernels.hpp"
@@ -201,6 +202,26 @@ void Mimo2::alloc_caches() {
 // Per-token buffers hold rows_ tokens, row after row.
 void Mimo2::assign_scratch() {
     const size_t n = (size_t) rows_;
+    if (opt_.compact_scratch) {
+        // All the phases run on st_ in attn()'s order; see mimo_scratch()'s header for who reads what
+        // after whom. The batched MoE works in the gu/hx/dx rows at moe_scratch_at_, which these rows
+        // ride, and nothing here outlives them. This also works without MMQ: moe_scratch_at_ is then
+        // the end of the shared scratch.
+        const auto s = mimo_scratch(moe_scratch_at_, scratch_at_, n, qkv_wide_, (size_t) n_head_ * dim_k_,
+                                    (size_t) n_kv_max_ * dim_k_, (size_t) n_kv_max_ * dim_v_,
+                                    (size_t) n_head_ * dim_v_);
+        const auto use = [&](ScratchSpan p, const char* name) {
+            scratch_at_ = p.at;
+            return fbuf(p.count, name);
+        };
+        qkv_ = use(s.qkv, "qkv_ (fused projection, then the attention's scores)");
+        q_ = use(s.q, "q_ (the queries)");
+        k_ = use(s.k, "k_ (the keys before the cache)");
+        v_ = use(s.v, "v_ (the values before the cache)");
+        att_ = use(s.att, "att_ (the attention output, over the qkv_ rows)");
+        scratch_at_ = s.end;
+        return;
+    }
     qkv_ = fbuf(n * qkv_wide_);
     q_ = fbuf(n * n_head_ * dim_k_);
     k_ = fbuf(n * n_kv_max_ * dim_k_);

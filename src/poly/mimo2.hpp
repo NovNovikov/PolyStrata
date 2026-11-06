@@ -29,6 +29,8 @@ protected:
     size_t recurrent_floats() const override { return 0; }
     void alloc_caches() override;
     void assign_scratch() override;
+    bool supports_compact_scratch() const override { return true; }   // mimo_scratch(): the rows ride the experts'
+    bool supports_compact_graphs() const override { return true; }    // CUDA only; the dense layer rides as its head
     int widest() const override;
     int streams() const override { return 1; }
     void layer_head(Layer& L, int il, int n) override;

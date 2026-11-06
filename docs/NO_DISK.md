@@ -51,7 +51,7 @@ attempt to read their payload fails instead of silently falling back to disk.
 | `--vram-reserve-mib N` | Keep this VRAM free, with the existing automatic reserve when omitted |
 | `--no-disk-vram-margin-mib N` | Additional headroom deducted from the permanent-expert budget for loading; default 512, 0 disables it |
 | `--stage-mib N` | VRAM through which RAM experts pass; at most one layer's experts |
-| `--compact-scratch` | DeepSeek4 and GLM 5.3 Flash: reuse scratch between attention phases; off by default |
+| `--compact-scratch` | DeepSeek4, GLM 5.3 Flash and MiMo-V2.6-Flash: reuse scratch between attention phases; off by default |
 
 `--compact-scratch` preserves precision, batch size and the number of experts computed. Attention preparation
 and its result share memory at different times; output projection keeps its
