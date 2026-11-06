@@ -9,10 +9,18 @@ the same layer. The displaced GPU expert takes the former RAM slot. Gate, up and
 their original quantized format. Model files remain closed. The exchange borrows temporary bytes
 inside the existing staging buffer and does not allocate another weight arena.
 
-In this mode staging is used for prefill and temporary exchange storage; it does not also keep
-the old persistent decode copies. Thus the initial number of main GPU slots stays fixed and can
-be smaller than the old main slots plus staging copies. Exchange changes their composition, not
-their capacity. A layer with no initial GPU slots cannot gain one in this first implementation.
+In this mode staging is used for prefill and temporary exchange storage; by default it does not
+also keep the old persistent decode copies. Thus the initial number of main GPU slots stays fixed
+and can be smaller than the old main slots plus staging copies. Exchange changes their composition,
+not their capacity. A layer with no initial GPU slots cannot gain one in this first implementation.
+
+`--no-disk-exchange-cache` (opt-in, needs the main flag) additionally lets the staging bytes keep
+disposable copies of RAM experts during decode, the way the plain `--no-disk` staging cache does:
+the swap transaction writes the first staging slot only, copies live from the second slot on. An
+expert whose copy stands on staging or is on its way there takes no part in an exchange until the
+cache lets it go, so the two mechanisms never claim the same expert at once; a completed exchange
+leaves a copy of the demoted expert valid, because its RAM twin receives the bytes the permanent
+slot had. A prompt batch drops the copies, as in the plain mode.
 
 Options (all opt-in through the main flag):
 
@@ -21,6 +29,7 @@ Options (all opt-in through the main flag):
 | `--no-disk-exchange-max N` | 1 | Maximum completed exchanges per eval boundary, 1 through 64 |
 | `--no-disk-exchange-cooldown N` | 0 | Evaluated decode rows before either expert may exchange again |
 | `--no-disk-exchange-budget-pct F` | 10 | Soft time budget for additional exchanges relative to the preceding eval |
+| `--no-disk-exchange-cache` | off | Staging keeps RAM-expert copies during decode next to the exchanges |
 
 The first transaction is always allowed so a cold registration or diagnostic measurement cannot
 permanently stop adaptation. Further transactions stop when the budget is consumed. The budget
