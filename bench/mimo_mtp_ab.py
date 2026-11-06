@@ -195,8 +195,9 @@ def run_phase(name, base_args, enc, prompts, out, say, exe, env):
              "ttft_s": stamps[0] - sent if stamps else None}
         r["draft_accept"] = (r["drafts_accepted"] / r["drafts_offered"]) if r["drafts_offered"] else None
         acc = r["draft_accept"]
+        rate = lambda x, spec: "н/д" if x is None else format(x, spec)   # a one-token answer has no decode rate
         say(f"  req {number}: read {r['read']}, reused {r['reused']}, +{r['generated']} ток. | "
-            f"decode {r['decode_tps']:.2f} ток/с | промпт {r['prompt_tps']:.0f} ток/с | "
+            f"decode {rate(r['decode_tps'], '.2f')} ток/с | промпт {rate(r['prompt_tps'], '.0f')} ток/с | "
             f"accept {'н/д' if acc is None else f'{acc:.1%}'} ({r['drafts_accepted']}/{r['drafts_offered']})")
         return r
 
@@ -227,7 +228,12 @@ def run_phase(name, base_args, enc, prompts, out, say, exe, env):
                 p.stdin.flush()
             except OSError:
                 pass
-        p.wait()
+        try:
+            p.wait(timeout=120)   # a wedged engine must not wedge the bench too
+        except subprocess.TimeoutExpired:
+            say(f"фаза {name}: движок не вышел за 120 с после QUIT - убиваю процесс")
+            p.kill()
+            p.wait(timeout=30)
         protocol.close()
         stderr_f.close()
     text = (out / f"engine-{name}.stderr").read_text(encoding="utf8", errors="replace")
@@ -312,21 +318,45 @@ def write_summary(out, results, say):
         rows = [r for r in results.get(phase, []) if r.get("number", 0) >= 3]
         return [r[key] for r in rows]
 
+    lines = ["", "=== парность ответов (temperature=0: черновики не имеют права менять вывод) ==="]
+    lines += parity(results)
     d_tps = median(warm("draft", "decode_tps"))
     n_tps = median(warm("nodraft", "decode_tps"))
-    accs = warm("draft", "draft_accept")
-    acc = median(accs)
-    lines = ["", "=== ИТОГ: тёплые повторы (req 3+), медиана ==="]
+    acc = median(warm("draft", "draft_accept"))
+    lines.append("")
+    lines.append("=== ИТОГ: тёплые повторы (req 3+), медиана ===")
     if d_tps and n_tps:
         lines.append(f"decode без MTP   : {n_tps:.2f} ток/с")
         lines.append(f"decode с MTP     : {d_tps:.2f} ток/с   ({100 * (d_tps / n_tps - 1):+.1f}%)")
         lines.append(f"accept (черновики): {acc:.1%}" if acc is not None else "accept: нет данных")
-        lines.append("Порог окупаемости на этом железе ~60-70% accept; ниже - MTP в минус.")
+        # no break-even threshold claimed: it follows from each draft step's and the verifier's own cost,
+        # which this run does not separate; the measured delta above is the whole claim
     else:
         lines.append("недостаточно данных (одна из фаз не дошла до тёплых повторов).")
     for ln in lines:
         say(ln)
     return "\n".join(lines) + "\n"
+
+
+def parity(results):
+    """Greedy speculative decoding must answer exactly what the draft-less run answers - a speedup on
+    different tokens is no speedup. Returns one line per paired request, mismatch spelled out."""
+    d = {r["number"]: r for r in results.get("draft", [])}
+    n = {r["number"]: r for r in results.get("nodraft", [])}
+    lines = []
+    for num in sorted(set(d) & set(n)):
+        a, b = d[num], n[num]
+        if a["ids"] == b["ids"] and a["finish"] == b["finish"]:
+            lines.append(f"req {num}: токены и finish совпадают ({len(a['ids'])} ток.)")
+        else:
+            diff = next((i for i, (x, y) in enumerate(zip(a["ids"], b["ids"])) if x != y),
+                        min(len(a["ids"]), len(b["ids"])))
+            lines.append(f"req {num}: РАСХОЖДЕНИЕ - первый differing токен #{diff} "
+                         f"(draft: {len(a['ids'])} ток., {a['finish']}; no-draft: {len(b['ids'])} ток., {b['finish']}); "
+                         f"ускорение этой фазы недействительно, пока черновики меняют вывод")
+    if not lines:
+        lines.append("нет парных запросов (одна из фаз не дала ответов).")
+    return lines
 
 
 def median(xs):
