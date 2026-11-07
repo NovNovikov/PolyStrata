@@ -2240,6 +2240,12 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
   target_include_directories(poly_mimo2_attn_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
                                                           ${_strata_gpu_include_directories})
   target_link_libraries(poly_mimo2_attn_test PRIVATE ${_strata_gpu_runtime_target})
+  # MiMo's attend: the split reference against the tensor-core tile, timed; needs a card, run by hand
+  add_executable(poly_mimo2_attn_bench src/poly/mimo2_attn_bench.cu src/poly/mimo2_attn.cu)
+  target_include_directories(poly_mimo2_attn_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
+                                                           ${CMAKE_CURRENT_SOURCE_DIR}/src/poly
+                                                           ${_strata_gpu_include_directories})
+  target_link_libraries(poly_mimo2_attn_bench PRIVATE ${_strata_gpu_runtime_target})
   # attend_batch() against attend() with Flint's heads, sinks and window ring; needs a card
   add_executable(poly_sink_attend_test src/poly/sink_attend_test.cu src/poly/kernels.cu)
   target_include_directories(poly_sink_attend_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include

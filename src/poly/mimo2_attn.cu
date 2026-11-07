@@ -3,21 +3,29 @@
 // p - key_pos >= window, and on a window layer one sink logit a query head in the softmax's sum.
 //
 // Two attend kernels behind one entry, split by how many rows the call carries:
-// - a call of kStagedRows rows or more (a prompt batch) takes mimo2_attend_staged_kernel: one block a token
-//   and eight query heads, so its warps walk the kv head's rows once between them, staged through shared
-//   memory in uint4 pieces - which asks the eight heads to share one kv head, true of both of the model's
-//   geometries and checked before the launch.  The row count says a call has blocks enough to keep the card busy with one
-//   warp's serial walk per (token, head), and then the walk is the whole of the read's bandwidth too.
-// - fewer rows (a decoded token, a guess block) take mimo2_attend_split_kernel: the reference's shape, four
-//   warps sharing one head's walk with a merge behind them.  Few queries cannot fill the card with walks of
-//   their own; splitting one head's keys across warps is what keeps the latency down when there is nothing
-//   else to overlap with.
+// - a call of kMmaRows rows or more (a prompt batch) takes mimo2_attend_mma_kernel: the tensor cores, the shape
+//   of kernels.cu's attn_flash128_kernel drawn for MiMo's head - 64 query rows a block (8 tokens x 8 heads),
+//   keys 64 at a time through shared memory, S = Q K^T and O += P V on mma.m16n8k16 with the sums in floats,
+//   each row's softmax kept online so no score ever leaves the registers.  A block's eight heads share their
+//   kv head (which the model's ratios 16 to 1 and 8 to 1 give), so one fetch of a key row feeds eight heads'
+//   scores where the reference walked the rows eight times at two bytes a value.  The walk starts at a
+//   multiple of 64 keys, so a token's keys fall in the same blocks whatever tokens the call has beside it,
+//   and the causal and window masks, the ring's rows and the sink's weight join per row as the reference has
+//   them.  The queries and the weights round to halves and the products sum floats, as Flint's does.
+// - fewer rows (a decoded token, a guess block) take mimo2_attend_split_kernel unchanged: with few queries the
+//   card is kept busy splitting one head's keys across warps, not by walking per (token, head), and the
+//   recorded decode launches keep the grid they were captured with.
+// The launch picks the tensor cores only where they are (Ampere or later) and the head ratios divide the
+// blocks; everywhere else the split kernel answers.  STRATA_MIMO_ATTN_TRACE=1 prints every call's chosen
+// kernel and CUDA time to stderr - off by default, and the time it measures is the attention's own.
 #include "mimo2_attn.hpp"
 
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 
 namespace strata::poly {
@@ -26,8 +34,73 @@ namespace {
 constexpr int WARP = 32;
 constexpr int kMaxRot = 256;      // a rope block keeps a head's turned part in shared
 constexpr int kMaxDims = 256;     // dim_k values a rope block keeps in shared
-constexpr int kStagedRows = 64;   // rows from which the staged walk has enough blocks to win
-constexpr int kBatch = 32;        // cache rows a staged block brings through shared at a time
+constexpr int kMmaRows = 64;      // rows from which the tensor cores' tile has enough blocks to win
+
+// The tensor cores' m16n8k16 step and ldmatrix need Turing; AMD builds have neither and never launch these
+// kernels (the entry checks the card).  Turing runs the step as two of k = 8 on the same registers.
+#if defined(__HIPCC__) || (defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 750)
+#define STRATA_MIMO_MMA 0
+#else
+#define STRATA_MIMO_MMA 1
+#endif
+
+#if STRATA_MIMO_MMA
+__device__ __forceinline__ void mma16816(float* c, const uint32_t* a, const uint32_t* b) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 800
+    asm volatile("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 {%0,%1,%2,%3}, {%4,%5}, {%6}, {%0,%1,%2,%3};\n"
+                 : "+f"(c[0]), "+f"(c[1]), "+f"(c[2]), "+f"(c[3])
+                 : "r"(a[0]), "r"(a[1]), "r"(b[0]));
+    asm volatile("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 {%0,%1,%2,%3}, {%4,%5}, {%6}, {%0,%1,%2,%3};\n"
+                 : "+f"(c[0]), "+f"(c[1]), "+f"(c[2]), "+f"(c[3])
+                 : "r"(a[2]), "r"(a[3]), "r"(b[1]));
+#else
+    asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 {%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, "
+                 "{%0,%1,%2,%3};\n"
+                 : "+f"(c[0]), "+f"(c[1]), "+f"(c[2]), "+f"(c[3])
+                 : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]), "r"(b[0]), "r"(b[1]));
+#endif
+}
+
+__device__ __forceinline__ void ldmatrix_x4(uint32_t* r, const half* p, bool trans) {
+    const unsigned a = (unsigned) __cvta_generic_to_shared(p);
+    if (trans)
+        asm volatile("ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0,%1,%2,%3}, [%4];\n"
+                     : "=r"(r[0]), "=r"(r[1]), "=r"(r[2]), "=r"(r[3]) : "r"(a));
+    else
+        asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0,%1,%2,%3}, [%4];\n"
+                     : "=r"(r[0]), "=r"(r[1]), "=r"(r[2]), "=r"(r[3]) : "r"(a));
+}
+
+__device__ __forceinline__ uint32_t half2_bits(float lo, float hi) {
+    const __half2 h = __floats2half2_rn(lo, hi);
+    return *reinterpret_cast<const uint32_t*>(&h);
+}
+
+// 16 bytes from global to shared memory, or zeros where `whole` is false; asynchronous from Ampere on.
+__device__ __forceinline__ void flash_copy(half* dst, const half* src, bool whole) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+    asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;\n"
+                 :: "r"((unsigned) __cvta_generic_to_shared(dst)), "l"(src), "r"(whole ? 16 : 0));
+#else
+    *reinterpret_cast<uint4*>(dst) = whole ? *reinterpret_cast<const uint4*>(src) : make_uint4(0, 0, 0, 0);
+#endif
+}
+
+__device__ __forceinline__ void flash_commit() {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+    asm volatile("cp.async.commit_group;\n" ::);
+#endif
+}
+
+// Wait until at most `ahead` of the thread's groups are still on their way.
+template <int ahead> __device__ __forceinline__ void flash_wait() {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+    asm volatile("cp.async.wait_group %0;\n" :: "n"(ahead));
+#else
+    (void) ahead;
+#endif
+}
+#endif  // STRATA_MIMO_MMA
 
 // The fused row of one token: q (n_head heads of dim_k), k (kv_heads heads of dim_k), v (kv_heads heads of dim_v).
 // A block turns one head: its values i < n_rot pair with i - n_rot / 2 and i + n_rot / 2 (ggml's NeoX rule,
@@ -154,81 +227,146 @@ __global__ void mimo2_attend_split_kernel(const float* __restrict__ q, const uin
     }
 }
 
-// A batch read's attend: one block a token and the eight heads of one kv group (both of MiMo's geometries
-// give a group of eight or sixteen, so eight consecutive heads share their kv head).  The block's warps keep
-// their own queries in registers and share the walk over the kv head's rows: kBatch rows at a time come into
-// shared as uint4, and every warp reads them with the same strided values the reference reads from the cache.
-// One walk over the rows feeds eight heads where the reference walked eight - and it arrives 16 bytes a lane
-// where the reference took the values two bytes at a time, which is the whole of why a global layer of a
-// 32,768-token prompt used to take twelve seconds.  The online softmax, the sink's join and the written row
-// are the reference's own arithmetic, a warp to itself.
-__global__ void mimo2_attend_staged_kernel(const float* __restrict__ q, const uint16_t* __restrict__ kcache,
-                                           const uint16_t* __restrict__ vcache, long long pos, int rows,
-                                           float* __restrict__ out, int dim_k, int dim_v, int n_head,
-                                           int kv_heads, float scale, int window, int ring,
-                                           const long long* __restrict__ at, const float* __restrict__ sinks) {
-    const int t = blockIdx.y;
-    if (t >= rows) return;
-    const long long p = (at ? *at : pos) + t;           // this token's position
-    const int h = int(blockIdx.x) * 8 + int(threadIdx.x >> 5);
-    const int kvh = h / (n_head / kv_heads);
-    const long long lo = window > 0 && p >= window ? p - window + 1 : 0;
-    const int n_keys = int(p - lo) + 1;
+// The tile's shape (host dispatch reads these whether or not the kernel below is compiled): one block a group
+// of eight heads (one kv head at the model's ratios) and eight of its tokens, keys 64 at a time.
+constexpr int MMA_T = 8;                 // tokens a block carries: 8 x 8 heads = 64 rows = 4 warps x 2 tokens
+constexpr int MMA_G = 8;                 // heads a block carries, sharing their kv head
+constexpr int MMA_KEYS = 64;             // keys a block takes at a time
+constexpr int MMA_ROWK = 192 + 8;        // a shared row of keys, padded so ldmatrix misses no bank
+constexpr int MMA_ROWV = 128 + 8;        // and of values
+constexpr size_t MMA_SMEM = size_t(2) * MMA_KEYS * (MMA_ROWK + MMA_ROWV) * sizeof(half);
 
-    const int lane = threadIdx.x & (WARP - 1);
-
-    // the query's values this lane owns, kept in registers for the whole walk
-    const float* qh = q + (size_t(t) * n_head + h) * dim_k;
-    float qreg[kMaxDims / WARP];
-    for (int i = lane, j = 0; i < dim_k; i += WARP, ++j) qreg[j] = qh[i];
-
-    float m = -INFINITY, s = 0.f;
-    float acc[8];
-    const int vpr = dim_v / WARP;
-    for (int j = 0; j < 8; ++j) acc[j] = 0.f;
-
-    extern __shared__ __half stage[];                   // kBatch rows of dim_k keys then dim_v values
-    const int krow = dim_k + dim_v;                     // halves in a staged row
-    const int ku = dim_k / 8, vu = dim_v / 8;           // uint4 of a staged row's key and value part
-
-    for (int base = 0; base < n_keys; base += kBatch) {
-        const int cnt = min(kBatch, n_keys - base);
-        __syncthreads();                                // the rows staged last turn have been read out
-        for (int i = int(threadIdx.x), n = cnt * (ku + vu); i < n; i += int(blockDim.x)) {
-            const int r = i / (ku + vu), c = i % (ku + vu);
-            const long long cr = ring ? (lo + base + r) % ring : lo + base + r;
-            const bool keys = c < ku;                   // the row's key part, then its values
-            const uint4* g = keys
-                ? (const uint4*)(kcache + (size_t(cr) * kv_heads + kvh) * dim_k) + c
-                : (const uint4*)(vcache + (size_t(cr) * kv_heads + kvh) * dim_v) + (c - ku);
-            *(uint4*)(stage + size_t(r) * krow + (keys ? c * 8 : dim_k + (c - ku) * 8)) = *g;
+#if STRATA_MIMO_MMA
+// A batch read's attend on the tensor cores - MiMo's head of kernels.cu's attn_flash128_kernel: dim_k of 192
+// (twelve k-steps a score) and dim_v of 128, both read from the model's own fp16 caches.  One block a group of
+// eight heads (one kv head at the model's ratios) and eight of its tokens: the 16 query rows a warp owns are
+// two tokens' eight heads, as the m16 fragment has them.  Keys come 64 at a time into shared (cp.async, two
+// buffers, the next on its way while one is worked on) and leave it for no other reader: a key row fed eight
+// heads' scores here the reference walked eight times over.  The scores stay in the fragments; the row max
+// and sum of the softmax go on online in log2 units, the causal and window masks strike whole fragments
+// outside the row's range, and the sink joins at the end as one more weight of no value.  The queries and
+// the weights round to halves and the products sum floats, as Flint's and llama's do.
+__global__ void __launch_bounds__(4 * WARP)
+mimo2_attend_mma_kernel(const float* __restrict__ q, const uint16_t* __restrict__ kcache,
+                        const uint16_t* __restrict__ vcache, long long pos, int rows, float* __restrict__ out,
+                        int n_head, int kv_heads, float scale_log2, int window, int ring,
+                        const long long* __restrict__ at, const float* __restrict__ sinks) {
+    constexpr int DK = 192, DV = 128, KS = DK / 16;   // twelve k-steps a score, eight n-tiles a key block
+    extern __shared__ __align__(16) half flash_sm[];
+    half(*ks)[MMA_KEYS][MMA_ROWK] = reinterpret_cast<half(*)[MMA_KEYS][MMA_ROWK]>(flash_sm);
+    half(*vs)[MMA_KEYS][MMA_ROWV] = reinterpret_cast<half(*)[MMA_KEYS][MMA_ROWV]>(flash_sm + 2 * MMA_KEYS * MMA_ROWK);
+    const int g = blockIdx.y, t0 = blockIdx.x * MMA_T, lane = threadIdx.x % WARP, w = threadIdx.x / WARP;
+    const int gid = lane / 4, tig = lane % 4, head = g * MMA_G + gid;
+    const int kvh = (g * MMA_G) / (n_head / kv_heads);  // the block's heads share it: the entry checked the ratio
+    const long long p0 = at ? *at : pos;                 // the launch's first token's position
+    const int tok[2] = {t0 + 2 * w, t0 + 2 * w + 1};     // the thread's rows gid and gid + 8: a head of two tokens
+    uint32_t qa[KS][4];   // the queries, twelve k-steps, in log2 units
+    for (int k = 0; k < KS; ++k)
+        for (int i = 0; i < 2; ++i)
+            for (int hi = 0; hi < 2; ++hi) {
+                float2 x = make_float2(0.0f, 0.0f);
+                if (tok[i] < rows)
+                    x = *reinterpret_cast<const float2*>(q + (size_t(tok[i]) * n_head + head) * DK + 16 * k +
+                                                         8 * hi + 2 * tig);
+                qa[k][i + 2 * hi] = half2_bits(x.x * scale_log2, x.y * scale_log2);
+            }
+    float o[16][4], m[2] = {-INFINITY, -INFINITY}, l[2] = {0.0f, 0.0f};
+    for (int n = 0; n < 16; ++n) o[n][0] = o[n][1] = o[n][2] = o[n][3] = 0.0f;
+    // the block's tokens attend positions [lo, hi): from the first one's window to the last one
+    const long long hi = p0 + min(t0 + MMA_T, rows);
+    const long long lo = window > 0 ? max(0LL, p0 + t0 - window + 1) : 0;
+    const auto fetch = [&](int buf, long long k0) {
+        for (int i = threadIdx.x; i < MMA_KEYS * DK / 8; i += 4 * WARP) {
+            const int r = i / (DK / 8), c = 8 * (i % (DK / 8));
+            const long long key = k0 + r;
+            const bool whole = key >= lo && key < hi;   // the others are zeros, which no weight reads
+            const size_t slot = whole ? (size_t(ring > 0 ? key % ring : key) * kv_heads + kvh) * DK + c : 0;
+            flash_copy(&ks[buf][r][c], reinterpret_cast<const half*>(kcache) + slot, whole);
+        }
+        for (int i = threadIdx.x; i < MMA_KEYS * DV / 8; i += 4 * WARP) {
+            const int r = i / (DV / 8), c = 8 * (i % (DV / 8));
+            const long long key = k0 + r;
+            const bool whole = key >= lo && key < hi;
+            const size_t slot = whole ? (size_t(ring > 0 ? key % ring : key) * kv_heads + kvh) * DV + c : 0;
+            flash_copy(&vs[buf][r][c], reinterpret_cast<const half*>(vcache) + slot, whole);
+        }
+        flash_commit();
+    };
+    const long long first = lo / MMA_KEYS * MMA_KEYS;
+    fetch(0, first);
+    int buf = 0;
+    for (long long k0 = first; k0 < hi; k0 += MMA_KEYS, buf ^= 1) {
+        __syncthreads();   // the buffer the last block was worked on in is free
+        if (k0 + MMA_KEYS < hi) {
+            fetch(buf ^ 1, k0 + MMA_KEYS);
+            flash_wait<1>();
+        } else {
+            flash_wait<0>();
         }
         __syncthreads();
-        for (int key = 0; key < cnt; ++key) {
-            const __half* kr = stage + size_t(key) * krow;
-            float dot = 0.f;
-            for (int i = lane, j = 0; i < dim_k; i += WARP, ++j) dot += qreg[j] * __half2float(kr[i]);
-#pragma unroll
-            for (int d = WARP / 2; d >= 1; d >>= 1) dot += __shfl_down_sync(0xffffffffu, dot, d);
-            const float score = __shfl_sync(0xffffffffu, dot, 0) * scale;
-            const float nm = score > m ? score : m;
-            const float shrink = expf(m - nm), add = expf(score - nm);
-            s = s * shrink + add;
-            const __half* vr = kr + dim_k;
-            for (int j = 0; j < vpr; ++j) acc[j] = acc[j] * shrink + add * __half2float(vr[WARP * j + lane]);
-            m = nm;
+        float s[8][4];
+        for (int n = 0; n < 8; ++n) {
+            s[n][0] = s[n][1] = s[n][2] = s[n][3] = 0.0f;
+            for (int k = 0; k < KS; k += 2) {
+                uint32_t b[4];   // keys 8 n.., values 16 k.. and 16 (k + 1)..
+                ldmatrix_x4(b, &ks[buf][8 * n + lane % 8][16 * k + 8 * (lane / 8)], false);
+                mma16816(s[n], qa[k], b);
+                mma16816(s[n], qa[k + 1], b + 2);
+            }
+        }
+        for (int i = 0; i < 2; ++i) {
+            const long long own = p0 + tok[i];   // the row's token attends positions (own - window, own]
+            float mx = -INFINITY;
+            for (int n = 0; n < 8; ++n)
+                for (int j = 2 * i; j < 2 * i + 2; ++j) {
+                    const long long key = k0 + 8 * n + 2 * tig + j % 2;
+                    if (key > own || (window > 0 && key <= own - window)) s[n][j] = -INFINITY;
+                    mx = fmaxf(mx, s[n][j]);
+                }
+            mx = fmaxf(mx, __shfl_xor_sync(0xffffffffu, mx, 1));
+            mx = fmaxf(mx, __shfl_xor_sync(0xffffffffu, mx, 2));
+            const float now = fmaxf(m[i], mx), base = now == -INFINITY ? 0.0f : now;
+            const float f = exp2f(m[i] - base);
+            m[i] = now;
+            l[i] *= f;
+            for (int n = 0; n < 16; ++n) {
+                o[n][2 * i] *= f;
+                o[n][2 * i + 1] *= f;
+            }
+            for (int n = 0; n < 8; ++n)
+                for (int j = 2 * i; j < 2 * i + 2; ++j) {
+                    s[n][j] = exp2f(s[n][j] - base);
+                    l[i] += s[n][j];
+                }
+        }
+        for (int k = 0; k < 4; ++k) {   // keys 16 k..: the weights as an A fragment
+            const uint32_t pa[4] = {half2_bits(s[2 * k][0], s[2 * k][1]), half2_bits(s[2 * k][2], s[2 * k][3]),
+                                    half2_bits(s[2 * k + 1][0], s[2 * k + 1][1]),
+                                    half2_bits(s[2 * k + 1][2], s[2 * k + 1][3])};
+            for (int n = 0; n < 16; n += 2) {
+                uint32_t b[4];   // keys 16 k.., values 8 n.. and 8 (n + 1)..
+                ldmatrix_x4(b, &vs[buf][16 * k + lane % 8 + 8 * (lane / 8 % 2)][8 * n + 8 * (lane / 16)], true);
+                mma16816(o[n], pa, b);
+                mma16816(o[n + 1], pa, b + 2);
+            }
         }
     }
-
-    // the sink joins as the reference's merge joined it, and the head's row goes out
-    float all_m = sinks ? sinks[h] : -INFINITY;         // exp(sink - max) cannot overflow
-    all_m = m > all_m ? m : all_m;
-    if (all_m == -INFINITY) all_m = 0.f;                // a token with no keys and no sink: cannot happen, but do not NaN
-    const float all_s = (sinks ? expf(sinks[h] - all_m) : 0.f) + s * expf(m - all_m);
-    const float keep = expf(m - all_m);
-    float* o = out + (size_t(t) * n_head + h) * dim_v;
-    for (int j = 0; j < vpr; ++j) o[WARP * j + lane] = acc[j] * keep / all_s;
+    for (int i = 0; i < 2; ++i) {
+        l[i] += __shfl_xor_sync(0xffffffffu, l[i], 1);
+        l[i] += __shfl_xor_sync(0xffffffffu, l[i], 2);
+        float f = 1.0f;
+        if (sinks) {   // the sink, in log2 units like the scores, as one more weight of no value
+            const float sink = sinks[head] * 1.44269504f, now = fmaxf(m[i], sink);
+            f = exp2f(m[i] - now);
+            l[i] = l[i] * f + exp2f(sink - now);
+        }
+        if (tok[i] >= rows) continue;
+        float* y = out + (size_t(tok[i]) * n_head + head) * DV + 2 * tig;
+        for (int n = 0; n < 16; ++n)
+            *reinterpret_cast<float2*>(y + 8 * n) = make_float2(o[n][2 * i] * f / l[i], o[n][2 * i + 1] * f / l[i]);
+    }
 }
+#endif  // STRATA_MIMO_MMA
 
 }  // namespace
 
@@ -243,6 +381,56 @@ void mimo2_rope_split(const float* src, int row, int rows, float* q, float* k, f
         src, row, q, k, v, dim_k, dim_v, n_head, kv_heads, n_rot, theta_scale, (long long) pos, at);
 }
 
+namespace {
+// The card answers once: the tensor cores want Ampere or later, and the shared memory the tile wants wants
+// asking once per kernel too.
+bool mma_ready() {
+    static const bool ready = [] {
+#if !defined(__HIPCC__) && STRATA_MIMO_MMA
+        int dev = 0, cc_major = 0;
+        if (cudaGetDevice(&dev) != cudaSuccess) return false;
+        if (cudaDeviceGetAttribute(&cc_major, cudaDevAttrComputeCapabilityMajor, dev) != cudaSuccess) return false;
+        if (cc_major < 8) return false;     // the tile's cp.async and m16n8k16 are Ampere's
+        return cudaFuncSetAttribute(mimo2_attend_mma_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                    int(MMA_SMEM)) == cudaSuccess;
+#else
+        return false;
+#endif
+    }();
+    return ready;
+}
+
+// STRATA_MIMO_ATTN_TRACE=1: every attend prints its chosen kernel and its CUDA time to stderr.  The events
+// and the wait they ask for exist only while tracing - an untraced call launches exactly what it would have
+// launched without the knob.  The engine calls attend from its own thread alone, so one pair of events is
+// enough for the whole process.
+struct Trace {
+    cudaEvent_t a = nullptr, b = nullptr;
+    bool on = false;
+    Trace() {
+        const char* e = getenv("STRATA_MIMO_ATTN_TRACE");
+        on = e && e[0] == '1';
+        if (on && cudaEventCreate(&a) != cudaSuccess) a = nullptr;
+        if (on && cudaEventCreate(&b) != cudaSuccess) b = nullptr;
+        if (!a || !b) on = false;
+    }
+};
+
+Trace& trace() {
+    static Trace t;
+    return t;
+}
+
+// STRATA_MIMO_ATTN_NO_MMA=1: the entry never picks the tensor-core tile - the bench's own control, and the
+// engine's kill switch if a card ever disagrees with the dispatch. Default off; the launch is then exactly
+// the choice the checks make. Read every call, so a process can measure both ways; a getenv per attend,
+// which is a pointer walk beside a kernel launch.
+bool mma_off() {
+    const char* e = getenv("STRATA_MIMO_ATTN_NO_MMA");
+    return e && e[0] == '1';
+}
+}  // namespace
+
 void mimo2_attend(const float* q, const uint16_t* kcache, const uint16_t* vcache, int64_t pos, int rows,
                   float* out, int dim_k, int dim_v, int n_head, int kv_heads, float scale, void* stream,
                   int window, int ring, const long long* at, int room, const float* sinks) {
@@ -253,22 +441,37 @@ void mimo2_attend(const float* q, const uint16_t* kcache, const uint16_t* vcache
     // there are - and a room over 65535 (gridDim.y's ceiling) would refuse the launch outright
     (void) room;
     if (rows < 1) return;
-    if (rows >= kStagedRows && n_head % 8 == 0 && n_head / kv_heads >= 8) {   // a batch read: the staged walk,
-        // a block a token - and a block's eight heads must share their kv head, which they do only when a
-        // group holds eight of them (both of the model's geometries do; a cheap test geometry may not)
-        const dim3 grid(n_head / 8, rows);
-        const size_t stage_bytes = size_t(kBatch) * (dim_k + dim_v) * sizeof(__half);
-        mimo2_attend_staged_kernel<<<grid, 8 * WARP, stage_bytes, (cudaStream_t) stream>>>(
-            q, kcache, vcache, (long long) pos, rows, out, dim_k, dim_v, n_head, kv_heads, scale, window,
+    const cudaStream_t st = (cudaStream_t) stream;
+    const bool mma = rows >= kMmaRows && dim_k == 192 && dim_v == 128 && n_head % MMA_G == 0 &&
+                     (n_head / kv_heads) % MMA_G == 0 && !mma_off() && mma_ready();
+    Trace& tr = trace();
+    if (tr.on) cudaEventRecord(tr.a, st);
+#if !defined(__HIPCC__) && STRATA_MIMO_MMA
+    if (mma) {
+        const dim3 grid((rows + MMA_T - 1) / MMA_T, n_head / MMA_G);
+        mimo2_attend_mma_kernel<<<grid, 4 * WARP, MMA_SMEM, st>>>(
+            q, kcache, vcache, (long long) pos, rows, out, n_head, kv_heads, scale * 1.44269504f, window,
             ring, at, sinks);
-        return;
+    } else
+#endif
+    {
+        const int warps = 4;
+        const size_t merge_bytes = size_t(2 * WARP + warps * dim_v) * sizeof(float);
+        const dim3 grid(n_head, rows);
+        mimo2_attend_split_kernel<<<grid, warps * WARP, merge_bytes, st>>>(
+            q, kcache, vcache, (long long) pos, rows, out, dim_k, dim_v, n_head, kv_heads, scale, window, ring,
+            at, sinks);
     }
-    const int warps = 4;
-    const size_t merge_bytes = size_t(2 * WARP + warps * dim_v) * sizeof(float);
-    const dim3 grid(n_head, rows);
-    mimo2_attend_split_kernel<<<grid, warps * WARP, merge_bytes, (cudaStream_t) stream>>>(
-        q, kcache, vcache, (long long) pos, rows, out, dim_k, dim_v, n_head, kv_heads, scale, window, ring, at,
-        sinks);
+    if (tr.on) {
+        cudaEventRecord(tr.b, st);
+        if (cudaEventSynchronize(tr.b) == cudaSuccess) {
+            float ms = 0.f;
+            cudaEventElapsedTime(&ms, tr.a, tr.b);
+            std::fprintf(stderr, "mimo2-attend: kernel=%s rows=%d %s pos=%lld %.2f ms\n",
+                         mma ? "tiled_mma" : "split", rows, window > 0 ? "swa" : "global",
+                         at ? (long long) -1 : (long long) pos, double(ms));   // pos on the card stays there
+        }
+    }
 }
 
 }  // namespace strata::poly

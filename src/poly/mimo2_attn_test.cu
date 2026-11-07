@@ -73,7 +73,10 @@ void test_layer(int n_head, int n_kv, bool swa, long long pos, int rows, bool wi
                 int room = 0) {
     const int kWindow = window;
     const int row = kDimK * (n_head + n_kv) + kDimV * n_kv;
-    const int ring = swa ? kWindow + 8 : 0;
+    // the engine's ring: window + the rows one call takes (mimo2.cpp: ring_ = window_ + rows_) - with any
+    // smaller ring a call's own rows would overwrite history its first tokens still read, and the host,
+    // reading the cache AFTER those writes, would compare against the corruption and call it the truth
+    const int ring = swa ? kWindow + rows : 0;
     std::vector<float> src(size_t(rows) * row);
     for (float& x : src) x = frand();
 
@@ -248,6 +251,68 @@ void test_layer(int n_head, int n_kv, bool swa, long long pos, int rows, bool wi
     cudaFree(dsinks); cudaFree(dout_d); cudaFree(at_d);
 }
 
+// CUDA Graph: what the engine's recorded launches really are. The attend is captured on a stream with the
+// position in a card buffer, replayed for two different positions, and every replay must equal a direct
+// launch at the same position to the bit - same kernel, same arguments, no atomics. room is the engine's
+// room(n), and the direct comparison passes the identical buffer as a plain at, so the two paths differ
+// only in the graph around them.
+void test_graph() {
+    constexpr int NH = 64, NKV = 4, ROWS = 96;
+    const long long pos_a = 900, pos_b = 1400;
+    const int cache_rows = 2000;
+    std::vector<float> q(size_t(ROWS) * NH * kDimK);
+    for (float& x : q) x = frand();
+    std::vector<uint16_t> kc(size_t(cache_rows) * NKV * kDimK), vc(size_t(cache_rows) * NKV * kDimV);
+    for (uint16_t& x : kc) x = __half_as_ushort(__float2half_rn(frand()));
+    for (uint16_t& x : vc) x = __half_as_ushort(__float2half_rn(frand()));
+    float* dq = upload(q);
+    uint16_t* dkc = upload(kc);
+    uint16_t* dvc = upload(vc);
+    long long* dat = nullptr;
+    cudaMalloc(&dat, sizeof(long long));
+    float *d_ref = nullptr, *d_got = nullptr;
+    cudaMalloc(&d_ref, size_t(ROWS) * NH * kDimV * sizeof(float));
+    cudaMalloc(&d_got, size_t(ROWS) * NH * kDimV * sizeof(float));
+    const float scale = 1.f / std::sqrt((float) kDimK);
+    const size_t out_n = size_t(ROWS) * NH * kDimV;
+    const auto direct = [&](long long p, float* dst) {
+        cudaMemcpy(dat, &p, sizeof(long long), cudaMemcpyHostToDevice);
+        mimo2_attend(dq, dkc, dvc, p, ROWS, dst, kDimK, kDimV, NH, NKV, scale, nullptr, 0, 0, dat, 1024,
+                     nullptr);
+        cudaDeviceSynchronize();
+    };
+    // capture one launch with the position on the card, as the engine records it
+    cudaMemcpy(dat, &pos_a, sizeof(long long), cudaMemcpyHostToDevice);
+    cudaStream_t s = nullptr;
+    cudaStreamCreate(&s);
+    cudaStreamBeginCapture(s, cudaStreamCaptureModeThreadLocal);
+    mimo2_attend(dq, dkc, dvc, 0, ROWS, d_got, kDimK, kDimV, NH, NKV, scale, (void*) s, 0, 0, dat, 1024,
+                 nullptr);
+    cudaGraph_t graph = nullptr;
+    const bool captured = cudaStreamEndCapture(s, &graph) == cudaSuccess && graph;
+    cudaGraphExec_t exec = nullptr;
+    if (captured) cudaGraphInstantiate(&exec, graph, nullptr, nullptr, 0);
+    double worst = 0.;
+    if (exec) {
+        for (const long long p : {pos_a, pos_b, pos_a}) {   // the same exec, replayed at shifting positions
+            cudaMemcpy(dat, &p, sizeof(long long), cudaMemcpyHostToDevice);
+            cudaGraphLaunch(exec, s);
+            cudaStreamSynchronize(s);
+            direct(p, d_ref);
+            const std::vector<float> got = download(d_got, out_n), ref = download(d_ref, out_n);
+            for (size_t i = 0; i < out_n; ++i)
+                if (!std::isnan(got[i]) && !std::isinf(got[i]))
+                    worst = std::max(worst, double(std::fabs(got[i] - ref[i])));
+        }
+    } else
+        worst = 1.;
+    report(captured ? "graph replay 64/4 rows 96, two positions" : "graph capture FAILED", worst, 0.0);
+    if (exec) cudaGraphExecDestroy(exec);
+    if (graph) cudaGraphDestroy(graph);
+    cudaStreamDestroy(s);
+    cudaFree(dq); cudaFree(dkc); cudaFree(dvc); cudaFree(dat); cudaFree(d_ref); cudaFree(d_got);
+}
+
 }  // namespace
 
 int main() {
@@ -262,25 +327,37 @@ int main() {
     test_layer(8, 8, true, 63, 1, false);
     test_layer(8, 8, true, 64, 1, false);        // the first key hidden
     test_layer(8, 8, true, 65, 3, false);        // tokens of one call see each other's rows
-    test_layer(8, 8, true, 71, 1, false);        // the ring has wrapped once (ring = window + 8)
+    test_layer(8, 8, true, 71, 1, false);        // the ring has wrapped once (ring = window + rows)
     test_layer(8, 8, true, 72, 8, false);
     test_layer(8, 8, true, 150, 2, true);        // wrapped again, position on the card
     test_layer(8, 4, true, 140, 1, false);
-    // the model's own window of 128 and its exact edges 127 / 128 / 129, and a ring that has wrapped (ring 136)
+    // the model's own window of 128 and its exact edges 127 / 128 / 129, and a ring that has wrapped
     test_layer(8, 8, true, 126, 1, false, 128);
     test_layer(8, 8, true, 127, 1, false, 128);
     test_layer(8, 8, true, 128, 1, false, 128);
     test_layer(8, 8, true, 129, 1, false, 128);
     test_layer(8, 8, true, 260, 2, false, 128);
     test_layer(8, 8, true, 260, 8, true, 128);
-    // the batch read's rows: from kStagedRows the entry switches to the staged walk (a block a token,
-    // eight heads sharing one kv walk), so those cases need rows the reference cases above never reach.
-    // The host still sums over every key, so a moderate position keeps them seconds rather than minutes.
+    // the batch read's rows: from kMmaRows the entry switches to the tensor-core tile (a block of 8 tokens
+    // and 8 heads, m16n8k16 scores and weights), so those cases need row counts the reference cases above
+    // never reach. Positions stay moderate where the host sums the whole global history - seconds, not minutes.
     test_layer(64, 4, false, 70, 64, true);             // the switch's own row count, position on the card
+    test_layer(64, 4, false, 333, 32, false);           // one row short of the tile: the split kernel's own
+    test_layer(64, 4, false, 333, 63, false);           // the edge from below
+    test_layer(64, 4, false, 333, 64, false);           // and from above: the tile's first launch
+    test_layer(64, 4, false, 333, 65, false);           // a tile and a stray token
     test_layer(64, 4, false, 300, 96, false);           // the model's global geometry, a batch of rows
-    test_layer(64, 8, true, 400, 96, false, 128);       // and its window one, rows across the window's edge
+    test_layer(64, 4, false, 333, 128, false);          // two token tiles
+    test_layer(64, 4, false, 333, 512, false);          // many tiles, tokens seeing each other's rows
+    test_layer(64, 8, true, 400, 96, false, 128);       // and the window one, rows across the window's edge
     test_layer(8, 8, true, 260, 80, false, 128);        // the ring wrapping while a batch of rows reads
-    test_layer(8, 4, false, 10, 70, false);             // the staged walk with the cheap 8-head geometry
+    test_layer(8, 4, false, 10, 70, false);             // the tile's guards with the cheap head ratios -
+    //   8 heads over 2 kv groups is not the model's geometry: the entry must hand it to the split kernel
+    test_layer(64, 4, false, 32767, 1, false);          // the 32k read chunk's own edges, as the speed
+    test_layer(64, 4, false, 32768, 1, false);          //   bench's prompts stand on them
+    test_layer(64, 4, false, 50000, 1, false);          // and the depth a 50000-token prompt reaches
+    test_layer(64, 8, true, 50000, 65, false, 128);     // a batch at that depth, the ring wrapped many times
+    test_layer(64, 8, true, 100000, 65, true, 128);     // the model's full 131072 context, position on card
     // the model's real geometry: 64 query heads over 4 key heads global (16 to 1) and 8 window (8 to
     // 1), read at a position a long conversation actually stands at - the ratios the engine runs and
     // the only head counts its files give.  The host sums over the whole global history, so these two
@@ -292,6 +369,7 @@ int main() {
     // launch of n_head x rows the kernel keeps is the whole point
     test_layer(64, 4, false, 100000, 1, true, 128, 131072);
     test_layer(64, 8, true, 100000, 1, true, 128, 128);
+    test_graph();
     std::printf(fails ? "FAIL %d cases\n" : "ok  all cases passed\n", fails);
     return fails ? 1 : 0;
 }
