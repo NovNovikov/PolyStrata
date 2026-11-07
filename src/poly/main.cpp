@@ -1140,8 +1140,14 @@ int serve(Session& ss, const Options& o) {
                         resume = at;
                         std::printf("RESUME %lld\n", (long long) at);
                     } else {
-                        std::printf("PP %lld %lld %.0f %.1f\n", (long long) at, (long long) total, ms,
-                                    ms > 0.0 ? 1000.0 * (double) (at - resume) / ms : 0.0);
+                        // the last fields are the request's totals so far: a slow read is CPU experts or it is not
+                        const strata::poly::Stats now = engine.stats();
+                        std::printf("PP %lld %lld %.0f %.1f cpu_ms=%.0f route_ms=%.0f experts=%lld/%lld\n",
+                                    (long long) at, (long long) total, ms,
+                                    ms > 0.0 ? 1000.0 * (double) (at - resume) / ms : 0.0,
+                                    now.cpu_ms - before.cpu_ms, now.route_wait_ms - before.route_wait_ms,
+                                    (long long) (now.gpu_experts - before.gpu_experts),
+                                    (long long) (now.cpu_experts - before.cpu_experts));
                     }
                     std::fflush(stdout);
                 },
