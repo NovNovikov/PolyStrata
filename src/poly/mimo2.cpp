@@ -457,14 +457,33 @@ void Mimo2::block_rows(int64_t pos, int n) {
     block_qkv(blocks_[(size_t) n_layer_], pos, n);
     if (!tok_) return;   // without the read's tokens nothing can be joined: the first block's rows, as before
     const size_t e = (size_t) n_embd_;
-    for (int t = 0; t < n; ++t) {
-        const int64_t at = pos + t;
-        const int32_t token = tok_[at - pos_];   // tok_'s row 0 stands at pos_, as every read leaves it
-        for (int d = 1; d < n_draft_; ++d) {
-            const int il = n_layer_ + d;
-            block_input(token, at, hn_ + (size_t) (at - pos_) * e, il);
-            block_qkv(blocks_[(size_t) il], at, 1);
-        }
+    const int first = (int) (pos - pos_);   // tok_'s row 0 stands at pos_, as every read leaves it
+    // Every chained block joins the model's own output row with the token's embedding - the same
+    // draft_input() builds, only with its own norms - so no row of the loop below waits on another and the
+    // whole call goes through batched, one pass a depth.  The walk this replaces ran a dozen small
+    // launches and two events per token and per depth: a read's draft turn cost 6.2 s at 32768 rows and
+    // 3.3 s at 17232, the two holes at the ends of the big prompts' reads.  block_input() kept the rows
+    // one a token only because its scratch holds one row.
+    for (int d = 1; d < n_draft_; ++d) {
+        const int il = n_layer_ + d;
+        Block& B = blocks_[(size_t) il];
+        // the same h_r_ handshake draft_input() runs: its last copy may still be reading the buffer
+        if (!ev_hr_) {
+            cudaEvent_t ev = nullptr;
+            ck(cudaEventCreateWithFlags(&ev, cudaEventDisableTiming), "cudaEventCreate");
+            ev_hr_ = ev;
+        } else
+            ck(PA_WAIT_EVENT((cudaEvent_t) ev_hr_), "embed");
+        for (int t = 0; t < n; ++t) input(tok_[first + t], pos + t, h_r_ + (size_t) t * e);
+        ck(PA_COPY(cur_, h_r_, (size_t) n * e * sizeof(float), cudaMemcpyHostToDevice, cs(st_)), "embed");
+        ck(cudaEventRecord((cudaEvent_t) ev_hr_, cs(st_)), "embed");
+        rms_norm(cur_, fp(B.nextn_enorm), r_, n_embd_, n, rms_eps_, st_, 2 * n_embd_);
+        rms_norm(hn_ + (size_t) first * e, fp(B.nextn_hnorm), r_ + e, n_embd_, n, rms_eps_, st_, 2 * n_embd_);
+        float* x = r_ + 2 * (size_t) n * e;   // the joined rows first, the residual after them, as draft_input()
+        lin(B.nextn_proj, r_, x, n);
+        rms_norm(x, fp(layers_[(size_t) il].attn_norm), xn_, n_embd_, n, rms_eps_, st_);
+        kernels::native_quantize_q8_1(xn_, xq_, n_embd_ * n, 1, st_);
+        block_qkv(blocks_[(size_t) il], pos, n);
     }
 }
 
