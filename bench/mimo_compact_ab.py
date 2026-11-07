@@ -117,10 +117,12 @@ class Encoder:
         return self.tok.decode(ids)
 
 
-def fresh_args(base_args, work, extra):
+def fresh_args(base_args, work, extra, keep_flags=False):
     """base_args with the session dir and expert profile redirected into `work` and the phase's
-    flags appended. Both experiment flags are stripped from the config's args first."""
-    args = [a for a in base_args if a not in EXPERIMENT] + list(extra)
+    flags appended. Both experiment flags are stripped from the config's args first - unless
+    keep_flags, for phases that probe another model's config as it is actually run."""
+    args = (list(base_args) if keep_flags
+            else [a for a in base_args if a not in EXPERIMENT]) + list(extra)
     work.mkdir(parents=True, exist_ok=False)
     (work / "sessions").mkdir()
     args[args.index("--session-dir") + 1] = str(work / "sessions")
@@ -130,11 +132,11 @@ def fresh_args(base_args, work, extra):
     return args
 
 
-def run_phase(name, base_args, extra, enc, prompts, out, say, exe, env):
+def run_phase(name, base_args, extra, enc, prompts, out, say, exe, env, keep_flags=False):
     """One engine start through the fixed sequence; returns (requests, error)."""
     say("")
     say(f"=== фаза {name}: запуск движка (загрузка 2-4 минуты, тишина в этот момент нормальна) ===")
-    args = fresh_args(base_args, out / ("work-" + name), extra)
+    args = fresh_args(base_args, out / ("work-" + name), extra, keep_flags)
     command = [exe, "--serve"] + args
     with (out / f"command-{name}.json").open("x", encoding="utf8") as f:
         json.dump({"command": command, "exe_sha256": sha(exe)}, f, indent=2)
@@ -266,6 +268,9 @@ def main():
     ap.add_argument("--phases", default="plain,scratch,both",
                     help="any of plain,scratch,both, comma separated")
     ap.add_argument("--kill-check", default="on", choices=["on", "off"])
+    ap.add_argument("--keep-flags", default="off", choices=["on", "off"],
+                    help="off (default): strip --compact-* from the config's args before every phase, "
+                         "so the A/B's plain phase stays plain; on: run the config exactly as it is")
     args = ap.parse_args()
 
     live = engines_running() if args.kill_check == "on" else []
@@ -319,7 +324,8 @@ def main():
         # the first phase builds req2 from its real answer; every later phase runs that same prompt
         prompts = {"req1": req1, "req2": None, "max_new": args.gen_tokens, "repeats": args.repeats}
         for name, flags in phases:
-            results[name], e, mems[name] = run_phase(name, cfg["args"], flags, enc, prompts, out, say, exe, env)
+            results[name], e, mems[name] = run_phase(name, cfg["args"], flags, enc, prompts, out, say, exe,
+                                                      env, args.keep_flags == "on")
             if e:
                 raise RuntimeError(e)
     except Exception as e:
