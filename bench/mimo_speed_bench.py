@@ -154,6 +154,15 @@ def main():
     # --env adds STRATA_* knobs the engine reads (the strip below removes them from the inherited set);
     # --requests A runs only long-A 50000/256: enough to see one read's every attend, minutes shorter.
     ap.add_argument("--env", action="append", default=[], metavar="KEY=VAL")
+    # --add-arg appends engine arguments as they stand (repeatable), e.g. --add-arg "--cpu-share 0":
+    # the decode A/B must not edit the user's config. The engine's argument loop keeps the last
+    # occurrence, so an added flag wins over one the config already carries.
+    ap.add_argument("--add-arg", action="append", default=[], metavar="ARGS")
+    # the generation length of the two long requests. 256 - the number the prefill lines were
+    # measured with - is too short a decode window: half of it is the expert cache warming up.
+    # The decode A/B runs pass 2048; the engine's own stderr then prints one expert-cache line
+    # every 128 tokens, which is the steady-state curve.
+    ap.add_argument("--gen", type=int, default=256, metavar="N")
     ap.add_argument("--requests", default="full", choices=["full", "A"])
     args = ap.parse_args()
 
@@ -178,6 +187,8 @@ def main():
     prof = launch[launch.index("--expert-profile") + 1]
     shutil.copyfile(prof, out / "work" / "expert-profile.txt")   # the user's profile stays untouched
     launch[launch.index("--expert-profile") + 1] = str(out / "work" / "expert-profile.txt")
+    for extra in args.add_arg:
+        launch.extend(extra.split())
 
     from strata_tokenizer import Tokenizer
     tok = Tokenizer.from_dir(config["tokenizer"])
@@ -329,11 +340,11 @@ def main():
         with (out / "ready.json").open("x", encoding="utf8") as f:
             json.dump({"load_s": load_s, "memory": proc.memory_info()._asdict(),
                        "process_gpu": gpu_process_memory(p.pid)}, f, indent=2)
-        requests.append(generate(1, long_a, 256))
+        requests.append(generate(1, long_a, args.gen))
         if args.requests == "A":
             requests.append(generate(2, short, 128))
         else:
-            requests.append(generate(2, long_b, 256))
+            requests.append(generate(2, long_b, args.gen))
             requests.append(generate(3, long_a, 32))
             requests.append(generate(4, short, 128))
     except Exception as e:
