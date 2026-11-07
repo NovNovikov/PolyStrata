@@ -151,6 +151,10 @@ def main():
     ap.add_argument("--exe", default=str(REPO / "build-poly-cuda12" / "strata-poly.exe"))
     ap.add_argument("--config", default=str(CONFIG))
     ap.add_argument("--kill-check", default="on", choices=["on", "off"])
+    # --env adds STRATA_* knobs the engine reads (the strip below removes them from the inherited set);
+    # --requests A runs only long-A 50000/256: enough to see one read's every attend, minutes shorter.
+    ap.add_argument("--env", action="append", default=[], metavar="KEY=VAL")
+    ap.add_argument("--requests", default="full", choices=["full", "A"])
     args = ap.parse_args()
 
     live = engines_running() if args.kill_check == "on" else []
@@ -193,6 +197,9 @@ def main():
     exe = str(Path(args.exe).resolve())
     env = {k: v for k, v in os.environ.items() if not k.startswith("STRATA_")}
     env["STRATA_TRACE_DECODE_COSTS"] = "1"
+    for kv in args.env:
+        k, _, v = kv.partition("=")
+        env[k] = v
     env["PATH"] = os.pathsep.join(config.get("lib_dirs", []) + [env.get("PATH", "")])
     commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(REPO), capture_output=True,
                             text=True).stdout.strip()
@@ -323,9 +330,12 @@ def main():
             json.dump({"load_s": load_s, "memory": proc.memory_info()._asdict(),
                        "process_gpu": gpu_process_memory(p.pid)}, f, indent=2)
         requests.append(generate(1, long_a, 256))
-        requests.append(generate(2, long_b, 256))
-        requests.append(generate(3, long_a, 32))
-        requests.append(generate(4, short, 128))
+        if args.requests == "A":
+            requests.append(generate(2, short, 128))
+        else:
+            requests.append(generate(2, long_b, 256))
+            requests.append(generate(3, long_a, 32))
+            requests.append(generate(4, short, 128))
     except Exception as e:
         error = repr(e)
         say(f"ПРОГОН ОСТАНОВЛЕН на ошибке: {error}")
