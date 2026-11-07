@@ -273,6 +273,14 @@ int main() {
     test_layer(8, 8, true, 129, 1, false, 128);
     test_layer(8, 8, true, 260, 2, false, 128);
     test_layer(8, 8, true, 260, 8, true, 128);
+    // the batch read's rows: from kStagedRows the entry switches to the staged walk (a block a token,
+    // eight heads sharing one kv walk), so those cases need rows the reference cases above never reach.
+    // The host still sums over every key, so a moderate position keeps them seconds rather than minutes.
+    test_layer(64, 4, false, 70, 64, true);             // the switch's own row count, position on the card
+    test_layer(64, 4, false, 300, 96, false);           // the model's global geometry, a batch of rows
+    test_layer(64, 8, true, 400, 96, false, 128);       // and its window one, rows across the window's edge
+    test_layer(8, 8, true, 260, 80, false, 128);        // the ring wrapping while a batch of rows reads
+    test_layer(8, 4, false, 10, 70, false);             // the staged walk with the cheap 8-head geometry
     // the model's real geometry: 64 query heads over 4 key heads global (16 to 1) and 8 window (8 to
     // 1), read at a position a long conversation actually stands at - the ratios the engine runs and
     // the only head counts its files give.  The host sums over the whole global history, so these two
