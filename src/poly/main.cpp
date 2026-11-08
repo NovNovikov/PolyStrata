@@ -7,6 +7,7 @@
 // STOP and QUIT in, and RESUME, PP, T, DONE and ERR out.
 #include "conversations.hpp"
 #include "engine.hpp"
+#include "mimo2_attn.hpp"
 #include "transfer_audit_cuda.hpp"
 #include "guesses.hpp"
 #include "strata/core/conversation_memory.hpp"
@@ -1430,6 +1431,10 @@ void usage() {
                  "                         answer starts (default 2048 with the 128 MiB --stage-mib default; 0 = never)\n"
                  "  --cpu-share F          under that, the share of those experts the CPU computes meanwhile, the\n"
                  "                         ones the fewest tokens chose (default: as the times say; 0 = none)\n"
+                 "  --decode-attn-warps W  warps a block of an answer's attention takes: auto fills the card with\n"
+                 "                         them (one global layer's attend at 50 000 keys: 18.4 ms to 2.6 ms, and\n"
+                 "                         9.30 to 17.71 tokens a second on a 50 000-token context), or 4, 8, 16,\n"
+                 "                         32 (default 4, the launch every build before this one used; MiMo only)\n"
                  "  --prompt-cache N       checkpoints kept of a conversation, about 150 MB of RAM each (default 6;\n"
                  "                         0 = a prompt is read from its start unless it goes on from the last token)\n"
                  "  --prompt-cache-every N accepted for older launch scripts; semantic assistant-history checkpoints\n"
@@ -1599,6 +1604,15 @@ int main(int argc, char** argv) {
         else if (a == "--stage-ahead") o.stage_ahead = std::atoi(val());
         else if (a == "--stage-read-mib") o.stage_read_mib = std::atoi(val());
         else if (a == "--cpu-share") o.cpu_share = (float) std::atof(val());
+        else if (a == "--decode-attn-warps") {
+            o.decode_attn_warps = val();
+            const std::string& w = o.decode_attn_warps;
+            if (w != "auto" && w != "4" && w != "8" && w != "16" && w != "32") {
+                std::fprintf(stderr, "strata-poly: --decode-attn-warps wants auto or 4, 8, 16 or 32\n");
+                return 2;
+            }
+            strata::poly::mimo2_attend_warps(w.c_str());   // the kernel takes it from here; the environment,
+        }                                                 // when set, still answers in front of it
         else if (a == "--prompt-cache") cache.o.checkpoints = std::atoi(val());
         else if (a == "--prompt-cache-every") cache.o.every = std::atoll(val());
         else if (a == "--conversation-cache-mib") {

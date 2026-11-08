@@ -65,6 +65,7 @@ struct Options {
     float exchange_budget_pct = 10.f; ///< soft budget for further exchanges vs preceding eval; always allow first
     bool no_disk = false;        ///< all weights resident in locked RAM or fixed VRAM; model files close at load
     bool coalesce_expert_dma = false; ///< opt-in: bounded contiguous prefill registration before attention, two H2D per expert
+    std::string decode_attn_warps;    ///< opt-in: warps a block of MiMo's decode attend gets - "auto" or 4/8/16/32; empty keeps four
     int no_disk_vram_margin_mib = 512; ///< extra headroom for loading, separate from the runtime reserve
     bool rows_vram = false;      ///< reserve intermediate read rows in VRAM
     int read_chunk_tokens = 0;   ///< prompt tokens in one read() pass at most; 0: context / RAM limit

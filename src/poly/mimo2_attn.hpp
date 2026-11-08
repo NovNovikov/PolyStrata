@@ -37,4 +37,10 @@ void mimo2_attend(const float* q, const uint16_t* kcache, const uint16_t* vcache
                   int window = 0, int ring = 0, const long long* at = nullptr, int room = 0,
                   const float* sinks = nullptr);
 
+/// How many warps a block of the decode attend gets: "" for the kernel's own four, "auto" for the count that
+/// fills the card (about 4096 warps divided by the call's blocks), or 4, 8, 16, 32.  Set once from the command
+/// line, before any thread launches; STRATA_MIMO_ATTN_WARPS, when the environment carries it, answers instead,
+/// so a run can measure both ways without a rebuild.  Anything unrecognised leaves the four in place.
+void mimo2_attend_warps(const char* setting);
+
 }  // namespace strata::poly
