@@ -156,9 +156,16 @@ __global__ void mimo2_rope_split_kernel(const float* __restrict__ src, int row, 
 // The reference's shape, kept for the calls with few rows: see the file's header for why.
 // With splits > 1 the z-th block group of the grid takes its slice of the head's keys - at 50 000 keys a
 // decoded token gave the card n_head blocks and no more, half its SMs given nothing - and writes a partial
-// (max, sum, weighted value, the sink NOT yet in it) instead of the answer; mimo2_attend_reduce_kernel
+// (max, sum, weighted value, the sink NOT in it) instead of the answer; mimo2_attend_reduce_kernel
 // merges the slices, adds the sink once, and divides.  splits == 1 leaves the old path's lines untouched.
-__global__ void mimo2_attend_split_kernel(const float* __restrict__ q, const uint16_t* __restrict__ kcache,
+// The template BATCH is the keys one warp takes per round of its loop: 1 is the loop of every earlier
+// build to the byte; 2, 4, 8 take the round's keys as a group, so the group's K loads are all in flight
+// before a dot consumes one and the shuffle chains run side by side.  A runtime batch shared one kernel's
+// registers between both shapes and the 1024-thread launch stopped fitting ("too many resources") for
+// every setting at once; compiled per BATCH, the default kernel is the old kernel's registers again.
+template <int BATCH>
+__global__ void __launch_bounds__(BATCH == 1 ? 32 * WARP : 16 * WARP)
+mimo2_attend_split_kernel(const float* __restrict__ q, const uint16_t* __restrict__ kcache,
                                           const uint16_t* __restrict__ vcache, long long pos, int rows,
                                           float* __restrict__ out, int dim_k, int dim_v, int n_head, int kv_heads,
                                           float scale, int window, int ring, const long long* __restrict__ at,
@@ -195,7 +202,57 @@ __global__ void mimo2_attend_split_kernel(const float* __restrict__ q, const uin
     for (int i = int(threadIdx.x); i < dim_k; i += int(blockDim.x)) qs[i] = qh[i];
     __syncthreads();
 
-    for (int key = k0 + warp; key < k1; key += warps) {
+    // batch rounds first, whole groups only; whatever keys the rounds do not fill walk below, one at a
+    // time, in the loop every earlier build ran - BATCH 1 compiles to that loop alone
+    int kb = k0;
+    if (BATCH > 1) {
+        kb = k0 + ((k1 - k0) / (warps * BATCH)) * (warps * BATCH);
+        for (int key0 = k0 + warp * BATCH; key0 < kb; key0 += warps * BATCH) {
+            float dot[BATCH];
+            const uint16_t* kr[BATCH];
+#pragma unroll
+            for (int j = 0; j < BATCH; ++j) {
+                dot[j] = 0.f;
+                const long long row = lo + key0 + j;
+                const long long cr = ring ? row % ring : row;
+                kr[j] = kc + size_t(cr) * kv_heads * dim_k;
+            }
+            for (int i = lane; i < dim_k; i += WARP)
+#pragma unroll
+                for (int j = 0; j < BATCH; ++j)
+                    dot[j] += qs[i] * __half2float(__ushort_as_half(kr[j][i]));
+#pragma unroll
+            for (int d = WARP / 2; d >= 1; d >>= 1)
+#pragma unroll
+                for (int j = 0; j < BATCH; ++j)
+                    dot[j] += __shfl_down_sync(0xffffffffu, dot[j], d);
+            float nm = m;
+#pragma unroll
+            for (int j = 0; j < BATCH; ++j) {           // dot becomes the score, staying one register a key
+                dot[j] = __shfl_sync(0xffffffffu, dot[j], 0) * scale;
+                nm = dot[j] > nm ? dot[j] : nm;
+            }
+            const float shrink = expf(m - nm);
+            float add[BATCH], gs = 0.f;
+#pragma unroll
+            for (int j = 0; j < BATCH; ++j) { add[j] = expf(dot[j] - nm); gs += add[j]; }
+            // the values join one key at a time: holding BATCH * vpr of them in flight per thread pushed
+            // the kernel over the 64-register budget of a 1024-thread block, and a launch that does not
+            // fit simply does not happen - quietly, until something checks (the entry now does)
+            for (int t = 0; t < vpr; ++t) acc[t] *= shrink;
+#pragma unroll
+            for (int j = 0; j < BATCH; ++j) {
+                const long long row = lo + key0 + j;
+                const long long cr = ring ? row % ring : row;
+                const uint16_t* vrow = vc + size_t(cr) * kv_heads * dim_v;
+                for (int t = 0; t < vpr; ++t)
+                    acc[t] += add[j] * __half2float(__ushort_as_half(vrow[WARP * t + lane]));
+            }
+            s = s * shrink + gs;
+            m = nm;
+        }
+    }
+    for (int key = kb + warp; key < k1; key += warps) {
         const long long row = lo + key;
         const long long cr = ring ? row % ring : row;   // a ring layer's row p lies at cache row p % ring
         const uint16_t* krow = kc + size_t(cr) * kv_heads * dim_k;
@@ -522,6 +579,17 @@ int split_k(int n_head, int rows, int warps) {
     return n == 2 || n == 4 || n == 8 ? n : 1;
 }
 
+// STRATA_MIMO_ATTN_BATCH=N: keys one warp takes per round of its inner loop, 1 (unset) the loop of every
+// earlier build.  The per-key chain is one dependent memory round trip - K, dot, shuffles, V - and 32
+// warps a block do not cover it together; N keys a round put N chains in flight side by side.  Whether
+// the round trips were the wall is a measurement, the bench's rows-times-batch sweep, not an argument.
+int split_batch() {
+    const char* e = getenv("STRATA_MIMO_ATTN_BATCH");
+    if (!e || !e[0]) return 1;
+    const int n = atoi(e);
+    return n == 2 || n == 4 || n == 8 ? n : 1;
+}
+
 // the partials' home, allocated once and grown, never freed: an answer's attend is captured into a CUDA
 // graph, and a cudaMalloc inside a capture fails - so a call that meets an unwarmed workspace while the
 // stream is capturing runs with splits 1 instead, the launch every earlier build used, and says so once.
@@ -573,7 +641,12 @@ void mimo2_attend(const float* q, const uint16_t* kcache, const uint16_t* vcache
     } else
 #endif
     {
-        const int warps = split_warps(n_head, rows);
+        int warps = split_warps(n_head, rows);
+        const int batch = split_batch();
+        // a batched warp holds the group's dots and scores, and past 512 threads a block of it does not
+        // fit the card's registers - the launch simply refuses.  Batch trades warps for in-flight keys;
+        // capping to 16 warps is the trade, and the bench's warps-times-batch cells say whether it pays.
+        if (batch > 1 && warps > 16) warps = 16;
         // one line per warp count, so a run's log says the launch changed without a print per attend: the
         // default 4 never prints, and a run that set the variable but met no split launch prints nothing either
         static int told = 0;
@@ -621,12 +694,33 @@ void mimo2_attend(const float* q, const uint16_t* kcache, const uint16_t* vcache
             }
         }
         const dim3 grid(n_head, rows, splits);
-        mimo2_attend_split_kernel<<<grid, warps * WARP, merge_bytes, st>>>(
-            q, kcache, vcache, (long long) pos, rows, out, dim_k, dim_v, n_head, kv_heads, scale, window, ring,
-            at, sinks, splits, part);
+        static int told_b = 0;
+        if (batch > 1 && !told_b) {
+            told_b = 1;
+            std::fprintf(stderr, "strata-poly: mimo2-attend: split kernel takes %d keys a warp's round"
+                                 " (STRATA_MIMO_ATTN_BATCH=%s)\n", batch, getenv("STRATA_MIMO_ATTN_BATCH"));
+        }
+        const auto go = [&](auto kern) {
+            kern<<<grid, warps * WARP, merge_bytes, st>>>(
+                q, kcache, vcache, (long long) pos, rows, out, dim_k, dim_v, n_head, kv_heads, scale,
+                window, ring, at, sinks, splits, part);
+        };
+        switch (batch) {                                  // compiled per BATCH: see the kernel's header
+            case 8:  go(mimo2_attend_split_kernel<8>);  break;
+            case 4:  go(mimo2_attend_split_kernel<4>);  break;
+            case 2:  go(mimo2_attend_split_kernel<2>);  break;
+            default: go(mimo2_attend_split_kernel<1>);
+        }
         if (splits > 1)
             mimo2_attend_reduce_kernel<<<dim3(n_head, rows), 128, 0, st>>>(part, out, n_head, dim_v, splits,
                                                                            sinks);
+        // a launch that does not fit - registers, shared, grid - fails here and nowhere else: the
+        // buffers keep what they held before and every number downstream is quietly wrong.  The engine
+        // says so the moment it happens; the check is a per-thread-state read, no sync.
+        if (cudaError_t e = cudaGetLastError(); e != cudaSuccess)
+            std::fprintf(stderr, "strata-poly: mimo2-attend: LAUNCH FAILED (%s): rows=%d warps=%d splits=%d"
+                                 " batch=%d - the attend did not run\n", cudaGetErrorString(e), rows, warps,
+                         splits, batch);
     }
     if (tr.on) {
         cudaEventRecord(tr.b, st);
