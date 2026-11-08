@@ -128,19 +128,20 @@ void cell(const Card& c, const char* kind, int rows, long long depth, int kv_hea
 
 /// One answer's attend, timed: the split kernel's own microseconds and the bytes it moves.
 void cell_decode(const Card& c, const char* kind, int rows, long long depth, int kv_heads, int window, int ring,
-                 int warps, int splits = 1, int batch = 1) {
+                 int warps, int splits = 1, int batch = 1, int tile = 0) {
     const long long pos = depth - rows;
     const int iters = depth > 32768ll ? 5 : 10;
     putenv_str((char*) "STRATA_MIMO_ATTN_NO_MMA=1");   // under kMmaRows the entry takes the split kernel either way
     putenv_str((char*) ("STRATA_MIMO_ATTN_WARPS=" + std::to_string(warps)).c_str());
     putenv_str((char*) ("STRATA_MIMO_ATTN_SPLITK=" + std::to_string(splits)).c_str());
     putenv_str((char*) ("STRATA_MIMO_ATTN_BATCH=" + std::to_string(batch)).c_str());
+    putenv_str((char*) ("STRATA_MIMO_ATTN_GROUP=" + std::to_string(tile)).c_str());
     const double ms = timed(c, rows, pos, kv_heads, window, ring, c.out[0], iters);
     const long long keys = window > 0 ? std::min<long long>(window, depth) : depth;
-    const double useful = double(keys) * kv_heads * (kDimK + kDimV) * 2.0;
-    const double moved = useful * (kNHead / kv_heads);
-    std::printf("%-7s rows %2d depth %7lld warps %2d splits %d batch %d  %9.1f us   useful %6.1f GB/s"
-                "   through the card %7.1f GB/s\n", kind, rows, depth, warps, splits, batch, ms * 1000.0,
+    const double useful = double(keys) * kv_heads * (kDimK + kDimV) * 2.0;   // grouped reads a row once per token
+    const double moved = useful * (tile ? 1.0 : double(kNHead) / kv_heads);
+    std::printf("%-7s rows %2d depth %7lld warps %2d splits %2d batch %d tile %2d  %9.1f us   useful %6.1f GB/s"
+                "   through the card %7.1f GB/s\n", kind, rows, depth, warps, splits, batch, tile, ms * 1000.0,
                 useful / (ms * 1e6), moved / (ms * 1e6));
     std::fflush(stdout);
 }
@@ -190,19 +191,16 @@ int main(int argc, char** argv) {
                 for (const int rows : {1, 2, 3, 4})
                     for (const int sk : {1, 2, 4, 8})
                         cell_decode(c, "global", rows, depth, 4, 0, 0, rows <= 2 ? 32 : 16, sk);
-        std::printf("\nkeys a warp takes per round, at each rows' best warps and splits (1 = the loop of"
-                    " every build before this; the wall being tested is one dependent memory round trip"
-                    " per key):\n");
+        std::printf("\ngrouped: the 16 heads of a kv group share each KV row's fetch (tile 0 = the split"
+                    " kernel, one block a head; grouped blocks are 16 warps whatever warps says):\n");
         for (long long depth : {16384ll, 50000ll})
             if (depth <= cap)
                 for (const int rows : {1, 2, 3, 4}) {
-                    const int sk = rows == 1 ? 2 : rows == 3 ? 8 : 1;
-                    for (const int b : {1, 2, 4, 8}) {
-                        const int w = b == 1 ? (rows <= 2 ? 32 : 16) : 16;   // batch caps warps - see the entry
-                        cell_decode(c, "global", rows, depth, 4, 0, 0, w, sk, b);
-                        if (b == 1 && rows <= 2)
-                            cell_decode(c, "global", rows, depth, 4, 0, 0, 16, sk, 1);   // the same warps as batch
-                    }
+                    const int w = rows <= 2 ? 32 : 16, sk = rows == 1 ? 2 : rows == 3 ? 8 : 1;
+                    cell_decode(c, "global", rows, depth, 4, 0, 0, w, sk, 1, 0);   // the launch today
+                    for (const int sk_g : {1, 8, 16})
+                        cell_decode(c, "global", rows, depth, 4, 0, 0, 16, sk_g, 1, 8);
+                    cell_decode(c, "global", rows, depth, 4, 0, 0, 16, 16, 1, 16);
                 }
         std::printf("\nthe 39 window layers, 128 rows of a ring:\n");
         if (kRingRows <= cap + max_rows)

@@ -330,6 +330,112 @@ __global__ void mimo2_attend_reduce_kernel(const float* __restrict__ part, float
     }
 }
 
+// The grouped decode attend: one block per (kv head, token, key slice), the group's query heads one warp
+// each.  The kernel above gives every query head its own block, so each KV row of a group crossed the
+// card's wires n_head / kv_heads times - the three launch sweeps of 2026-11-08 (warps, splits, keys per
+// round) all stalled at 50-110 GB/s of useful bytes through 900-1800 GB/s of moved ones, and that ratio
+// is this redundancy.  Here a tile of the group's K and V rows stages through shared once and all 16
+// warps read it, so each row is fetched once per (token, slice); splits keep the card as full as the
+// split kernel keeps it, and the partials have the same layout, so the same reduce kernel merges them.
+// The heads see keys in tile order and their queries round to halves on the way in, so the last bits
+// move as they do between the two attend kernels - an opt-in launch, like the warps, splits and batch.
+constexpr int kGroupHeads = 16;                    // query heads a grouped block carries (the model's ratio)
+template <int TILE>
+__global__ void __launch_bounds__(kGroupHeads * WARP)
+mimo2_attend_grouped_kernel(const float* __restrict__ q, const uint16_t* __restrict__ kcache,
+                            const uint16_t* __restrict__ vcache, long long pos, int rows,
+                            float* __restrict__ out, int dim_k, int dim_v, int n_head, int kv_heads,
+                            float scale, int window, int ring, const long long* __restrict__ at,
+                            const float* __restrict__ sinks, int splits, float* __restrict__ part) {
+    const int g = blockIdx.x;                           // the kv head, == the group index
+    const int t = blockIdx.y;
+    const long long p = (at ? *at : pos) + t;
+    const int per = n_head / kv_heads;                  // query heads sharing this kv head
+    const long long lo = window > 0 && p >= window ? p - window + 1 : 0;
+    const int n_keys = int(p - lo) + 1;
+    const int C = splits > 1 ? ((n_keys + splits - 1) / splits + 63) & ~63 : n_keys;
+    const int k0 = splits > 1 ? int(blockIdx.z) * C : 0;
+    const int k1 = splits > 1 ? min(k0 + C, n_keys) : n_keys;
+
+    const int lane = threadIdx.x & (WARP - 1);
+    const int warp = int(threadIdx.x >> 5);
+    const int kh0 = g * per;                            // the group's first query head
+
+    __shared__ __half2 sq[kGroupHeads * kMaxDims / 2];  // the group's queries, staged once a block
+    __shared__ __half2 sk[TILE * kMaxDims / 2];         // a tile of its K rows
+    __shared__ __half2 sv[TILE * kMaxDims / 2];         // and of its V rows
+
+    for (int i = int(threadIdx.x); i < per * (dim_k / 2); i += int(blockDim.x)) {
+        const int hh = i / (dim_k / 2), d = i % (dim_k / 2);
+        const float* src = q + (size_t(t) * n_head + kh0 + hh) * dim_k + 2 * d;
+        sq[i] = __floats2half2_rn(src[0], src[1]);
+    }
+
+    const uint16_t* kc = kcache + size_t(g) * dim_k;    // + row * kv_heads * dim_k
+    const uint16_t* vc = vcache + size_t(g) * dim_v;
+    float m = -INFINITY, s = 0.f;
+    float acc[8];
+    const int vpr = dim_v / WARP;
+    for (int j = 0; j < 8; ++j) acc[j] = 0.f;
+
+    for (int key0 = k0; key0 < k1; key0 += TILE) {
+        const int nt = min(TILE, k1 - key0);
+        for (int i = int(threadIdx.x); i < nt * (dim_k / 2); i += int(blockDim.x)) {
+            const long long row = lo + key0 + i / (dim_k / 2);
+            const long long cr = ring ? row % ring : row;
+            sk[i] = *reinterpret_cast<const __half2*>(kc + size_t(cr) * kv_heads * dim_k + 2 * (i % (dim_k / 2)));
+        }
+        for (int i = int(threadIdx.x); i < nt * (dim_v / 2); i += int(blockDim.x)) {
+            const long long row = lo + key0 + i / (dim_v / 2);
+            const long long cr = ring ? row % ring : row;
+            sv[i] = *reinterpret_cast<const __half2*>(vc + size_t(cr) * kv_heads * dim_v + 2 * (i % (dim_v / 2)));
+        }
+        __syncthreads();
+
+        if (warp < per) {                               // one warp a head of the group; idle warps wait
+            const __half2* qh = sq + warp * (dim_k / 2);
+            for (int c = 0; c < nt; ++c) {
+                const __half2* kr = sk + c * (dim_k / 2);
+                float dot = 0.f;
+                for (int i = lane; i < dim_k / 2; i += WARP) {
+                    const float2 a = __half22float2(qh[i]), b = __half22float2(kr[i]);
+                    dot += a.x * b.x + a.y * b.y;
+                }
+#pragma unroll
+                for (int d = WARP / 2; d >= 1; d >>= 1) dot += __shfl_down_sync(0xffffffffu, dot, d);
+                const float score = __shfl_sync(0xffffffffu, dot, 0) * scale;
+                const float nm = score > m ? score : m;
+                const float shrink = expf(m - nm), add = expf(score - nm);
+                s = s * shrink + add;
+                const __half2* vr = sv + c * (dim_v / 2);
+                for (int j = 0; j < vpr; ++j) {
+                    const int i = WARP * j + lane;
+                    const __half2 hv = vr[i >> 1];
+                    acc[j] = acc[j] * shrink + add * (i & 1 ? __half2float(hv.y) : __half2float(hv.x));
+                }
+                m = nm;
+            }
+        }
+        __syncthreads();                                // the next tile overwrites the staged rows
+    }
+
+    if (warp >= per) return;                            // the idle warps of a small group write nothing
+    const int h = kh0 + warp;                           // each warp finishes its own head alone
+    if (h >= n_head) return;
+    if (splits > 1) {                                   // the slice's partial, sink not in - see the split kernel
+        float* ps = part + (size_t(t) * n_head + h) * splits * (dim_v + 2) + size_t(blockIdx.z) * (dim_v + 2);
+        if (lane == 0) { ps[0] = m; ps[1] = s; }
+        for (int j = 0; j < vpr; ++j) ps[2 + WARP * j + lane] = acc[j];
+        return;
+    }
+    float all_m = sinks ? sinks[h] : -INFINITY;         // the sink joins as one more logit, weighing no value
+    all_m = fmaxf(all_m, m);
+    if (all_m == -INFINITY) all_m = 0.f;
+    const float all_s = s * expf(m - all_m) + (sinks ? expf(sinks[h] - all_m) : 0.f);
+    float* o = out + (size_t(t) * n_head + h) * dim_v;
+    for (int j = 0; j < vpr; ++j) o[WARP * j + lane] = acc[j] * expf(m - all_m) / all_s;
+}
+
 // The tile's shape (host dispatch reads these whether or not the kernel below is compiled): one block a group
 // of eight heads (one kv head at the model's ratios) and eight of its tokens, keys 64 at a time.
 constexpr int MMA_T = 8;                 // tokens a block carries: 8 x 8 heads = 64 rows = 4 warps x 2 tokens
@@ -576,7 +682,7 @@ int split_k(int n_head, int rows, int warps) {
         return s < 1 ? 1 : s;
     }
     const int n = atoi(e);
-    return n == 2 || n == 4 || n == 8 ? n : 1;
+    return n == 2 || n == 4 || n == 8 || n == 16 ? n : 1;
 }
 
 // STRATA_MIMO_ATTN_BATCH=N: keys one warp takes per round of its inner loop, 1 (unset) the loop of every
@@ -588,6 +694,17 @@ int split_batch() {
     if (!e || !e[0]) return 1;
     const int n = atoi(e);
     return n == 2 || n == 4 || n == 8 ? n : 1;
+}
+
+// STRATA_MIMO_ATTN_GROUP=N: the grouped kernel, whose tile is N keys (N=1 means the default 8; unset
+// never groups).  One block per (kv head, token, slice) with the group's query heads as its warps, so a
+// KV row crosses the wires once per token instead of once per head - see the kernel's header.  Where the
+// model's head ratio is not the 16 the shared tile is sized for, the entry keeps the split kernel.
+int split_group() {
+    const char* e = getenv("STRATA_MIMO_ATTN_GROUP");
+    if (!e || !e[0]) return 0;
+    const int n = atoi(e);
+    return n == 4 || n == 8 || n == 16 ? n : n == 1 ? 8 : 0;
 }
 
 // the partials' home, allocated once and grown, never freed: an answer's attend is captured into a CUDA
@@ -700,16 +817,41 @@ void mimo2_attend(const float* q, const uint16_t* kcache, const uint16_t* vcache
             std::fprintf(stderr, "strata-poly: mimo2-attend: split kernel takes %d keys a warp's round"
                                  " (STRATA_MIMO_ATTN_BATCH=%s)\n", batch, getenv("STRATA_MIMO_ATTN_BATCH"));
         }
-        const auto go = [&](auto kern) {
-            kern<<<grid, warps * WARP, merge_bytes, st>>>(
-                q, kcache, vcache, (long long) pos, rows, out, dim_k, dim_v, n_head, kv_heads, scale,
-                window, ring, at, sinks, splits, part);
-        };
-        switch (batch) {                                  // compiled per BATCH: see the kernel's header
-            case 8:  go(mimo2_attend_split_kernel<8>);  break;
-            case 4:  go(mimo2_attend_split_kernel<4>);  break;
-            case 2:  go(mimo2_attend_split_kernel<2>);  break;
-            default: go(mimo2_attend_split_kernel<1>);
+        const int tile = split_group();
+        if (tile && n_head / kv_heads <= kGroupHeads && dim_k <= kMaxDims && dim_v <= kMaxDims &&
+            dim_v % WARP == 0 && dim_k % 2 == 0) {
+            // the grouped launch: the group's heads share every staged KV row, so the same keys cross the
+            // wires once per token instead of once per head.  Same partial layout, same reduce kernel.
+            static int told_g = 0;
+            if (!told_g) {
+                told_g = 1;
+                std::fprintf(stderr, "strata-poly: mimo2-attend: grouped kernel, %d heads a block, %d keys"
+                                     " a shared tile (STRATA_MIMO_ATTN_GROUP=%s)\n", n_head / kv_heads, tile,
+                             getenv("STRATA_MIMO_ATTN_GROUP"));
+            }
+            const dim3 ggrid(kv_heads, rows, splits);
+            const auto gr = [&](auto kern) {
+                kern<<<ggrid, kGroupHeads * WARP, 0, st>>>(
+                    q, kcache, vcache, (long long) pos, rows, out, dim_k, dim_v, n_head, kv_heads, scale,
+                    window, ring, at, sinks, splits, part);
+            };
+            switch (tile) {
+                case 4:  gr(mimo2_attend_grouped_kernel<4>);  break;
+                case 16: gr(mimo2_attend_grouped_kernel<16>); break;
+                default: gr(mimo2_attend_grouped_kernel<8>);
+            }
+        } else {
+            const auto go = [&](auto kern) {
+                kern<<<grid, warps * WARP, merge_bytes, st>>>(
+                    q, kcache, vcache, (long long) pos, rows, out, dim_k, dim_v, n_head, kv_heads, scale,
+                    window, ring, at, sinks, splits, part);
+            };
+            switch (batch) {                              // compiled per BATCH: see the kernel's header
+                case 8:  go(mimo2_attend_split_kernel<8>);  break;
+                case 4:  go(mimo2_attend_split_kernel<4>);  break;
+                case 2:  go(mimo2_attend_split_kernel<2>);  break;
+                default: go(mimo2_attend_split_kernel<1>);
+            }
         }
         if (splits > 1)
             mimo2_attend_reduce_kernel<<<dim3(n_head, rows), 128, 0, st>>>(part, out, n_head, dim_v, splits,
