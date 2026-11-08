@@ -146,6 +146,61 @@ def parse_pp(lines):
     return out
 
 
+def find_run(label):
+    """The newest bench/results folder whose manifest carries this label, or None."""
+    best = None
+    for d in sorted((REPO / "bench" / "results").glob("*-mimo-speed")):
+        try:
+            m = json.loads((d / "manifest.json").read_text(encoding="utf8"))
+        except (OSError, ValueError):
+            continue
+        if m.get("label") == label:
+            best = d          # sorted by stamp name, so the later run wins
+    return best
+
+
+def compare(label_a, label_b):
+    """The verdict an A/B should end on: control, then variant, then the difference in per cent -
+    printed, so the last thing a window shows is the comparison and not one half's raw numbers.
+    An earlier harness ran the variant first and the control last, and the user read the screen
+    ending on the slow number and reasonably called the whole change a failure."""
+    da, db = find_run(label_a), find_run(label_b)
+    if not da or not db:
+        print(f"нет папки прогона с меткой {''.join(' ' + l for l, r in ((label_a, da), (label_b, db)) if not r)}")
+        return 1
+    ra = json.loads((da / "results.json").read_text(encoding="utf8"))
+    rb = json.loads((db / "results.json").read_text(encoding="utf8"))
+    print(f"  контроль  {label_a}: {da.name}")
+    print(f"  вариант   {label_b}: {db.name}")
+    for d, tag in ((da, label_a), (db, label_b)):
+        m = json.loads((d / "manifest.json").read_text(encoding="utf8"))
+        try:
+            banner = [ln.strip() for ln in (d / "engine.stderr").read_text(encoding="utf8", errors="replace")
+                      .splitlines() if "mimo2-attend" in ln]
+        except OSError:
+            banner = []
+        print(f"    {tag}: env {m.get('env') or 'нет'}, движок {str(m.get('executable_sha256', ''))[:12]},"
+              f" баннер {banner[0][len('strata-poly: mimo2-attend: '):] if banner else 'не печатался'}")
+    print()
+    by_b = {r["number"]: r for r in rb["requests"]}
+    worst = None
+    for a in ra["requests"]:
+        b = by_b.get(a["number"])
+        if not b or not a["decode_tps"] or not b["decode_tps"]:
+            continue
+        pct = (b["decode_tps"] / a["decode_tps"] - 1.0) * 100.0
+        same = sum(1 for x, y in zip(a["ids"], b["ids"]) if x == y)
+        total = min(len(a["ids"]), len(b["ids"]))
+        print(f"  request-{a['number']}  ctx {a['prompt_tokens']}  decode {a['decode_tps']:6.2f}"
+              f" -> {b['decode_tps']:6.2f} ток/с  ({pct:+.0f}%)  id совпали {same}/{total}")
+        worst = pct if worst is None else min(worst, pct)
+    if worst is None:
+        print("  нет ни одного запроса с посчитанным decode в обеих папках")
+        return 1
+    print(f"\n  итог: вариант против контроля от {worst:+.0f}% до - худшая строка решает.")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--exe", default=str(REPO / "build-poly-cuda12" / "strata-poly.exe"))
@@ -164,7 +219,16 @@ def main():
     # every 128 tokens, which is the steady-state curve.
     ap.add_argument("--gen", type=int, default=256, metavar="N")
     ap.add_argument("--requests", default="full", choices=["full", "A"])
+    # --label writes a name into the manifest; --compare LABEL_A LABEL_B prints the verdict over the two
+    # newest runs carrying them, control first.  An A/B harness that leaves its two folders unnamed makes
+    # the reader remember which was which - and once the slower one was the last screen seen, a 90% win
+    # was reported back as a failure.
+    ap.add_argument("--label", default="", metavar="NAME")
+    ap.add_argument("--compare", nargs=2, metavar=("КОНТРОЛЬ", "ВАРИАНТ"))
     args = ap.parse_args()
+
+    if args.compare:
+        return compare(*args.compare)
 
     live = engines_running() if args.kill_check == "on" else []
     if live:
@@ -181,7 +245,14 @@ def main():
     runlog = open(out / "run.log", "w", encoding="utf-8")
     say = Tee(runlog)
     say(f"# MiMo big-prompt speed run (последовательность dsv4_speed_bench на стеке {Path(args.config).name})")
-    say("# последовательность: long-A 50000/256, long-B 50000/256, restore-A 50000/32, short 1000/128")
+    # the sequence this run will send, in its own words, said once here and written to the manifest from
+    # the same list: the log header used to be a fixed "50000/256" text a --gen 2048 run disagreed with.
+    sequence = [f"long-A {LONG_TOKENS}/{args.gen}"]
+    sequence += ["short 1000/128"] if args.requests == "A" else \
+        [f"long-B {LONG_TOKENS}/{args.gen}", f"restore-A {LONG_TOKENS}/32", "short 1000/128"]
+    say("# последовательность: " + ", ".join(sequence))
+    if args.label:
+        say(f"# метка прогона: {args.label}")
 
     launch[launch.index("--session-dir") + 1] = str(out / "work" / "sessions")
     prof = launch[launch.index("--expert-profile") + 1]
@@ -215,11 +286,13 @@ def main():
     commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(REPO), capture_output=True,
                             text=True).stdout.strip()
     command = [exe, "--serve"] + launch
+    # the switches this run told the engine through --env belong in the record too - a folder should say
+    # which way the engine was run, not only which binary it ran.  Before this, telling the two halves
+    # of an A/B apart meant reading the engine's stderr banner.
     with (out / "manifest.json").open("x", encoding="utf8") as f:
         json.dump({"command": command, "executable_sha256": sha(exe), "config": str(args.config),
-                   "config_sha256": sha(args.config), "source_commit": commit,
-                   "sequence": ["long-A 50000/256", "long-B 50000/256", "restore-A 50000/32",
-                                "short 1000/128"]}, f, indent=2)
+                   "config_sha256": sha(args.config), "source_commit": commit, "env": args.env,
+                   "label": args.label, "sequence": sequence}, f, indent=2)
 
     stop_sampling = threading.Event()
     started = time.monotonic()
@@ -229,6 +302,9 @@ def main():
     say("запуск движка (загрузка ~3 минуты) ...")
     try:
         p = subprocess.Popen(command, cwd=str(REPO), env=env, text=True, bufsize=1,
+                             encoding="utf-8", errors="replace",   # the protocol's lines are ASCII, so this
+                             # changes nothing in the parse; it only stops the locale's cp1251 mangling the
+                             # engine's Russian lines on their way into the run's logs
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_f,
                              creationflags=subprocess.CREATE_NO_WINDOW)
     except OSError as e:
