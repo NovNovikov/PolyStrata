@@ -128,17 +128,19 @@ void cell(const Card& c, const char* kind, int rows, long long depth, int kv_hea
 
 /// One answer's attend, timed: the split kernel's own microseconds and the bytes it moves.
 void cell_decode(const Card& c, const char* kind, int rows, long long depth, int kv_heads, int window, int ring,
-                 int warps) {
+                 int warps, int splits = 1) {
     const long long pos = depth - rows;
     const int iters = depth > 32768ll ? 5 : 10;
     putenv_str((char*) "STRATA_MIMO_ATTN_NO_MMA=1");   // under kMmaRows the entry takes the split kernel either way
     putenv_str((char*) ("STRATA_MIMO_ATTN_WARPS=" + std::to_string(warps)).c_str());
+    putenv_str((char*) ("STRATA_MIMO_ATTN_SPLITK=" + std::to_string(splits)).c_str());
     const double ms = timed(c, rows, pos, kv_heads, window, ring, c.out[0], iters);
     const long long keys = window > 0 ? std::min<long long>(window, depth) : depth;
     const double useful = double(keys) * kv_heads * (kDimK + kDimV) * 2.0;
     const double moved = useful * (kNHead / kv_heads);
-    std::printf("%-7s rows %2d depth %7lld warps %2d  %9.1f us   useful %6.1f GB/s   through the card %7.1f GB/s\n",
-                kind, rows, depth, warps, ms * 1000.0, useful / (ms * 1e6), moved / (ms * 1e6));
+    std::printf("%-7s rows %2d depth %7lld warps %2d splits %d  %9.1f us   useful %6.1f GB/s   through the card"
+                " %7.1f GB/s\n", kind, rows, depth, warps, splits, ms * 1000.0, useful / (ms * 1e6),
+                moved / (ms * 1e6));
     std::fflush(stdout);
 }
 
@@ -180,6 +182,13 @@ int main(int argc, char** argv) {
                         cell_decode(c, "global", rows, depth, 4, 0, 0, w);
                 break;
             }
+        std::printf("\nkeys split over block groups, at each rows' best warp count (1 = no split, the"
+                    " launch today):\n");
+        for (long long depth : {16384ll, 50000ll})
+            if (depth <= cap)
+                for (const int rows : {1, 2, 3, 4})
+                    for (const int sk : {1, 2, 4, 8})
+                        cell_decode(c, "global", rows, depth, 4, 0, 0, rows <= 2 ? 32 : 16, sk);
         std::printf("\nthe 39 window layers, 128 rows of a ring:\n");
         if (kRingRows <= cap + max_rows)
             for (const long long depth : {16384ll, 50000ll})

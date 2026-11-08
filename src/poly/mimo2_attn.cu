@@ -154,11 +154,16 @@ __global__ void mimo2_rope_split_kernel(const float* __restrict__ src, int row, 
 // warps' sums merged through shared.  A key's dim_k values are a lane's dim_k / 32 of them, its dim_v values a
 // lane's dim_v / 32; the head's sink, when the layer has them, joins the merged sum as one more logit.
 // The reference's shape, kept for the calls with few rows: see the file's header for why.
+// With splits > 1 the z-th block group of the grid takes its slice of the head's keys - at 50 000 keys a
+// decoded token gave the card n_head blocks and no more, half its SMs given nothing - and writes a partial
+// (max, sum, weighted value, the sink NOT yet in it) instead of the answer; mimo2_attend_reduce_kernel
+// merges the slices, adds the sink once, and divides.  splits == 1 leaves the old path's lines untouched.
 __global__ void mimo2_attend_split_kernel(const float* __restrict__ q, const uint16_t* __restrict__ kcache,
                                           const uint16_t* __restrict__ vcache, long long pos, int rows,
                                           float* __restrict__ out, int dim_k, int dim_v, int n_head, int kv_heads,
                                           float scale, int window, int ring, const long long* __restrict__ at,
-                                          const float* __restrict__ sinks) {
+                                          const float* __restrict__ sinks, int splits,
+                                          float* __restrict__ part) {
     const int h = blockIdx.x;
     const int t = blockIdx.y;
     if (t >= rows) return;
@@ -167,6 +172,10 @@ __global__ void mimo2_attend_split_kernel(const float* __restrict__ q, const uin
     const int kvh = h / per;
     const long long lo = window > 0 && p >= window ? p - window + 1 : 0;
     const int n_keys = int(p - lo) + 1;
+    // this group's slice of the keys, its size rounded up to whole 64s so the loads stay line-aligned
+    const int C = splits > 1 ? ((n_keys + splits - 1) / splits + 63) & ~63 : n_keys;
+    const int k0 = splits > 1 ? blockIdx.z * C : 0;
+    const int k1 = splits > 1 ? min(k0 + C, n_keys) : n_keys;
 
     const float* qh = q + (size_t(t) * n_head + h) * dim_k;
     const uint16_t* kc = kcache + size_t(kvh) * dim_k;  // + row * kv_heads * dim_k
@@ -186,7 +195,7 @@ __global__ void mimo2_attend_split_kernel(const float* __restrict__ q, const uin
     for (int i = int(threadIdx.x); i < dim_k; i += int(blockDim.x)) qs[i] = qh[i];
     __syncthreads();
 
-    for (int key = warp; key < n_keys; key += warps) {
+    for (int key = k0 + warp; key < k1; key += warps) {
         const long long row = lo + key;
         const long long cr = ring ? row % ring : row;   // a ring layer's row p lies at cache row p % ring
         const uint16_t* krow = kc + size_t(cr) * kv_heads * dim_k;
@@ -214,11 +223,24 @@ __global__ void mimo2_attend_split_kernel(const float* __restrict__ q, const uin
     for (int j = 0; j < vpr; ++j) wacc[size_t(warp) * dim_v + WARP * j + lane] = acc[j];
     __syncthreads();
 
-    float all_m = sinks ? sinks[h] : -INFINITY;         // the sink joins the max: exp(sink - max) cannot overflow
-    for (int w = 0; w < warps; ++w) all_m = fmaxf(all_m, wm[w]);
-    if (all_m == -INFINITY) all_m = 0.f;                // a token with no keys and no sink: cannot happen, but do not NaN
-    float all_s = sinks ? expf(sinks[h] - all_m) : 0.f;
+    float all_m = splits == 1 && sinks ? sinks[h] : -INFINITY;   // the sink joins the max: exp(sink - max) cannot
+    for (int w = 0; w < warps; ++w) all_m = fmaxf(all_m, wm[w]);  // overflow; with slices it joins in the reduce
+    if (all_m == -INFINITY) all_m = 0.f;   // a token with no keys and no sink: cannot happen, but do not NaN
+    float all_s = splits == 1 && sinks ? expf(sinks[h] - all_m) : 0.f;
     for (int w = 0; w < warps; ++w) all_s += ws[w] * expf(wm[w] - all_m);
+
+    if (splits > 1) {
+        // the slice's partial: max, sum and the weighted value, undivided, the sink not yet in; the slot is
+        // written by every launch of every slice, so the workspace needs no clearing between calls
+        float* ps = part + (size_t(t) * n_head + h) * splits * (dim_v + 2) + size_t(blockIdx.z) * (dim_v + 2);
+        if (threadIdx.x == 0) { ps[0] = all_m; ps[1] = all_s; }
+        for (int i = int(threadIdx.x); i < dim_v; i += int(blockDim.x)) {
+            float vsum = 0.f;
+            for (int w = 0; w < warps; ++w) vsum += wacc[size_t(w) * dim_v + i] * expf(wm[w] - all_m);
+            ps[2 + i] = vsum;
+        }
+        return;
+    }
 
     float* o = out + (size_t(t) * n_head + h) * dim_v;
     for (int j = 0; j < vpr; ++j) {
@@ -226,6 +248,28 @@ __global__ void mimo2_attend_split_kernel(const float* __restrict__ q, const uin
         float vsum = 0.f;
         for (int w = 0; w < warps; ++w) vsum += wacc[size_t(w) * dim_v + i] * expf(wm[w] - all_m);
         o[i] = vsum / all_s;
+    }
+}
+
+// The second half of a split attend: one block per (token, head), the slices' partials merged the way the
+// block merge above merges warps, the sink - weighted, of no value - joining once here.  Reads
+// splits * (2 + dim_v) floats per head, writes dim_v: the whole kernel is a few microseconds even at 50 000
+// keys and 8 slices, against the millisecond the reading cost.
+__global__ void mimo2_attend_reduce_kernel(const float* __restrict__ part, float* __restrict__ out, int n_head,
+                                           int dim_v, int splits, const float* __restrict__ sinks) {
+    const int h = blockIdx.x, t = blockIdx.y;
+    const float* ps = part + (size_t(t) * n_head + h) * splits * (dim_v + 2);
+    const int stride = dim_v + 2;
+    float m = sinks ? sinks[h] : -INFINITY;
+    for (int s = 0; s < splits; ++s) m = fmaxf(m, ps[size_t(s) * stride]);
+    if (m == -INFINITY) m = 0.f;
+    float sum = sinks ? expf(sinks[h] - m) : 0.f;
+    for (int s = 0; s < splits; ++s) sum += ps[size_t(s) * stride + 1] * expf(ps[size_t(s) * stride] - m);
+    float* o = out + (size_t(t) * n_head + h) * dim_v;
+    for (int i = int(threadIdx.x); i < dim_v; i += int(blockDim.x)) {
+        float v = 0.f;
+        for (int s = 0; s < splits; ++s) v += ps[size_t(s) * stride + 2 + i] * expf(ps[size_t(s) * stride] - m);
+        o[i] = v / sum;
     }
 }
 
@@ -459,6 +503,37 @@ int split_warps(int n_head, int rows) {
     const int n = atoi(e);
     return n < 4 || n > 32 || (n & (n - 1)) != 0 ? 4 : n;
 }
+
+// STRATA_MIMO_ATTN_SPLITK=N: how many block groups one call splits a head's keys over.  1 (unset) is every
+// build before this one: grid (n_head, rows) and the answer written straight out.  A decoded token of
+// 64 heads gave the card 64 blocks and no more - half its SMs idle at 50 000 keys - so "auto" keeps the
+// launch near the ~4096 warps the warp sweep measured as the card's fill: splits = 4096 / (n_head * rows *
+// warps), 2 for a single row at 32 warps, 1 where the blocks already fill the card.  The bench sweeps the
+// number directly; whatever it measures is what auto becomes.
+int split_k(int n_head, int rows, int warps) {
+    const char* e = getenv("STRATA_MIMO_ATTN_SPLITK");
+    if (!e || !e[0]) return 1;
+    if (!strcmp(e, "auto")) {
+        int s = 4096 / (n_head * std::max(1, rows) * warps);
+        for (; s > 8; s >>= 1);
+        return s < 1 ? 1 : s;
+    }
+    const int n = atoi(e);
+    return n == 2 || n == 4 || n == 8 ? n : 1;
+}
+
+// the partials' home, allocated once and grown, never freed: an answer's attend is captured into a CUDA
+// graph, and a cudaMalloc inside a capture fails - so a call that meets an unwarmed workspace while the
+// stream is capturing runs with splits 1 instead, the launch every earlier build used, and says so once.
+struct Partials {
+    float* p = nullptr;
+    size_t floats = 0;
+    bool told_cold = false;
+};
+Partials& partials() {
+    static Partials w;
+    return w;
+}
 }  // namespace
 
 void mimo2_attend_warps(const char* setting) {
@@ -510,10 +585,48 @@ void mimo2_attend(const float* q, const uint16_t* kcache, const uint16_t* vcache
                                  "--decode-attn-warps", from ? from : g_warps);
         }
         const size_t merge_bytes = size_t(2 * WARP + warps * dim_v) * sizeof(float);
-        const dim3 grid(n_head, rows);
+        int splits = split_k(n_head, rows, warps);
+        if (splits > 1 && size_t(n_head) * rows >= 4096) splits = 1;   // the card is full already
+        float* part = nullptr;
+        if (splits > 1) {
+            Partials& pw = partials();
+            const size_t need = size_t(rows) * n_head * splits * (dim_v + 2);
+            cudaStreamCaptureStatus cs = cudaStreamCaptureStatusNone;
+            cudaStreamIsCapturing(st, &cs);
+            if (need > pw.floats && cs != cudaStreamCaptureStatusNone) {
+                splits = 1;                       // no cudaMalloc inside a capture: that head takes the
+                if (!pw.told_cold) {              // launch every earlier build used, once said aloud
+                    pw.told_cold = true;
+                    std::fprintf(stderr, "strata-poly: mimo2-attend: the split-k workspace was not ready "
+                                         "when a graph was captured - that head runs with one slice\n");
+                }
+            } else if (need > pw.floats) {
+                // grow without freeing: a captured graph holds the address it launched with, so the old
+                // buffer must stay valid as long as the process does.  The shapes that reach here are a
+                // handful (rows 1..8 times the splits the rule gives) and each buffer is megabytes.
+                pw.p = nullptr;
+                if (cudaMalloc(&pw.p, need * sizeof(float)) == cudaSuccess) pw.floats = need;
+                else {
+                    splits = 1;                   // out of card room: the old launch still answers
+                    part = nullptr;
+                }
+            }
+            part = splits > 1 ? pw.p : nullptr;
+            static int told_k = 0;
+            if (splits > 1 && !told_k) {
+                told_k = 1;
+                std::fprintf(stderr, "strata-poly: mimo2-attend: split kernel walks a head's keys in %d"
+                                     " block groups, merged after (STRATA_MIMO_ATTN_SPLITK=%s)\n",
+                             splits, getenv("STRATA_MIMO_ATTN_SPLITK"));
+            }
+        }
+        const dim3 grid(n_head, rows, splits);
         mimo2_attend_split_kernel<<<grid, warps * WARP, merge_bytes, st>>>(
             q, kcache, vcache, (long long) pos, rows, out, dim_k, dim_v, n_head, kv_heads, scale, window, ring,
-            at, sinks);
+            at, sinks, splits, part);
+        if (splits > 1)
+            mimo2_attend_reduce_kernel<<<dim3(n_head, rows), 128, 0, st>>>(part, out, n_head, dim_v, splits,
+                                                                           sinks);
     }
     if (tr.on) {
         cudaEventRecord(tr.b, st);
