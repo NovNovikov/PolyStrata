@@ -17,6 +17,11 @@ offers the same steps as tools.
 
 ## Working on the code
 
+- Before every tool call, send the user a visible message saying what is being called and why, in one line.
+  A tool call that starts without such a message does not start. Conclusions are written to the chat the
+  moment they are made, before any further digging: a finding kept only in reasoning does not exist.
+- Any command that prints Russian (python scripts, cmake comments, logs) runs with PYTHONIOENCODING=utf-8;
+  captured console output otherwise arrives as cp866 mojibake and burns context on every read.
 - How the engine works, every measured number, the API and all settings: [docs/DETAILS.md](docs/DETAILS.md) and
   the [paper](docs/paper/Strata-Paper.pdf).
 - AMD (HIP) build and validation: [docs/AMD_HIP.md](docs/AMD_HIP.md); multi-GPU: [docs/MULTI_GPU.md](docs/MULTI_GPU.md).
@@ -26,6 +31,28 @@ offers the same steps as tools.
   `tools/test_setup_amd.py`, `tools/test_setup_choices.py`).
 - Keep the docs' style: plain words, measured numbers with what they were measured on, no claims without a
   measurement.
+- Every subagent report goes to a file on disk, not only to the chat: the chat gets summarized and the report
+  dies with it. One folder for all of them: `L:\Temp\opencode\agent-reports\<topic>.md`. The agent writes the
+  file itself (use the general agent, which can write); if its tools are read-only, the caller writes the
+  returned text there the moment it arrives. Facts are read back from the file, never from memory of the chat.
+  Keep reports short: the answer, the file:line for each claim, nothing else. No long code quotes, no
+  restatements of the question, no filler sections - tokens are not rubber.
+- That folder has one index, `L:\Temp\opencode\agent-reports\INDEX.md`. A report is not finished until its
+  line is in the index: file name, date, the question in a few words, the verdict in a few words.
+- Before ordering any broad research - an agent, an audit, a sweep - the index is read first and the
+  reports it points at are read next: the folder may already hold the answer, and re-exploring it is the
+  double work the index exists to prevent. The rule was written after an audit of CPU experts was ordered
+  on 2026-11-08 when `expert-cache-design.md` had mapped that machine since 2026-11-06.
+- Subagents run one at a time on this machine, serially with the caller and with each other: never launch
+  two hoping they speed anything up.
+- A commit message describes the mechanics: what the change is, what it does at run time and how, what it
+  leaves alone. A one-line summary is not a commit message here.
+- Dead ends found mid-audit are reported at once, in their own message, before any further reading: when the
+  answer to "should this be done at all" turns out to be no - the feature already exists, the premise is
+  missing, the gain is zero - work stops there and that fact goes to the chat first. Reasoning is not
+  communication: a finding the user has seen is the only finding that exists. Long tool spelunking between
+  user-visible updates is the failure mode; an update is one message too late if it rides along with the
+  next plan.
 
 ## Running a command that takes a while
 
