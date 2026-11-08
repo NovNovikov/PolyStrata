@@ -13,6 +13,10 @@
 #include <cstring>
 #include <stdexcept>
 
+#ifdef STRATA_GPU_PHASE_PROBE
+#include "gpu_phase_probe.hpp"
+#endif
+
 namespace strata::poly {
 namespace {
 
@@ -534,23 +538,40 @@ void Mimo2::draft_step(int32_t token, int i) {
     Block& B = blocks_[(size_t) il];
     float* own = hn_ + n_embd_;   // the chain's last output, which stands in for the model's from the first join on
     float* x;
+#ifdef STRATA_GPU_PHASE_PROBE
+    // the draft chain as its own probe layers (n_layer_+d): join | attend | norm | ffn | head | ring rows
+    gpu_probe::mark(1, il, 0, st_);
+#endif
     if (i == 0) x = draft_input(&token, pos_ + i, hn_, 1);   // the first block: the engine's own joining parts
     else {
         block_input(token, pos_ + i, own, il);
         x = r_ + 2 * (size_t) n_embd_;
     }
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(1, il, 1, st_);
+#endif
     block_attend_to(B, pos_ + i, 1);
     axpy(ao_, 1.f, x, n_embd_, true, st_);
     rms_norm(x, fp(L.ffn_norm), xn_, n_embd_, 1, rms_eps_, st_);
     kernels::native_quantize_q8_1(xn_, xq_, n_embd_, 1, st_);
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(1, il, 2, st_);
+#endif
     dense_ffn(B, il, 1);
     axpy(fo_, 1.f, x, n_embd_, true, st_);   // x is now the block's residual - what the graph hands on uncropped
     PA_COPY2_KERNEL(x, own, n_embd_, nullptr, nullptr, 0, st_);
     rms_norm(own, fp(B.out_norm), xn_, n_embd_, 1, rms_eps_, st_);   // and the head reads it normed, as a copy
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(1, il, 3, st_);
+#endif
     Dev head = output_;   // the matrix's first rows are the common tokens'
     head.n_out = draft_rows();
     lin(head, xn_, logits_, 1);
     finish_logits(logits_, 1);
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(1, il, 4, st_);
+    gpu_probe::mark(1, il, 5, st_);   // the chain has no router: 4->5 is the shared head, 5->6 the ring rows
+#endif
     // The token being answered for leaves its row in the rings of every block of the chain, not just the one
     // the guess ran through: block_rows() covers a read's tokens and the guesses cover their own places, and
     // this is the decode step's place.  A window that skipped a position reads that ring place for a whole
@@ -561,6 +582,9 @@ void Mimo2::draft_step(int32_t token, int i) {
             block_input(token, pos_, hn_, dl);
             block_qkv(blocks_[(size_t) dl], pos_, 1);
         }
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(1, il, 6, st_);
+#endif
 }
 
 // The dense first layer's FFN: a SwiGLU of 16384 hidden values.
@@ -577,23 +601,55 @@ void Mimo2::dense_ffn(Block& B, int il, int n) {
 void Mimo2::layer_head(Layer& L, int il, int n) {
     Block& B = blocks_[(size_t) il];
     const int threads = sum_threads(n_embd_);
+#ifdef STRATA_GPU_PHASE_PROBE
+    // the probe exe only: per-layer GPU intervals - norm | attn | ffn norm | router or ffn | experts or tail | ~0
+    gpu_probe::mark(n, il, 0, st_);
+#endif
     kernels::native_add_rms_norm_q8_1(r_, nullptr, fp(L.attn_norm), xn_, xq_, n_embd_, n, rms_eps_, threads, st_);
     dbg("attn_in", il, xn_, n_embd_);
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(n, il, 1, st_);
+#endif
     attn(B, pos_, n);
     dbg("attn", il, ao_, n_embd_);
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(n, il, 2, st_);
+#endif
 
     kernels::native_add_rms_norm_q8_1(r_, ao_, fp(L.ffn_norm), xn_, xq_, n_embd_, n, rms_eps_, threads, st_);
     dbg("ffn_in", il, xn_, n_embd_);
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(n, il, 3, st_);
+#endif
     if (!L.moe) {
         dense_ffn(B, il, n);
         dbg("ffn", il, fo_, n_embd_);
+#ifdef STRATA_GPU_PHASE_PROBE
+        gpu_probe::mark(n, il, 4, st_);
+#endif
         axpy(fo_, 1.f, r_, n * n_embd_, true, st_);
+#ifdef STRATA_GPU_PHASE_PROBE
+        gpu_probe::mark(n, il, 5, st_);
+        gpu_probe::mark(n, il, 6, st_);   // a dense layer ends here: the engine skips its tail
+#endif
     } else if (!batched(L, n)) {
         moe_router(L, n);
+#ifdef STRATA_GPU_PHASE_PROBE
+        gpu_probe::mark(n, il, 4, st_);   // 3->4 is the router's GEMV and its copies, as the card sees them
+                                          // events 5 and 6 come later, in layer_tail: 4->5 is the experts
+#endif
     }
 }
 
-void Mimo2::layer_tail(Layer&, int, int n) { axpy(fo_, 1.f, r_, n * n_embd_, true, st_); }
+void Mimo2::layer_tail(Layer&, int il, int n) {
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(n, il, 5, st_);
+#endif
+    axpy(fo_, 1.f, r_, n * n_embd_, true, st_);
+#ifdef STRATA_GPU_PHASE_PROBE
+    gpu_probe::mark(n, il, 6, st_);
+#endif
+}
 
 void Mimo2::output_rows(int first, int rows, float* h) {
     rms_norm(r_ + (size_t) first * n_embd_, fp(out_norm_), h, n_embd_, rows, rms_eps_, st_);
