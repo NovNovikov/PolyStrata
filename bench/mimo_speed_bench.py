@@ -10,7 +10,8 @@ input goes through the same Service.encode_prompt path the DeepSeek test rebuild
 
 The launch is strata-mimo-mopd-q2k.json's args EXACTLY as they stand (the stack the user runs
 daily, --compact-scratch included); only --session-dir and --expert-profile are redirected into
-the run's work folder, and the originals are only read.
+the run's work folder, and the originals are only read. The session KV dumps the run leaves there
+(1.1 GB a file at 50K) are deleted once results.json is on disk; everything else in the folder stays.
 
 Why: small-prompt reads measure 31-44 tok/s on MiMo (2026-11-07 traces, bench/results/*compact-ab);
 DeepSeek's October big-prompt run held 591-700 tok/s across 50000 tokens. Whether MiMo's read
@@ -454,6 +455,22 @@ def main():
     with (out / "results.json").open("x", encoding="utf8") as f:
         json.dump({"requests": requests, "load_s": load_s, "exit": p.returncode, "error": error},
                   f, indent=2, ensure_ascii=False)
+
+    # the session dumps are the KV state of the read prompts, 1.1 GB a file at 50K: the run's result is
+    # the numbers now safe in results.json, the state behind them regenerates from the same prompt, and
+    # a day of A/B clicks otherwise leaves 10+ GB of dumps. They leave once the numbers are on disk.
+    dumps = [f for f in (out / "work" / "sessions").glob("*") if f.is_file()]
+    freed = sum(f.stat().st_size for f in dumps)
+    kept = 0
+    for f in dumps:
+        try:
+            f.unlink()
+        except OSError:
+            kept += 1
+    if kept:
+        say(f"сессийные дампы: снялись {len(dumps) - kept} из {len(dumps)}, {kept} остались")
+    else:
+        say(f"сессийные дампы: {len(dumps)} файла очищено, {freed / 2**30:.1f} ГБ")
 
     say("")
     say(f"загрузка: {load_s:.1f} с" if load_s else f"выход движка: {p.returncode}")
