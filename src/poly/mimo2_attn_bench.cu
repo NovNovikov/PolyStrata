@@ -8,8 +8,16 @@
 // minutes per row. A card shared with a running server adds noise to every pass, which is why the bench
 // keeps the best.
 //
-// usage: poly_mimo2_attn_bench [depth_cap]   (default 100000; the model's 131072 fits with a bigger one)
+// usage: poly_mimo2_attn_bench [depth_cap] [decode]   (cap default 100000; the model's 131072 fits with a bigger one)
 // not a test: run it by hand, e.g. from build-poly-cuda12. Times are per attend, milliseconds.
+//
+// `decode` answers a different question and needs a tenth of the card for it: an ANSWER's call carries one to a
+// few rows (a token and its guessed drafts), which is under kMmaRows, so the tensor-core tile never answers one -
+// the split kernel does, and the matrix above, which starts at 64 rows, never times it. The decode matrix prints
+// microseconds and the bytes an attend has to move: `useful` counts a KV head's rows once, `through the card`
+// counts them n_head/kv_heads times, which is what the kernel does when each query head's block walks them on
+// its own. With a few rows the difference between the two is the difference between the card's bandwidth and the
+// few warps that are actually in flight.
 #include "mimo2_attn.hpp"
 
 #include <cuda_fp16.h>
@@ -48,24 +56,33 @@ struct Card {
     uint16_t* kc = nullptr;
     uint16_t* vc = nullptr;
     float* out[2] = {nullptr, nullptr};
+    bool ok = true;
 };
 
 Card card(int max_rows, long long max_depth) {
     Card c;
-    cudaMalloc(&c.q, size_t(max_rows) * kNHead * kDimK * sizeof(float));
+    // a card a server is using has less room than this file's default matrix asks for: say so and leave, rather
+    // than launch a kernel on a null cache and read whatever the driver feels like answering with
+    const auto give = [&](cudaError_t e, const char* what, size_t bytes) {
+        if (e == cudaSuccess) return;
+        std::printf("no room for %s (%.1f MiB): %s\n", what, bytes / 1048576.0, cudaGetErrorString(e));
+        c.ok = false;
+    };
+    give(cudaMalloc(&c.q, size_t(max_rows) * kNHead * kDimK * sizeof(float)), "queries",
+         size_t(max_rows) * kNHead * kDimK * sizeof(float));
     std::vector<float> h(size_t(max_rows) * kNHead * kDimK);
     for (float& x : h) x = frand() * 2.f;
-    cudaMemcpy(c.q, h.data(), h.size() * sizeof(float), cudaMemcpyHostToDevice);
+    if (c.ok) give(cudaMemcpy(c.q, h.data(), h.size() * sizeof(float), cudaMemcpyHostToDevice), "query copy", 0);
     const size_t krows = size_t(max_depth) * 4 * kDimK, vrows = size_t(max_depth) * 8 * kDimV;
-    cudaMalloc(&c.kc, krows * 2);
-    cudaMalloc(&c.vc, vrows * 2);
+    if (c.ok) give(cudaMalloc(&c.kc, krows * 2), "key cache", krows * 2);
+    if (c.ok) give(cudaMalloc(&c.vc, vrows * 2), "value cache", vrows * 2);
     std::vector<uint16_t> hk(krows), hv(vrows);
     for (auto& x : hk) x = __half_as_ushort(__float2half_rn(frand()));
     for (auto& x : hv) x = __half_as_ushort(__float2half_rn(frand()));
-    cudaMemcpy(c.kc, hk.data(), krows * 2, cudaMemcpyHostToDevice);
-    cudaMemcpy(c.vc, hv.data(), vrows * 2, cudaMemcpyHostToDevice);
-    cudaMalloc(&c.out[0], size_t(max_rows) * kNHead * kDimV * sizeof(float));
-    cudaMalloc(&c.out[1], size_t(max_rows) * kNHead * kDimV * sizeof(float));
+    if (c.ok) give(cudaMemcpy(c.kc, hk.data(), krows * 2, cudaMemcpyHostToDevice), "key copy", krows * 2);
+    if (c.ok) give(cudaMemcpy(c.vc, hv.data(), vrows * 2, cudaMemcpyHostToDevice), "value copy", vrows * 2);
+    if (c.ok) give(cudaMalloc(&c.out[0], size_t(max_rows) * kNHead * kDimV * sizeof(float)), "output 0", 0);
+    if (c.ok) give(cudaMalloc(&c.out[1], size_t(max_rows) * kNHead * kDimV * sizeof(float)), "output 1", 0);
     return c;
 }
 
@@ -109,18 +126,70 @@ void cell(const Card& c, const char* kind, int rows, long long depth, int kv_hea
     std::fflush(stdout);
 }
 
+/// One answer's attend, timed: the split kernel's own microseconds and the bytes it moves.
+void cell_decode(const Card& c, const char* kind, int rows, long long depth, int kv_heads, int window, int ring,
+                 int warps) {
+    const long long pos = depth - rows;
+    const int iters = depth > 32768ll ? 5 : 10;
+    putenv_str((char*) "STRATA_MIMO_ATTN_NO_MMA=1");   // under kMmaRows the entry takes the split kernel either way
+    putenv_str((char*) ("STRATA_MIMO_ATTN_WARPS=" + std::to_string(warps)).c_str());
+    const double ms = timed(c, rows, pos, kv_heads, window, ring, c.out[0], iters);
+    const long long keys = window > 0 ? std::min<long long>(window, depth) : depth;
+    const double useful = double(keys) * kv_heads * (kDimK + kDimV) * 2.0;
+    const double moved = useful * (kNHead / kv_heads);
+    std::printf("%-7s rows %2d depth %7lld warps %2d  %9.1f us   useful %6.1f GB/s   through the card %7.1f GB/s\n",
+                kind, rows, depth, warps, ms * 1000.0, useful / (ms * 1e6), moved / (ms * 1e6));
+    std::fflush(stdout);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     const long long cap = argc > 1 ? atoll(argv[1]) : 100000;
-    const int max_rows = 4096;
+    const bool decode = argc > 2 && std::string(argv[2]) == "decode";
+    const int max_rows = decode ? 8 : 4096;
     cudaDeviceProp prop{};
     int dev = 0;
     cudaGetDevice(&dev);
     cudaGetDeviceProperties(&prop, dev);
     std::printf("card: %s (sm_%d%d), tile smem %zu bytes\n", prop.name, prop.major, prop.minor,
                 size_t(2) * 64 * (192 + 8 + 128 + 8) * sizeof(unsigned short));
+    size_t free_before = 0, total = 0, free_after = 0;
+    cudaMemGetInfo(&free_before, &total);
     Card c = card(max_rows, cap + max_rows);
+    cudaMemGetInfo(&free_after, &total);
+    std::printf("this bench's own card memory: %.1f MiB (free before %.1f, after %.1f of %.1f MiB)\n",
+                (free_before - free_after) / 1048576.0, free_before / 1048576.0, free_after / 1048576.0,
+                total / 1048576.0);
+    if (!c.ok) return 1;
+
+    if (decode) {
+        // a cell reads cache rows up to `depth`, so a cap below it would read past the allocation
+        std::printf("\nan answer's attend, rows 2 - a token with its drafts - by the warps a block gets"
+                    " (4 is today's launch):\n");
+        for (const long long depth : {1000ll, 4096ll, 16384ll, 32768ll, 50000ll})
+            if (depth <= cap)
+                for (const int w : {4, 8, 16, 32})
+                    cell_decode(c, "global", 2, depth, 4, 0, 0, w);
+        std::printf("\nwarps by row count at the deepest depth at or under the cap (an answer's calls are rows 1"
+                    " to 4; the rows over that are a short prompt's, which take this kernel too):\n");
+        for (long long depth : {50000ll, 32768ll, 16384ll, 4096ll, 1000ll})
+            if (depth <= cap) {
+                for (const int rows : {1, 2, 3, 4, 8, 16})
+                    for (const int w : {4, 8, 16, 32})
+                        cell_decode(c, "global", rows, depth, 4, 0, 0, w);
+                break;
+            }
+        std::printf("\nthe 39 window layers, 128 rows of a ring:\n");
+        if (kRingRows <= cap + max_rows)
+            for (const long long depth : {16384ll, 50000ll})
+                if (depth <= cap)
+                    for (const int rows : {1, 4})
+                        for (const int w : {4, 32})
+                            cell_decode(c, "window", rows, depth, 8, kWindow, kRingRows, w);
+        cudaFree(c.q); cudaFree(c.kc); cudaFree(c.vc); cudaFree(c.out[0]); cudaFree(c.out[1]);
+        return 0;
+    }
 
     std::printf("\nglobal 64/4 (a window layer's nine partners read the whole history):\n");
     for (const long long depth : {4096ll, 16384ll, 32768ll, 50000ll})

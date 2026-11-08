@@ -23,9 +23,11 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 
 namespace strata::poly {
@@ -429,6 +431,30 @@ bool mma_off() {
     const char* e = getenv("STRATA_MIMO_ATTN_NO_MMA");
     return e && e[0] == '1';
 }
+
+// STRATA_MIMO_ATTN_WARPS=N: how many warps one block of the split kernel gets - 4 (the default, and today's
+// launch to the byte) up to 32.  The kernel reads its warp count from blockDim and merges that many partial
+// sums in shared memory, so what changes is only how a head's keys are shared out and how many warps are in
+// flight, which is the whole question at an answer's call: a layer's 64 blocks of 4 warps put 256 warps on a
+// card of 128 SMs, and each of them waits out a memory round trip with nothing beside it.  More warps add
+// merge work at the end and drop none of the reads, so the answer is a measurement and not an argument; the
+// keys a warp walks change with it, and with them the last bits of a sum, as they do between the two kernels.
+int split_warps(int n_head, int rows) {
+    const char* e = getenv("STRATA_MIMO_ATTN_WARPS");
+    if (!e) return 4;
+    // "auto" keeps the launch at the warp count this kernel's own sweep saturates at - about 4096 warps for
+    // the card, and a call of `rows` tokens has n_head * rows blocks: 32 warps for one token, 16 from three
+    // tokens on, 8 from five, 4 from nine.  Past that the blocks only queue for the SMs: at 50 000 keys a
+    // call of 3 rows took 4.79 ms at 16 warps and 4.94 at 32, and a call of 16 took its best 19.76 at 4.
+    if (!strcmp(e, "auto")) {
+        int w = 4096 / (n_head * std::max(1, rows));
+        for (; w > 32; w >>= 1);
+        for (; w > 4 && (w & (w - 1)); w &= w - 1);   // down to a power of two, warps split by two
+        return w < 4 ? 4 : w;
+    }
+    const int n = atoi(e);
+    return n < 4 || n > 32 || (n & (n - 1)) != 0 ? 4 : n;
+}
 }  // namespace
 
 void mimo2_attend(const float* q, const uint16_t* kcache, const uint16_t* vcache, int64_t pos, int rows,
@@ -455,7 +481,16 @@ void mimo2_attend(const float* q, const uint16_t* kcache, const uint16_t* vcache
     } else
 #endif
     {
-        const int warps = 4;
+        const int warps = split_warps(n_head, rows);
+        // one line per warp count, so a run's log says the launch changed without a print per attend: the
+        // default 4 never prints, and a run that set the variable but met no split launch prints nothing either
+        static int told = 0;
+        if (warps != 4 && (told & (1 << (warps / 4))) == 0) {
+            told |= 1 << (warps / 4);
+            std::fprintf(stderr, "strata-poly: mimo2-attend: split kernel at %d warps a block,"
+                                 " %d blocks a token (STRATA_MIMO_ATTN_WARPS=%s)\n", warps, n_head,
+                                 getenv("STRATA_MIMO_ATTN_WARPS"));   // set, or warps would still be 4
+        }
         const size_t merge_bytes = size_t(2 * WARP + warps * dim_v) * sizeof(float);
         const dim3 grid(n_head, rows);
         mimo2_attend_split_kernel<<<grid, warps * WARP, merge_bytes, st>>>(
