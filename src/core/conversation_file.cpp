@@ -669,6 +669,27 @@ struct Out {
             at += c;
         }
     }
+    // a running-state part pulled from its owner straight into the file block, like source()
+    void state(const SessionStateSource& s, size_t part) {
+        const size_t size = s.sizes[part];
+        u64(size);
+        if (!f) { count(size); return; }
+        for (size_t at = 0; at < size && ok;) {
+            size_t room = 0;
+            uint8_t* d = f->span(room);
+            const size_t c = std::min(room, size - at);
+            if (!s.read || !s.read(part, at, d, c)) {
+                ok = false;
+                read_failed = true;
+                if (s.error) read_error = s.error();
+                return;
+            }
+            if (hash) hash->update(d, c);
+            count(c);
+            ok = ok && f->commit(c);
+            at += c;
+        }
+    }
     bool read_failed = false;
     std::string read_error;
 };
@@ -683,6 +704,16 @@ void put_checkpoint(Out& o, const ConversationCheckpoint& c) {
     o.u64(c.imgs.size());
     for (const auto& k : c.imgs) { o.i64(k.start); o.u64(k.hash); }
     o.vec(c.gdn); o.vec(c.ple); o.vec(c.tails); o.vec(c.dead); o.vec(c.block_pos);
+    o.u64(c.used);
+}
+
+// The streamed edition: identical bytes, the five byte parts pulled from the owner.
+// ids/images are small host vectors already (referencing is not copying).
+void put_stream_checkpoint(Out& o, const SavedConversationStreamCheckpoint& c) {
+    o.vec(*c.ids);
+    o.u64(c.imgs->size());
+    for (const auto& k : *c.imgs) { o.i64(k.start); o.u64(k.hash); }
+    for (size_t part = 0; part < 5; ++part) o.state(c.state, part);
     o.u64(c.used);
 }
 
@@ -704,6 +735,22 @@ void put_payload(Out& o, const SavedConversation& s, const std::vector<SessionKv
     for (const auto& k : s.kv) {
         put_kv_header(o, k.format, k.cells, k.heads, k.head_dim, k.page_size, k.pooled_rows, k.idx_dim);
         o.buffer(k.k); o.buffer(k.v); o.buffer(k.k_scale); o.buffer(k.v_scale); o.buffer(k.pooled);
+    }
+}
+
+// The streamed edition of put_payload: identical bytes, checkpoint/live parts pulled
+// from their owners (Out::state) instead of captured vectors.  ids/images are small
+// host vectors already (referencing them is not a copy).
+void put_stream_payload(Out& o, const SavedConversationStream& s, const std::vector<SessionKvSource>& kv) {
+    for (int64_t g : s.geometry) o.i64(g);
+    o.i64(s.layer_lo); o.i64(s.layer_hi); o.u64(s.cvec ? 1 : 0);
+    put_stream_checkpoint(o, s.live);
+    o.u64(s.checkpoints.size());
+    for (const auto& c : s.checkpoints) put_stream_checkpoint(o, c);
+    o.u64(kv.size());
+    for (const auto& k : kv) {
+        put_kv_header(o, k.format, k.cells, k.heads, k.head_dim, k.page_size, k.pooled_rows, k.idx_dim);
+        for (size_t part = 0; part < 5; ++part) o.source(k, part);
     }
 }
 
@@ -1115,12 +1162,137 @@ bool write_guarded(const std::string& path, const SavedConversation& image, cons
     if (status) *status = st;
     return ok;
 }
+
+// The streamed write: the same walk as write_impl over descriptor-owned parts (no
+// captured vectors anywhere).  The builder refused layer-split state already; kv must
+// come from sources (a stream carries no embedded K/V).
+bool write_stream_impl(const std::string& path, const SavedConversationStream& stream,
+                       const std::vector<SessionKvSource>& kv,
+                       const SessionFileIdentity& id, size_t& bytes, std::string& error,
+                       const SessionWriteOptions& opt, SessionStatus& st) {
+    st = {};
+    st.error = SessionError::invalid;   // refusals before any disk access
+    if (kv.empty()) { error = "session file: streamed write needs K/V sources"; return false; }
+    if (!stream.live.ids || !stream.live.imgs) { error = "session file: streamed write needs live ids/images"; return false; }
+    for (const auto& c : stream.checkpoints)
+        if (!c.ids || !c.imgs) { error = "session file: streamed write needs checkpoint ids/images"; return false; }
+    Out sizing;
+    put_stream_payload(sizing, stream, kv);
+    if (sizing.overflow || sizing.n > UINT64_MAX - kHeader - kTrailer ||
+        sizing.n + kHeader + kTrailer > (uint64_t) std::numeric_limits<size_t>::max()) {
+        error = "session file: the state is too large for this build";
+        return false;
+    }
+    const uint64_t payload = sizing.n, total = kHeader + payload + kTrailer;
+    st.error = SessionError::io;
+    if (opt.min_free_bytes) {
+        uint64_t avail = 0;
+        if (!free_space(path, avail)) { error = "session file: cannot read the free disk space for " + path; return false; }
+        if (avail < total || avail - total < opt.min_free_bytes) {
+            st.error = SessionError::storage;
+            error = "session file: not enough disk space (" + std::to_string(total >> 20) + " MiB plus a reserve of " +
+                    std::to_string(opt.min_free_bytes >> 20) + " MiB needed, " + std::to_string(avail >> 20) +
+                    " MiB free)";
+            return false;
+        }
+    }
+    Publisher pub;
+    if (!pub.open(path, error)) { st.error = pub.kind(); return false; }
+    RawFile raw;
+    if (!pub.create_temp(raw, error)) {
+        st.error = raw.kind();
+        error = "session file: cannot create a temporary file beside " + path + ": " + error;
+        return false;
+    }
+    FileSink f(raw);
+    if (!f.ok()) { st.error = SessionError::memory; error = "session file: " + f.error(); return false; }
+    if (opt.progress) f.progress.emplace(opt.progress);
+    f.phase = opt.phase;
+    f.expected = total;
+    if (f.progress) (*f.progress)(0, total);   // the temporary file exists: the transfer starts
+    const std::function<int(const char*)>* fault = opt.fault ? &opt.fault : nullptr;
+    f.write_fault = injected(fault, "write");
+    f.flush_fault = injected(fault, "file_flush");
+    uint8_t h[kHeader];
+    header_bytes(h, id, payload);
+    bool ok = f.write(h, kHeader);
+    SessionHasher hash(0);
+    Out out;
+    out.f = &f;
+    out.hash = &hash;
+    if (ok) put_stream_payload(out, stream, kv);
+    ok = ok && out.ok && out.n == payload;
+    if (ok) {
+        const uint64_t ph = hash.digest();
+        ok = f.write(&ph, 8) && f.write(kEnd, 8);
+    }
+    ok = f.finish(opt.durable) && ok;
+    std::string why;
+    if (!ok) {
+        why = out.read_failed ? "running-state source read" + (out.read_error.empty() ? std::string() : ": " + out.read_error)
+                              : f.error();
+        st.error = out.read_failed ? SessionError::io : f.kind();
+    } else {
+        if (opt.phase) opt.phase("publish", total);
+        if (pub.publish(why, opt.durable, st, fault)) {
+            st.error = SessionError::none;
+            bytes = (size_t) total;
+            return true;
+        }
+    }
+    error = "session file: writing " + path + " failed" + (why.empty() ? std::string() : ": " + why);
+    if (st.published) error += " (the new file has already replaced the old one; its folder entry may not survive a power loss)";
+    return false;   // Publisher removes this call's temporary file, and only that
+}
+
+bool write_stream_guarded(const std::string& path, const SavedConversationStream& stream,
+                          const std::vector<SessionKvSource>& kv,
+                          const SessionFileIdentity& id, size_t& bytes, std::string& error,
+                          const SessionWriteOptions& opt, SessionStatus* status) {
+    SessionStatus st;
+    bool ok = false;
+    try {
+        ok = write_stream_impl(path, stream, kv, id, bytes, error, opt, st);
+    } catch (const std::bad_alloc&) {
+        error = "session file: out of memory while writing " + path;
+        st.error = SessionError::memory;
+        ok = false;
+    }
+    if (status) *status = st;
+    return ok;
+}
 } // namespace
 
 std::vector<ConversationCheckpoint> session_checkpoints_to_save(const std::vector<ConversationCheckpoint>& chain) {
     const ConversationCheckpoint* deepest = session_deepest_checkpoint(chain);
     if (!deepest) return {};
     return {*deepest};
+}
+
+// A stored checkpoint's byte parts as plain host ranges (no copy: the vectors stay put).
+bool session_checkpoint_stream_source(SessionStateSource& out, const ConversationCheckpoint& c,
+                                      std::string& error) {
+    (void) error;
+    struct Range { const uint8_t* p; size_t n; };
+    const std::vector<uint8_t>* parts[5] = {&c.gdn, &c.ple, &c.tails, &c.dead, &c.block_pos};
+    std::array<Range, 5> ranges;
+    SessionStateSource s;
+    for (size_t i = 0; i < 5; ++i) {
+        ranges[i] = {parts[i]->data(), parts[i]->size()};
+        s.sizes[i] = parts[i]->size();
+    }
+    auto why = std::make_shared<std::string>();
+    s.read = [ranges, why](size_t part, size_t offset, void* dst, size_t n) {
+        if (part >= 5 || offset > ranges[part].n || n > ranges[part].n - offset) {
+            *why = "checkpoint read out of range";
+            return false;
+        }
+        if (n) std::memcpy(dst, ranges[part].p + offset, n);
+        return true;
+    };
+    s.error = [why] { return *why; };
+    out = std::move(s);
+    return true;
 }
 
 const ConversationCheckpoint* session_deepest_checkpoint(const std::vector<ConversationCheckpoint>& chain) {
@@ -1145,6 +1317,14 @@ uint64_t session_save_peak_bytes(const ConversationCheckpoint* deepest, const Se
     return n;
 }
 
+uint64_t session_stream_peak_bytes(const SessionSaveLive& live) {
+    uint64_t n = sat_add(kBlock, uint64_t(1) << 20);                          // write buffer, small vectors
+    n = sat_add(n, sat_mul(live.tokens, sizeof(int32_t)));                    // its token list
+    n = sat_add(n, sat_mul(live.images, sizeof(ConversationImageKey)));       // its images
+    n = sat_add(n, sat_mul(live.kv_layers, sizeof(SessionKvSource) + 256));   // the K/V source directory
+    return n;   // no checkpoint or live copies: everything streams from its owner
+}
+
 bool session_save_checkpoints(const std::vector<ConversationCheckpoint>& chain, const SessionSaveLive& live,
                               const std::function<bool(uint64_t need_bytes, std::string& why)>& admit,
                               std::vector<ConversationCheckpoint>& out, std::string& why) {
@@ -1166,8 +1346,15 @@ bool session_file_write(const std::string& path, const SavedConversation& meta, 
 }
 
 bool session_file_write(const std::string& path, const SavedConversation& image, const SessionFileIdentity& id,
-                        size_t& bytes, std::string& error, const SessionWriteOptions& options, SessionStatus* status) {
+                         size_t& bytes, std::string& error, const SessionWriteOptions& options, SessionStatus* status) {
     return write_guarded(path, image, nullptr, id, bytes, error, options, status);
+}
+
+bool session_file_write_stream(const std::string& path, const SavedConversationStream& stream,
+                               const std::vector<SessionKvSource>& kv,
+                               const SessionFileIdentity& id, size_t& bytes, std::string& error,
+                               const SessionWriteOptions& options, SessionStatus* status) {
+    return write_stream_guarded(path, stream, kv, id, bytes, error, options, status);
 }
 
 namespace {

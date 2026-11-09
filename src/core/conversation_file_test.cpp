@@ -360,6 +360,57 @@ int main() {
               "image K/V plus sources refused");
     }
 
+    // checkpoints/live streamed straight from their vectors (no host copy): byte-identical file
+    {
+        SavedConversation original = sample();
+        SavedConversationStream stream;
+        stream.geometry = original.geometry; stream.layer_lo = original.layer_lo;
+        stream.layer_hi = original.layer_hi; stream.cvec = original.cvec;
+        auto stream_entry = [&](const ConversationCheckpoint& c) {
+            SavedConversationStreamCheckpoint e;
+            e.ids = &c.ids; e.imgs = &c.imgs; e.used = c.used;
+            check(session_checkpoint_stream_source(e.state, c, error), "checkpoint stream source");
+            return e;
+        };
+        stream.live = stream_entry(original.live);
+        for (const auto& c : original.checkpoints) stream.checkpoints.push_back(stream_entry(c));
+        std::vector<SessionKvSource> sources;
+        for (const auto& k : original.kv) {
+            SessionKvSource s;
+            s.format = k.format; s.cells = k.cells; s.heads = k.heads; s.head_dim = k.head_dim;
+            s.page_size = k.page_size; s.pooled_rows = k.pooled_rows; s.idx_dim = k.idx_dim;
+            const std::array<const ConversationBuffer*, 5> parts = {&k.k, &k.v, &k.k_scale, &k.v_scale, &k.pooled};
+            for (size_t i = 0; i < 5; ++i) s.sizes[i] = parts[i]->size();
+            s.read = [parts](size_t part, size_t offset, void* dst, size_t n) {
+                return parts[part]->read(dst, offset, n);
+            };
+            sources.push_back(std::move(s));
+        }
+        const fs::path p = dir / "streamed-checkpoints.bin";
+        size_t n1 = 0, n2 = 0;
+        check(session_file_write_stream(p.string(), stream, sources, id, n1, error),
+              "streamed checkpoints write succeeds");
+        check(session_file_write((dir / "captured-checkpoints.bin").string(), original, id, n2, error),
+              "captured checkpoints write succeeds");
+        check(n1 == n2 && slurp(p) == slurp(dir / "captured-checkpoints.bin"),
+              "streamed checkpoints equal the captured write");
+        // a failing stream source leaves no file
+        auto broken = stream;
+        broken.live.state.read = [](size_t, size_t, void*, size_t) { return false; };
+        const fs::path q = dir / "broken-stream.bin";
+        check(!session_file_write_stream(q.string(), broken, sources, id, n2, error),
+              "failing stream source fails the write");
+        check(!fs::exists(q) && no_temp(dir), "failed streamed write leaves no file");
+        // the preflight win: no checkpoint or live copies in the streamed peak
+        SessionSaveLive live{1000000, 1000, 1, 3};
+        const uint64_t captured = session_save_peak_bytes(&original.checkpoints[0], live);
+        const uint64_t streamed = session_stream_peak_bytes(live);
+        check(streamed < captured, "streamed preflight needs less than the captured one");
+        check(streamed == (16u << 20) + (uint64_t(1) << 20) + 1000 * 4 + (uint64_t)sizeof(ConversationImageKey) +
+                           3 * (sizeof(SessionKvSource) + 256),
+              "streamed preflight is buffer plus directory only");
+    }
+
     // the configuration fingerprint: every field counts, doubles by their exact bits
     {
         SessionConfig c;
