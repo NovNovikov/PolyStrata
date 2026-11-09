@@ -1,6 +1,6 @@
 <h1 align="center">PolyStrata</h1>
 
-**English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md) · [Português](README.pt-BR.md)
+**English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md) · [Português](README.pt-BR.md) · [Türkçe](README.tr.md)
 
 <p align="center"><b>Run large AI models on your own PC</b><br>
 Qwen3.8-Flash-Next, GLM 5.3 Flash, DeepSeek V4 Flash, LFM2.5, Flint, Qwen3.6, Clover, Ornith 1.5, Gemma 4, Tiel Coder, MiniCPM-V and Kolibri 1 · free and open source</p>
@@ -97,9 +97,10 @@ model file that are already on the graphics card. On the laptop, Qwen3.6-35B-A3B
 To hold less, add `"--ram-experts-mib", "6144"` to the `"args"` list of `strata-<model>.json`
 ([where](docs/INSTALL.md#where-things-are-stored)) and restart. The engine then holds that many MiB of RAM for the
 experts that stay outside VRAM, while it answers too, and says so when it starts. The others stay in the system's
-file cache, where your other programs can take that memory, and are read from it when a token needs them. It is off
-by default because it writes slower, and we are still working on that. On the laptop (RTX 4070 Laptop 8 GB, 32 GB
-of RAM, Windows 11), Qwen3.6-35B-A3B UD-Q3_K_M:
+file cache, where your other programs can take that memory, and are read from it when a token needs them. Where the
+experts fit in the RAM that is free it is off by default, because it writes slower, and we are still working on
+that; where they do not, the engine turns it on by itself (below). On the laptop (RTX 4070 Laptop 8 GB, 32 GB of
+RAM, Windows 11), Qwen3.6-35B-A3B UD-Q3_K_M:
 
 | | default | `--ram-experts-mib 6144` |
 | --- | ---: | ---: |
@@ -116,6 +117,25 @@ two other runs it wrote 6 to 8% slower after the 32K prompt and 8 to 10% slower 
 (an RTX PRO 6000 held to about 8 GB) it held 7.0 to 7.7 GiB instead of 12.3 to 14.3 and wrote 7 to 14% slower. With
 the expert cache held still, as a release is checked, the answers are the same token for token.
 
+When the experts outside VRAM do not fit in the RAM that is free, the engine now holds the ones used most in a
+budget of that RAM less 4 GiB, and reads the others from the SSD when a token needs them; it says so when it starts.
+Before, it mapped them all and the system read them back a page fault at a time. A container's memory limit counts
+too. Measured under Linux on an RTX PRO 6000 held to about 8 GB, with the engine held to 12 GB and to 10 GB of RAM,
+what a 16 GB PC has left for it, and the model file out of the file cache at each start: Qwen3.6-35B-A3B
+UD-Q3_K_M, tokens/s in the first short chat, after a 24,000-token prompt and in a short chat after that.
+
+| RAM for the engine | every expert mapped (before) | the budget it takes now |
+| --- | ---: | ---: |
+| 12 GB | 51 / 75-78 / 94-98 | **57-60 / 77-85 / 131-139** |
+| 10 GB | 39 / 48 / 69 | **51 / 64 / 92** |
+
+With no limit the same machine writes 63 / 169 / 203. It was not measured on Windows, where the same code runs.
+`"--ram-experts-mib", "-1"` keeps every expert mapped as before.
+
+The other way round, `"--lock-experts"` locks the experts outside VRAM in RAM, so the system cannot give their
+memory to other programs and have the engine read them from the SSD again later. Under Linux it locks no more than
+`ulimit -l` allows, and the engine says at the start how much it locked.
+
 The engine also needs 350 to 400 MiB less VRAM for reading prompts: the expert cache takes it (Qwen3.6 keeps 2,712
 experts in VRAM instead of 2,444), or `--vram-reserve-mib` leaves it to other programs.
 How it works and how it was measured: [docs/BACKENDS.md](docs/BACKENDS.md#less-of-the-pcs-ram-and-vram).
@@ -127,9 +147,9 @@ How it works and how it was measured: [docs/BACKENDS.md](docs/BACKENDS.md#less-o
 | [Qwen3.8-Flash-Next](docs/models/qwen38.md) | NVIDIA RTX 20 to 50 series, or AMD RX 6800 / 6900, RX 7700 XT / 7800 XT / 7900 XT / XTX, RX 9060 XT / 9070 / 9070 XT, Radeon AI PRO R9700; 12 GB or more | 32 GB or more; 64 GB runs every size | about 80 GB | Windows, Linux |
 | [GLM 5.3 Flash](docs/models/glm.md) | NVIDIA RTX 20 series or newer; only run on a 32 GB card | 96 GB beside a 32 GB card | 79 to 114 GB, on an SSD | Linux |
 | [DeepSeek V4 Flash](docs/models/deepseek.md) | same as above | 72 GB beside a 32 GB card | 91 GB, on an SSD | Linux |
-| [LFM2.5-24B-A2B](docs/models/lfm25.md) | NVIDIA RTX 20 series or newer, 8 GB or more | about 20 GB beside an 8 GB card | 11 to 25 GB | Windows, Linux |
+| [LFM2.5-24B-A2B](docs/models/lfm25.md) | NVIDIA RTX 20 series or newer, 8 GB or more | about 20 GB beside an 8 GB card | 11 to 25 GB | Windows, Linux, Mac (beta) |
 | [Flint 40B-A2.5B](docs/models/flint.md) | same as above | about 22 GB beside an 8 GB card | 18 to 42 GB | Windows, Linux |
-| [Qwen3.6-35B-A3B](docs/models/qwen36.md) | same as above; AMD as a beta | about 21 GB beside an 8 GB card | 13 to 23 GB | Windows, Linux |
+| [Qwen3.6-35B-A3B](docs/models/qwen36.md) | same as above; AMD as a beta | about 21 GB beside an 8 GB card | 13 to 23 GB | Windows, Linux, Mac (beta) |
 | [Clover-35B-A3B-Preview](docs/models/clover.md) | NVIDIA RTX 20 series or newer, 8 GB or more | about 20 GB beside an 8 GB card | 13 to 21 GB | Windows, Linux |
 | [Ornith 1.5](docs/models/ornith.md) | same as above; AMD as a beta | about 22 GB beside an 8 GB card | 14 to 24 GB | Windows, Linux |
 | [Gemma 4 26B-A4B](docs/models/gemma4.md) | same as above; AMD as a beta | about 18 GB beside an 8 GB card | 11 to 17 GB | Windows, Linux |
@@ -137,7 +157,7 @@ How it works and how it was measured: [docs/BACKENDS.md](docs/BACKENDS.md#less-o
 | [MiniCPM-V 4.7 35B-A3B](docs/models/minicpmv.md) | same as above; AMD as a beta | about 25 GB beside an 8 GB card | 16 to 29 GB | Windows, Linux |
 | [Kolibri 1](docs/models/kolibri.md) | NVIDIA RTX 20 series or newer, 8 GB or more | about 33 GB beside an 8 GB card | 29 to 48 GB | Windows, Linux |
 
-RAM is the installer's estimate; a larger card needs less. The installer sets up everything else: on Windows it downloads the engine ready-made, and compiles it on your PC only on a processor without AVX2 or when your copy's engine is newer than the latest release, offering to install the tools. Two or three cards can share a model ([multi-GPU](docs/MULTI_GPU.md)). Older graphics cards, Intel Arc, Apple Silicon Macs (Qwen3.8-Flash-Next only), Strix Halo and older processors without AVX2: [the full list](docs/INSTALL.md#what-you-need). Each model's card, RAM and sizes in detail are on its page.
+RAM is the installer's estimate; a larger card needs less. The installer sets up everything else: on Windows it downloads the engine ready-made, and compiles it on your PC only on a processor without AVX2 or when your copy's engine is newer than the latest release, offering to install the tools. Two or three cards can share a model ([multi-GPU](docs/MULTI_GPU.md)). Older graphics cards, Intel Arc, Apple Silicon Macs (Qwen3.8-Flash-Next, and Qwen3.6 and LFM2.5 as a beta), Strix Halo and older processors without AVX2: [the full list](docs/INSTALL.md#what-you-need). Each model's card, RAM and sizes in detail are on its page.
 
 What Qwen3.6, Clover, Ornith 1.5, Gemma 4, Tiel Coder and MiniCPM-V each need and how it was checked: [docs/BACKENDS.md](docs/BACKENDS.md#install).
 
@@ -164,8 +184,11 @@ you how to connect your apps. AI tools can also install, start and stop PolyStra
 (`xcode-select --install` in Terminal; Xcode itself is not needed). Then open Terminal in the PolyStrata folder and run
 **`./setup.sh`**. It builds the Mac engine on your Mac (about 7 minutes), asks the same questions, downloads the model
 and starts it. Next time, `./setup.sh` starts it right away. Which size fits your Mac and how fast it is:
-[docs/MAC.md](docs/MAC.md). The Mac engine runs Qwen3.8-Flash-Next only; the other eleven models need an NVIDIA or AMD
-card.
+[docs/MAC.md](docs/MAC.md). By default it sets up Qwen3.8-Flash-Next. `./setup.sh --family qwen36` or `--family lfm25`
+sets up Qwen3.6 or LFM2.5 instead, on strata-poly's Metal engine, as a beta: on an M5 Ultra, Qwen3.6 UD-Q2_K_XL wrote
+134 tokens/s in a short chat and read a 3,768-token prompt at 2,978 tokens/s. Setup also offers GLM, DeepSeek, Ornith,
+Gemma 4, Tiel Coder and MiniCPM-V on a Mac, but they have not been run there with their real weights. Kolibri, Flint
+and Clover need an NVIDIA or AMD card.
 
 The installer finds your card and sets up the right engine for it. It asks you a few questions:
 

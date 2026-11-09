@@ -974,14 +974,16 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
   # synthetic, no model; --bench adds timings).  NVIDIA only: cp.async and the CUDA occupancy API (not on gfx906)
   if(STRATA_ENABLE_CUDA AND NOT STRATA_HIP_GFX906)
     # Independent pinned expert uploads: byte parity and stream/event ordering.
-    add_executable(dma_batch_parity tests/core/dma_batch_parity.cu)
-    target_include_directories(dma_batch_parity PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    target_link_libraries(dma_batch_parity PRIVATE ${_strata_gpu_runtime_target})
-    add_test(NAME dma_batch_parity COMMAND dma_batch_parity)
-    set_tests_properties(dma_batch_parity PROPERTIES TIMEOUT 120)
-    if(WIN32)
-      add_test(NAME dma_batch_registered_parity COMMAND dma_batch_parity --registered)
-      set_tests_properties(dma_batch_registered_parity PROPERTIES TIMEOUT 120)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/dma_batch_parity.cu")
+      add_executable(dma_batch_parity tests/core/dma_batch_parity.cu)
+      target_include_directories(dma_batch_parity PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+      target_link_libraries(dma_batch_parity PRIVATE ${_strata_gpu_runtime_target})
+      add_test(NAME dma_batch_parity COMMAND dma_batch_parity)
+      set_tests_properties(dma_batch_parity PROPERTIES TIMEOUT 120)
+      if(WIN32)
+        add_test(NAME dma_batch_registered_parity COMMAND dma_batch_parity --registered)
+        set_tests_properties(dma_batch_registered_parity PROPERTIES TIMEOUT 120)
+      endif()
     endif()
     add_executable(gdn_rec_parity src/prefill/gdn_rec_parity.cu)
     target_link_libraries(gdn_rec_parity PRIVATE ${_strata_gpu_runtime_target})
@@ -2246,17 +2248,41 @@ if(STRATA_NATIVE_EXPERTS AND (STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP) AND NOT S
                                                            ${CMAKE_CURRENT_SOURCE_DIR}/src/poly
                                                            ${_strata_gpu_include_directories})
   target_link_libraries(poly_mimo2_attn_bench PRIVATE ${_strata_gpu_runtime_target})
+  # STRATA_HIP_SPLIT_ATTEND (heads of 256 over a q8_0 cache): against an FP64 reference and the old kernels, the position on the card, the
+  # fallback and a graph replay; needs a card with 32-lane waves (77 = skipped)
+  add_executable(poly_hip_split_attend_test src/poly/hip_split_attend_test.cu src/poly/kernels.cu)
+  target_include_directories(poly_hip_split_attend_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
+                            ${_strata_gpu_include_directories})
+  target_link_libraries(poly_hip_split_attend_test PRIVATE ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target})
+  add_test(NAME poly_hip_split_attend_test COMMAND poly_hip_split_attend_test)
+  set_tests_properties(poly_hip_split_attend_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
   # attend_batch() against attend() with Flint's heads, sinks and window ring; needs a card
   add_executable(poly_sink_attend_test src/poly/sink_attend_test.cu src/poly/kernels.cu)
   target_include_directories(poly_sink_attend_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
                                                           ${_strata_gpu_include_directories})
   target_link_libraries(poly_sink_attend_test PRIVATE ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target})
+  # STRATA_HIP_PREFILL_FP32 (attend_batch() on FP32 inputs over a q8_0 cache): against an FP64 reference and the default path, and the
+  # fallbacks; needs a card (77 = skipped)
+  add_executable(poly_hip_prefill_fp32_test src/poly/hip_prefill_fp32_test.cu src/poly/kernels.cu)
+  target_include_directories(poly_hip_prefill_fp32_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
+                            ${_strata_gpu_include_directories})
+  target_link_libraries(poly_hip_prefill_fp32_test PRIVATE ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target})
+  add_test(NAME poly_hip_prefill_fp32_test COMMAND poly_hip_prefill_fp32_test)
+  set_tests_properties(poly_hip_prefill_fp32_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
   # fattn_q8() and fattn_f16() (llama.cpp's flash-attention kernel) against attend_batch(), and with `dec` fdec_q8()
   # against attend(); needs a card, run by hand
   add_executable(poly_fattn_test src/poly/fattn_test.cu src/poly/kernels.cu)
   target_include_directories(poly_fattn_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src/poly
                                                     ${_strata_gpu_include_directories})
   target_link_libraries(poly_fattn_test PRIVATE strata_poly_mmq ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target})
+  # STRATA_POLY_STAGED_TILES: the staged experts in size classes, each a launch of its own tile width, against one
+  # launch, bit for bit; needs a card
+  add_executable(poly_mmq_tiles_test src/poly/mmq_tiles_test.cu)
+  target_include_directories(poly_mmq_tiles_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src/poly
+                                                        ${_strata_gpu_include_directories})
+  target_link_libraries(poly_mmq_tiles_test PRIVATE strata_poly_mmq ${_strata_gpu_blas_target} ${_strata_gpu_runtime_target})
+  add_test(NAME poly_mmq_tiles_test COMMAND poly_mmq_tiles_test)
+  set_tests_properties(poly_mmq_tiles_test PROPERTIES SKIP_RETURN_CODE 77)
   # LFM2's short convolution against the same arithmetic on the host; needs a card, so it is run by hand
   add_executable(poly_shortconv_test src/poly/shortconv_test.cu src/poly/kernels.cu)
   target_include_directories(poly_shortconv_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include

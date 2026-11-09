@@ -1359,6 +1359,10 @@ int check_batch(Engine& engine, const std::vector<int32_t>& ids, int k, long lon
 }
 
 void usage() {
+#if defined(STRATA_GPU_METAL)
+    std::fprintf(stderr, "Metal defaults: optimized expert overlap and compact MMQ (disable: --no-metal-optimize), "
+                         "--metal-memory legacy|balanced (default balanced)\n");
+#endif
     std::fprintf(stderr,
                  "usage: strata-poly --model FILE.gguf (--serve | --tokens ID,ID,... [--max-new N])\n"
                  "  --no-disk              load weights into locked RAM / fixed VRAM and close model files\n"
@@ -1366,11 +1370,16 @@ void usage() {
                  "  --ram-limit-mib N      cap no-disk RAM allocations (0: available RAM)\n"
                  "  --rows-vram            reserve intermediate rows for the full context in VRAM\n"
                  "  --max-context N        tokens the attention caches hold (default 8192)\n"
-                 "  --threads N            CPU threads for the experts that are not in VRAM (default: all usable)\n"
+                 "  --threads N            CPU threads for the experts that are not in VRAM (default: 70%% of the usable\n"
+                 "                         CPUs; all of them in a container with a CPU quota)\n"
                  "  --vram-reserve-mib N   VRAM left free beside the expert cache, 256 at least (default: a\n"
                  "                         thirty-second of the card, 256 to 768, or a sixteenth, 512 to 1024,\n"
                  "                         when the PC's free RAM is within 4 GiB of the model's files, and then\n"
                  "                         kept whole; else half of it after the first request)\n"
+                 "  --vram-pool            claim the card's VRAM once at load (what is free but for the reserve above,\n"
+                 "                         which is then the margin left outside), keep it for the whole run and move\n"
+                 "                         it between the expert cache and the attention caches as the context grows\n"
+                 "                         and shrinks, in 2 MiB pieces; nothing is given back to the card (needs VMM)\n"
                  "  --layer-split S        the model's layers across the CUDA devices this process sees, in their\n"
                  "                         order: S is auto (by each card's free VRAM) or the first layer of each\n"
                  "                         later card, as 20 or 20,30 (default: the first card alone)\n"
@@ -1405,16 +1414,22 @@ void usage() {
                  "                         the conversation grows, the expert cache having the rest until then)\n"
                  "  --kv fmt               the K and V attention caches' format, opt-in: fp16 (default,\n"
                  "                         unchanged); q8_0 (ggml Q8_0 blocks: half the KV VRAM, slightly\n"
-                 "                         different answers; qwen35moe's and kolibri1's); int8 / int8k (Gemma 4's:\n"
+                 "                         different answers; qwen35moe's, kolibri1's and Flint's); int8 / int8k (Gemma 4's:\n"
                  "                         the same Q8_0 rule with the codes and their deltas in two arrays, so a\n"
                  "                         reader takes four codes to a load; int8k keeps the keys' side\n"
                  "                         quantized and the values' in fp16)\n"
+#if defined(STRATA_GPU_METAL)
+                 "                         Metal default: q8_0 for a compatible Qwen35MoE geometry, else fp16\n"
+#endif
                  "  --expert-swaps N       while an answer is written, up to N experts it keeps using are on their way\n"
                  "                         into VRAM, in place of cached ones it uses less (default 64, 0 = the cache\n"
                  "                         stays as it was loaded)\n"
                  "  --ram-experts-mib N    hold N MiB of RAM for the experts outside VRAM, during answers too: the ones\n"
                  "                         used most lately; the rest stay in the file cache for other programs to take,\n"
-                 "                         and are read back when a token needs them (default: all of them)\n"
+                 "                         and are read back when a token needs them (default: all of them when they\n"
+                 "                         fit in the RAM that is free, else what is free less 4 GiB; -1: all of them)\n"
+                 "  --lock-experts         lock the experts outside VRAM in RAM, so the system cannot drop them from the\n"
+                 "                         file cache when other programs want the memory (Linux: up to ulimit -l)\n"
                  "  --prompt-batch N       prompt tokens read at a time (default 1024); about 1.4 MiB of VRAM each\n"
                  "  --read-chunk N         prompt tokens in one layer-by-layer read() pass at most (default 0 =\n"
                  "                         full context / 512 MiB RAM limit; --read-chunk-tokens is an alias)\n"
@@ -1525,9 +1540,22 @@ int main(int argc, char** argv) {
         };
         if (a == "--model") o.model = val();
         else if (a == "--serve") want_serve = true;
+#if defined(STRATA_GPU_METAL)
+        else if (a == "--metal-optimize") o.metal_optimize = true;
+        else if (a == "--no-metal-optimize") o.metal_optimize = false;
+        else if (a == "--metal-memory") {
+            const std::string policy = val();
+            if (policy != "legacy" && policy != "balanced") {
+                std::fprintf(stderr, "strata-poly: --metal-memory requires legacy or balanced\n");
+                return 2;
+            }
+            o.metal_balanced = policy == "balanced";
+        }
+#endif
         else if (a == "--max-context") o.max_context = std::atoi(val());
         else if (a == "--threads") o.threads = std::atoi(val());
         else if (a == "--vram-reserve-mib") o.vram_reserve_mib = std::atoi(val());
+        else if (a == "--vram-pool") o.vram_pool = true;
         else if (a == "--expert-profile") o.profile = val();
         else if (a == "--no-gpu-experts") o.gpu_experts = false;
         else if (a == "--no-disk") o.no_disk = true;
@@ -1550,6 +1578,7 @@ int main(int argc, char** argv) {
         else if (a == "--rows-vram") o.rows_vram = true;
         else if (a == "--ram-limit-mib") o.ram_limit_mib = std::atoll(val());
         else if (a == "--any-node") o.stay_near = false;
+        else if (a == "--lock-experts") o.lock_experts = true;
         else if (a == "--no-graphs") o.graphs = false;
         else if (a == "--trace-graphs") o.trace_graphs = true;
         else if (a == "--compact-graphs") o.compact_graphs = true;

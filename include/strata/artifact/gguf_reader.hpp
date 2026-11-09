@@ -468,7 +468,11 @@ private:
             try { parse(); } catch (...) { close(); throw; }
             return;
         }
+#if defined(__APPLE__)
+        void* p = mmap(nullptr, size_, PROT_READ, MAP_SHARED, fd, 0);
+#else
         void* p = mmap(nullptr, size_, PROT_READ, MAP_PRIVATE, fd, 0);
+#endif
         if (p == MAP_FAILED) throw std::runtime_error("mmap failed");
         base_ = (const uint8_t*)p;
 #endif

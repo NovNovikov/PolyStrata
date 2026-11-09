@@ -267,7 +267,7 @@ For opt-in placement of all weights in locked RAM and fixed VRAM, with no model-
 | `--model FILE.gguf` | | the model |
 | `--serve` | | take requests from the server (the server passes this) |
 | `--max-context N` | 8192 | tokens a conversation can hold |
-| `--threads N` | all usable | CPU threads for the experts that are not in VRAM |
+| `--threads N` | 70% of the usable CPUs; all of them in a container with a CPU quota | CPU threads for the experts that are not in VRAM. GLM's CPU experts are faster with every CPU: on a server with no quota, give it the CPU count ([why](BACKENDS.md#cpu-left-to-other-programs)) |
 | `--vram-reserve-mib N` | a thirty-second of the card, 256 to 768, or a sixteenth, 512 to 1024, kept whole, when the PC's free RAM is within 5 GiB of the model's files; else half of it after the first request | VRAM left free beside the expert cache |
 | `--layer-split S` | the first card alone | the model's layers across the cards the engine sees: `auto` (by each card's free VRAM) or the first layer of each later card, as `20` or `20,30` ([MULTI_GPU.md](MULTI_GPU.md#the-strata-poly-models)) |
 | `--expert-profile FILE` | | expert use counts, read at the start and written back after an answer, every 10 seconds at most, and at the end |
@@ -285,7 +285,8 @@ For opt-in placement of all weights in locked RAM and fixed VRAM, with no model-
 | `--prompt-batch N` | 1024 | prompt tokens read at a time, 1 to 4096; about 1.4 MiB of VRAM each |
 | `--stage-mib N` | 128 on an NVIDIA card where a longer read can widen it (one card), else 2048 | VRAM the experts outside the cache pass through while a prompt is read |
 | `--stage-read-mib N` | 2048 with the 128 MiB `--stage-mib` default, else 0 | a prompt read of several batches widens the staging buffer to N MiB (at most a layer's experts) with VRAM the expert cache lends it until the answer starts; 0 = never |
-| `--ram-experts-mib N` | all of them | the MiB of RAM held for the experts outside VRAM, while an answer is written too, the most used first; the rest stay in the file cache for other programs to take and are read back when a token needs them, which writes slower |
+| `--ram-experts-mib N` | all of them when they fit in the RAM that is free, else what is free less 4 GiB ([when](BACKENDS.md#when-the-experts-do-not-fit-in-ram)); -1 = all of them | the MiB of RAM held for the experts outside VRAM, while an answer is written too, the most used first; the rest stay in the file cache for other programs to take and are read back when a token needs them, which writes slower where they would all fit |
+| `--lock-experts` | off | the experts outside VRAM locked in RAM, so the system cannot drop them when another program wants the memory; Linux locks up to `ulimit -l`; not with `--ram-experts-mib` |
 | `--stage-ahead N` | 1024 | from N tokens, a batch copies those experts before the layer has chosen, as does every batch of a prompt of N tokens or more that is read several at a time; 0 = never |
 | `--cpu-share F` | as the times say | in a batch of fewer tokens than `--stage-ahead`, the share of the experts outside VRAM that the CPU computes while the others are copied: the ones the fewest tokens chose; 0 = none |
 | `--prompt-cache N` | 6 | checkpoints kept of a conversation; 0 = only a next turn is not read again |
@@ -297,6 +298,7 @@ For opt-in placement of all weights in locked RAM and fixed VRAM, with no model-
 | `--eos-ids ID,ID,...` | from the GGUF | tokens that end a reply |
 | `--tail-skip N` | 0; setup gives Qwen3.6 6 | an expert outside VRAM that every token of a window ranks at place N+1 or later among its experts is left out: faster, and the answers move a little |
 | `STRATA_FREEZE_EXPERTS` | not set | hold the split of the routed experts between the card and the CPU still for the engine's whole run, so a greedy answer is a function of the request alone: same request, same answer, bit for bit. With guesses on (`--window` above 1 and a block or `--lookup`) the block's guesses and their windows still take their sizes from the machine's pace, which the freeze does not hold: on the cards measured so far it repeated with them on (RX 9060 XT, several thread counts and loads) and on one RTX 4070 laptop it did not — add `--window 1` for a repeat wherever the guesses are on. Measured cost: nothing measurable on the default path, 4-7% at a short prompt with the freeze set |
+| `STRATA_NO_SPILL=1` | not set | keep parked conversations' blobs in heap instead of writing them to temporary files; parking still works but RAM use grows accordingly |
 
 `strata-poly` with no arguments prints the list, with the options for running it without the server.
 

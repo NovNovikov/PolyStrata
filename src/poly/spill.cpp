@@ -9,6 +9,7 @@
 #include <functional>
 #include <new>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -20,7 +21,11 @@
 #else
 #include <fcntl.h>
 #include <sys/mman.h>
+#if defined(__APPLE__)
+#include <sys/mount.h>
+#else
 #include <sys/vfs.h>
+#endif
 #include <unistd.h>
 #endif
 
@@ -85,8 +90,19 @@ intptr_t make_file() {
         struct statfs fs;
         if (!dir || statfs(dir, &fs) != 0 || fs.f_type == 0x01021994 /* tmpfs */ || fs.f_type == 0x858458f6 /* ramfs */)
             continue;
+#if defined(__APPLE__)
+        // no O_TMPFILE: a named file, unlinked at once, is as nameless
+        std::string name = std::string(dir) + "/strata-poly-XXXXXX";
+        const int fd = mkstemp(name.data());
+        if (fd >= 0) {
+            unlink(name.c_str());
+            fcntl(fd, F_SETFD, FD_CLOEXEC);
+            return fd;
+        }
+#else
         const int fd = open(dir, O_TMPFILE | O_RDWR | O_CLOEXEC, 0600);   // nameless
         if (fd >= 0) return fd;
+#endif
     }
     return -1;
 #endif
@@ -185,7 +201,12 @@ void Spill::release() const {
 
 // Nothing writes or frees the heap while it is queued and not filed: it is read without the lock.  A file that
 // cannot be made or written leaves it in the heap, and it is not tried again.
+// STRATA_NO_SPILL keeps every blob on the heap instead (parking still works; RAM use grows accordingly).
 void Spill::write() const {
+    if (const char* v = std::getenv("STRATA_NO_SPILL")) {
+        const int n = std::atoi(v);
+        if (n != 0) return;
+    }
     const intptr_t f = make_file();
     const bool ok = f != -1 && write_all(f, heap_, n_);
     std::lock_guard<std::mutex> l(m_);

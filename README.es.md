@@ -1,6 +1,6 @@
 <h1 align="center">PolyStrata</h1>
 
-[English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · **Español** · [Português](README.pt-BR.md)
+[English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · **Español** · [Português](README.pt-BR.md) · [Türkçe](README.tr.md)
 
 <p align="center"><b>Ejecuta modelos de IA grandes en tu propio PC</b><br>
 Qwen3.8-Flash-Next, GLM 5.3 Flash, DeepSeek V4 Flash, LFM2.5, Flint, Qwen3.6, Clover, Ornith 1.5, Gemma 4, Tiel Coder, MiniCPM-V y Kolibri 1 · libre y de código abierto</p>
@@ -101,7 +101,8 @@ Para ocupar menos, añade `"--ram-experts-mib", "6144"` a la lista `"args"` de `
 ([dónde](docs/INSTALL.md#where-things-are-stored)) y reinicia. El motor guarda entonces esos MiB de RAM para los
 expertos que quedan fuera de la VRAM, también mientras responde, y lo dice al arrancar. Los demás se quedan en la
 caché de archivos del sistema, donde tus otros programas pueden usar esa memoria, y se leen de ahí cuando un token
-los necesita. Viene apagado porque escribe más lento, y seguimos trabajando en ello. En el portátil (RTX 4070 Laptop
+los necesita. Si los expertos caben en la RAM libre viene apagado, porque escribe más lento, y seguimos trabajando en
+ello; si no caben, el motor lo enciende solo (más abajo). En el portátil (RTX 4070 Laptop
 8 GB, 32 GB de RAM, Windows 11), Qwen3.6-35B-A3B UD-Q3_K_M:
 
 | | por defecto | `--ram-experts-mib 6144` |
@@ -120,6 +121,26 @@ tarjeta libre. En otras dos medidas escribió entre un 6 y un 8 % más lento tra
 14.3 y escribió entre un 7 y un 14 % más lento. Con la caché de expertos fija, como se comprueba una versión, las
 respuestas son iguales token a token.
 
+Cuando los expertos fuera de la VRAM no caben en la RAM libre, el motor ahora guarda los más usados en un presupuesto
+de esa RAM menos 4 GiB y lee los demás del SSD cuando un token los necesita; lo dice al arrancar. Antes los mapeaba
+todos y el sistema los volvía a leer fallo de página a fallo de página. También cuenta el límite de memoria de un
+contenedor. Medido en Linux en una RTX PRO 6000 limitada a unos 8 GB, con el motor limitado a 12 GB y a 10 GB de RAM,
+lo que le queda en un PC de 16 GB, y el archivo del modelo fuera de la caché de archivos en cada arranque:
+Qwen3.6-35B-A3B UD-Q3_K_M, tokens/s en el primer chat corto, tras un prompt de 24,000 tokens y en un chat corto
+después.
+
+| RAM para el motor | todos los expertos mapeados (antes) | el presupuesto que toma ahora |
+| --- | ---: | ---: |
+| 12 GB | 51 / 75-78 / 94-98 | **57-60 / 77-85 / 131-139** |
+| 10 GB | 39 / 48 / 69 | **51 / 64 / 92** |
+
+Sin límite, la misma máquina escribe 63 / 169 / 203. No se midió en Windows, donde corre el mismo código.
+`"--ram-experts-mib", "-1"` mantiene todos los expertos mapeados como antes.
+
+Al revés, `"--lock-experts"` bloquea en RAM los expertos que quedan fuera de la VRAM, así el sistema no da esa memoria
+a otros programas ni el motor tiene que volver a leerlos del SSD. En Linux bloquea como mucho lo que permite
+`ulimit -l`, y el motor dice al arrancar cuánto bloqueó.
+
 El motor también necesita entre 350 y 400 MiB menos de VRAM para leer prompts: se los queda la caché de expertos
 (Qwen3.6 guarda 2,712 expertos en VRAM en vez de 2,444), o `--vram-reserve-mib` los deja a otros programas. Cómo
 funciona y cómo se midió: [docs/BACKENDS.md](docs/BACKENDS.md#less-of-the-pcs-ram-and-vram).
@@ -131,9 +152,9 @@ funciona y cómo se midió: [docs/BACKENDS.md](docs/BACKENDS.md#less-of-the-pcs-
 | [Qwen3.8-Flash-Next](docs/models/qwen38.es.md) | NVIDIA RTX serie 20 a 50, o AMD RX 6800 / 6900, RX 7700 XT / 7800 XT / 7900 XT / XTX, RX 9060 XT / 9070 / 9070 XT, Radeon AI PRO R9700; 12 GB o más | 32 GB o más; con 64 GB funcionan todos los tamaños | unos 80 GB | Windows, Linux |
 | [GLM 5.3 Flash](docs/models/glm.es.md) | NVIDIA RTX serie 20 o más nueva; solo probado en una tarjeta de 32 GB | 96 GB junto a una tarjeta de 32 GB | de 79 a 114 GB, en un SSD | Linux |
 | [DeepSeek V4 Flash](docs/models/deepseek.es.md) | igual que arriba | 72 GB junto a una tarjeta de 32 GB | 91 GB, en un SSD | Linux |
-| [LFM2.5-24B-A2B](docs/models/lfm25.es.md) | NVIDIA RTX serie 20 o más nueva, 8 GB o más | unos 20 GB junto a una tarjeta de 8 GB | de 11 a 25 GB | Windows, Linux |
+| [LFM2.5-24B-A2B](docs/models/lfm25.es.md) | NVIDIA RTX serie 20 o más nueva, 8 GB o más | unos 20 GB junto a una tarjeta de 8 GB | de 11 a 25 GB | Windows, Linux, Mac (beta) |
 | [Flint 40B-A2.5B](docs/models/flint.es.md) | igual que arriba | unos 22 GB junto a una tarjeta de 8 GB | de 18 a 42 GB | Windows, Linux |
-| [Qwen3.6-35B-A3B](docs/models/qwen36.es.md) | igual que arriba; AMD en beta | unos 21 GB junto a una tarjeta de 8 GB | de 13 a 23 GB | Windows, Linux |
+| [Qwen3.6-35B-A3B](docs/models/qwen36.es.md) | igual que arriba; AMD en beta | unos 21 GB junto a una tarjeta de 8 GB | de 13 a 23 GB | Windows, Linux, Mac (beta) |
 | [Clover-35B-A3B-Preview](docs/models/clover.es.md) | NVIDIA RTX serie 20 o posterior, 8 GB o más | unos 20 GB junto a una tarjeta de 8 GB | de 13 a 21 GB | Windows, Linux |
 | [Ornith 1.5](docs/models/ornith.es.md) | igual que arriba; AMD en beta | unos 22 GB junto a una tarjeta de 8 GB | de 14 a 24 GB | Windows, Linux |
 | [Gemma 4 26B-A4B](docs/models/gemma4.es.md) | igual que arriba; AMD en beta | unos 18 GB junto a una tarjeta de 8 GB | de 11 a 17 GB | Windows, Linux |
@@ -141,7 +162,7 @@ funciona y cómo se midió: [docs/BACKENDS.md](docs/BACKENDS.md#less-of-the-pcs-
 | [MiniCPM-V 4.7 35B-A3B](docs/models/minicpmv.es.md) | igual que arriba; AMD en beta | unos 25 GB junto a una tarjeta de 8 GB | de 16 a 29 GB | Windows, Linux |
 | [Kolibri 1](docs/models/kolibri.es.md) | NVIDIA RTX serie 20 o más nueva, 8 GB o más | unos 33 GB junto a una tarjeta de 8 GB | de 29 a 48 GB | Windows, Linux |
 
-La RAM es la estimación del instalador; una tarjeta más grande necesita menos. El instalador se encarga de todo lo demás: en Windows descarga el motor ya compilado y solo lo compila en tu PC con un procesador sin AVX2 o si el motor de tu copia es más nuevo que la última versión, y ofrece instalar las herramientas que falten. Dos o tres tarjetas pueden repartirse un modelo ([multi-GPU](docs/MULTI_GPU.md)). Tarjetas gráficas antiguas, Intel Arc, Strix Halo y procesadores antiguos sin AVX2: [la lista completa](docs/INSTALL.md#what-you-need). La tarjeta, la RAM y los tamaños de cada modelo en detalle están en su página.
+La RAM es la estimación del instalador; una tarjeta más grande necesita menos. El instalador se encarga de todo lo demás: en Windows descarga el motor ya compilado y solo lo compila en tu PC con un procesador sin AVX2 o si el motor de tu copia es más nuevo que la última versión, y ofrece instalar las herramientas que falten. Dos o tres tarjetas pueden repartirse un modelo ([multi-GPU](docs/MULTI_GPU.md)). Tarjetas gráficas antiguas, Intel Arc, Macs con Apple Silicon (Qwen3.8-Flash-Next, y Qwen3.6 y LFM2.5 como beta), Strix Halo y procesadores antiguos sin AVX2: [la lista completa](docs/INSTALL.md#what-you-need). La tarjeta, la RAM y los tamaños de cada modelo en detalle están en su página.
 
 Qué necesita cada uno de los seis (Qwen3.6, Clover, Ornith 1.5, Gemma 4, Tiel Coder y MiniCPM-V) y cómo se comprobó: [docs/BACKENDS.md](docs/BACKENDS.md#install) (en inglés).
 
@@ -164,7 +185,7 @@ cómo conectar tus aplicaciones. Las herramientas de IA también pueden instalar
 [Descarga PolyStrata](https://github.com/simplexai-labs/PolyStrata/archive/refs/heads/main.zip) y descomprímelo (o usa `git clone`).
 **Windows:** haz doble clic en **`START-HERE.bat`**. **Linux:** ejecuta **`./setup.sh`** en la carpeta de PolyStrata.
 
-**Mac (Apple Silicon, M1 a M5, macOS 15 o posterior):** instala una vez las Command Line Tools de Apple (`xcode-select --install` en Terminal; no hace falta Xcode). Luego abre Terminal en la carpeta de PolyStrata y ejecuta **`./setup.sh`**. Compila el motor de Mac en tu Mac (unos 7 minutos), hace las mismas preguntas, descarga el modelo y lo arranca. La próxima vez, `./setup.sh` arranca enseguida. Qué tamaño cabe en tu Mac y qué velocidad tiene: [docs/MAC.md](docs/MAC.md). El motor de Mac solo ejecuta Qwen3.8-Flash-Next; los otros once modelos necesitan una tarjeta NVIDIA o AMD.
+**Mac (Apple Silicon, M1 a M5, macOS 15 o posterior):** instala una vez las Command Line Tools de Apple (`xcode-select --install` en Terminal; no hace falta Xcode). Luego abre Terminal en la carpeta de PolyStrata y ejecuta **`./setup.sh`**. Compila el motor de Mac en tu Mac (unos 7 minutos), hace las mismas preguntas, descarga el modelo y lo arranca. La próxima vez, `./setup.sh` arranca enseguida. Qué tamaño cabe en tu Mac y qué velocidad tiene: [docs/MAC.md](docs/MAC.md). De forma predeterminada instala Qwen3.8-Flash-Next. `./setup.sh --family qwen36` o `--family lfm25` instala en su lugar Qwen3.6 o LFM2.5 en el motor Metal de strata-poly, como beta: en un M5 Ultra, Qwen3.6 UD-Q2_K_XL escribió 134 tokens/s en un chat corto y leyó un prompt de 3,768 tokens a 2,978 tokens/s. El instalador también ofrece GLM, DeepSeek, Ornith, Gemma 4, Tiel Coder y MiniCPM-V en un Mac, pero todavía no se han ejecutado allí con sus pesos reales. Kolibri, Flint y Clover necesitan una tarjeta NVIDIA o AMD.
 
 Los pasos son los mismos para NVIDIA y AMD. El instalador detecta tu tarjeta y prepara el motor adecuado para ella.
 Te hace unas pocas preguntas:

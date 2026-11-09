@@ -68,6 +68,19 @@ bool Mmq::half_sums(int type) {
     return layout == MMQ_Q8_1_DS_LAYOUT_DS4 || layout == MMQ_Q8_1_DS_LAYOUT_D2S6;
 }
 
+// launch_mul_mat_q's choice for each tile width: with stream-k the blocks share the tiles' sums out by the number
+// of tiles, and a fixup adds the parts
+bool Mmq::split_exact(int type, int64_t w_rows) {
+    const ggml_type t = (ggml_type) type;
+    const bool fallback = w_rows % 128 != 0;
+    const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
+    for (int J = 8; J <= 128; J += 8) {
+        const ggml_cuda_mmq_config c = ggml_cuda_mmq_get_config(t, J, fallback, cc);
+        if (c.type != GGML_TYPE_COUNT && c.stream_k) return false;
+    }
+    return true;
+}
+
 void Mmq::quantize(const float* x, const int32_t* ids, void* xq, int type, int64_t cols, int64_t ld, int64_t rows,
                    void* stream) {
     if (rows <= 0) return;

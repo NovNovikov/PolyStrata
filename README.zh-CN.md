@@ -1,6 +1,6 @@
 <h1 align="center">PolyStrata</h1>
 
-[English](README.md) · **简体中文** · [日本語](README.ja.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md) · [Português](README.pt-BR.md)
+[English](README.md) · **简体中文** · [日本語](README.ja.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md) · [Português](README.pt-BR.md) · [Türkçe](README.tr.md)
 
 <p align="center"><b>在你自己的电脑上运行大型 AI 模型</b><br>
 Qwen3.8-Flash-Next、GLM 5.3 Flash、DeepSeek V4 Flash、LFM2.5、Flint、Qwen3.6、Clover、Ornith 1.5、Gemma 4、Tiel Coder、MiniCPM-V 和 Kolibri 1 · 免费开源</p>
@@ -88,8 +88,8 @@ Qwen3.6-35B-A3B 读完 32,000 个 token 的提示后，0.1.45-poly.6 占 17.9 Gi
 
 想再少占一些，在 `strata-<model>.json` 的 `"args"` 列表里加上 `"--ram-experts-mib", "6144"`
 （[在哪](docs/INSTALL.md#where-things-are-stored)），然后重启。引擎就只给显卡外的专家留这么多 MiB 的内存，回答时也一样，
-启动时会说一声。其余的留在系统的文件缓存里，别的程序可以拿这部分内存去用，哪个 token 用到时再从缓存读。这个模式写得慢一些，
-所以默认关着，我们还在继续优化。笔记本（RTX 4070 Laptop 8 GB，32 GB 内存，Windows 11）上的 Qwen3.6-35B-A3B UD-Q3_K_M：
+启动时会说一声。其余的留在系统的文件缓存里，别的程序可以拿这部分内存去用，哪个 token 用到时再从缓存读。专家放得进空闲内存时，
+这个模式写得慢一些，所以默认关着，我们还在继续优化；放不进时，引擎会自己打开（见下）。笔记本（RTX 4070 Laptop 8 GB，32 GB 内存，Windows 11）上的 Qwen3.6-35B-A3B UD-Q3_K_M：
 
 | | 默认 | `--ram-experts-mib 6144` |
 | --- | ---: | ---: |
@@ -105,6 +105,21 @@ Qwen3.6-35B-A3B 读完 32,000 个 token 的提示后，0.1.45-poly.6 占 17.9 Gi
 8% 到 10%。Linux 上（RTX PRO 6000 限到约 8 GB），它占 7.0 到 7.7 GiB，默认是 12.3 到 14.3 GiB，写得慢 7% 到 14%。把专家缓存
 固定住（发布前就是这样检查的），回答逐个 token 都一样。
 
+显卡外的专家放不进空闲内存时，引擎现在会拿“空闲内存减 4 GiB”当预算，留住最常用的专家，其余的等 token 用到时再从 SSD 读，
+启动时会说一声。以前是全部映射，由系统一页一页缺页读回来。容器的内存上限也算在内。在 Linux 上测的：RTX PRO 6000 限到约 8 GB，
+引擎的内存分别限到 12 GB 和 10 GB（16 GB 的电脑能留给它的量），每次启动前把模型文件清出文件缓存；Qwen3.6-35B-A3B UD-Q3_K_M，
+第一次短对话、24,000 token 提示后、之后再一次短对话的写速度（token/秒）：
+
+| 留给引擎的内存 | 全部映射（以前） | 现在自动取的预算 |
+| --- | ---: | ---: |
+| 12 GB | 51 / 75-78 / 94-98 | **57-60 / 77-85 / 131-139** |
+| 10 GB | 39 / 48 / 69 | **51 / 64 / 92** |
+
+不限内存时，同一台机器是 63 / 169 / 203。Windows 上跑的是同一段代码，但没有测。加上 `"--ram-experts-mib", "-1"` 就和以前一样全部映射。
+
+反过来，加上 `"--lock-experts"` 会把显卡外的专家锁在内存里，系统不能把这部分内存让给别的程序，引擎也就不用回头从 SSD
+重读。Linux 上最多锁 `ulimit -l` 允许的量，引擎启动时会说锁了多少。
+
 读提示用的显存也少了 350 到 400 MiB：要么给专家缓存（Qwen3.6 显存里的专家从 2,444 个变成 2,712 个），要么用
 `--vram-reserve-mib` 留给别的程序。原理和测法见 [docs/BACKENDS.md](docs/BACKENDS.md#less-of-the-pcs-ram-and-vram)。
 
@@ -115,9 +130,9 @@ Qwen3.6-35B-A3B 读完 32,000 个 token 的提示后，0.1.45-poly.6 占 17.9 Gi
 | [Qwen3.8-Flash-Next](docs/models/qwen38.zh-CN.md) | NVIDIA RTX 20-50 系列，或 AMD RX 6800 / 6900, RX 7700 XT / 7800 XT / 7900 XT / XTX, RX 9060 XT / 9070 / 9070 XT, Radeon AI PRO R9700，12 GB 起 | 32 GB 起，64 GB 能跑所有规格 | 约 80 GB | Windows、Linux |
 | [GLM 5.3 Flash](docs/models/glm.zh-CN.md) | NVIDIA RTX 20 系列起，只在 32 GB 显卡上跑过 | 配 32 GB 显卡 96 GB | 79-114 GB，要 SSD | Linux |
 | [DeepSeek V4 Flash](docs/models/deepseek.zh-CN.md) | 同上 | 配 32 GB 显卡 72 GB | 91 GB，要 SSD | Linux |
-| [LFM2.5-24B-A2B](docs/models/lfm25.zh-CN.md) | NVIDIA RTX 20 系列起，8 GB 起 | 配 8 GB 显卡约 20 GB | 11-25 GB | Windows、Linux |
+| [LFM2.5-24B-A2B](docs/models/lfm25.zh-CN.md) | NVIDIA RTX 20 系列起，8 GB 起 | 配 8 GB 显卡约 20 GB | 11-25 GB | Windows、Linux、Mac（测试版） |
 | [Flint 40B-A2.5B](docs/models/flint.zh-CN.md) | 同上 | 配 8 GB 显卡约 22 GB | 18-42 GB | Windows、Linux |
-| [Qwen3.6-35B-A3B](docs/models/qwen36.zh-CN.md) | 同上；AMD 是测试版 | 配 8 GB 显卡约 21 GB | 13-23 GB | Windows、Linux |
+| [Qwen3.6-35B-A3B](docs/models/qwen36.zh-CN.md) | 同上；AMD 是测试版 | 配 8 GB 显卡约 21 GB | 13-23 GB | Windows、Linux、Mac（测试版） |
 | [Clover-35B-A3B-Preview](docs/models/clover.zh-CN.md) | NVIDIA RTX 20 系列起，8 GB 起 | 配 8 GB 显卡约 20 GB | 13-21 GB | Windows、Linux |
 | [Ornith 1.5](docs/models/ornith.zh-CN.md) | 同上；AMD 是测试版 | 配 8 GB 显卡约 22 GB | 14-24 GB | Windows、Linux |
 | [Gemma 4 26B-A4B](docs/models/gemma4.zh-CN.md) | 同上；AMD 是测试版 | 配 8 GB 显卡约 18 GB | 11-17 GB | Windows、Linux |
@@ -125,7 +140,7 @@ Qwen3.6-35B-A3B 读完 32,000 个 token 的提示后，0.1.45-poly.6 占 17.9 Gi
 | [MiniCPM-V 4.7 35B-A3B](docs/models/minicpmv.zh-CN.md) | 同上；AMD 是测试版 | 配 8 GB 显卡约 25 GB | 16-29 GB | Windows、Linux |
 | [Kolibri 1](docs/models/kolibri.zh-CN.md) | NVIDIA RTX 20 系列起，8 GB 起 | 配 8 GB 显卡约 33 GB | 29-48 GB | Windows、Linux |
 
-内存是安装程序的估算；显卡越大，要的内存越少。其他的都由安装程序搞定：在 Windows 上它直接下载编译好的引擎，CPU 不支持 AVX2 或你这份代码的引擎比最新 release 新时才在本机编译，缺工具会问你要不要装。两到三张显卡可以分担同一个模型（[多 GPU](docs/MULTI_GPU.md)）。较老的显卡、Intel Arc、Strix Halo、不支持 AVX2 的老处理器：[完整列表](docs/INSTALL.md#what-you-need)。每个模型的显卡、内存和各规格的细节在它自己的页面里。
+内存是安装程序的估算；显卡越大，要的内存越少。其他的都由安装程序搞定：在 Windows 上它直接下载编译好的引擎，CPU 不支持 AVX2 或你这份代码的引擎比最新 release 新时才在本机编译，缺工具会问你要不要装。两到三张显卡可以分担同一个模型（[多 GPU](docs/MULTI_GPU.md)）。较老的显卡、Intel Arc、Apple 芯片的 Mac（Qwen3.8-Flash-Next，测试版还有 Qwen3.6 和 LFM2.5）、Strix Halo、不支持 AVX2 的老处理器：[完整列表](docs/INSTALL.md#what-you-need)。每个模型的显卡、内存和各规格的细节在它自己的页面里。
 
 Qwen3.6、Clover、Ornith 1.5、Gemma 4、Tiel Coder 和 MiniCPM-V 这六个模型各自需要什么、是怎么验证的：[docs/BACKENDS.md](docs/BACKENDS.md#install)（英文）。
 
@@ -147,7 +162,7 @@ PolyStrata 的 [MCP 服务器](docs/MCP_SERVER.md)来安装、启动和停止 Po
 [下载 PolyStrata](https://github.com/simplexai-labs/PolyStrata/archive/refs/heads/main.zip) 并解压（或者用 `git clone`）。
 **Windows：** 双击 **`START-HERE.bat`**。**Linux：** 在 PolyStrata 文件夹里运行 **`./setup.sh`**。
 
-**Mac（Apple 芯片，M1 到 M5，macOS 15 或更新版本）：** 先安装一次 Apple 的 Command Line Tools（在终端里运行 `xcode-select --install`；不需要 Xcode 本身）。然后在 PolyStrata 文件夹里打开终端，运行 **`./setup.sh`**。它会在你的 Mac 上编译 Mac 版引擎（大约 7 分钟），问同样的问题，下载模型并启动。下次运行 `./setup.sh` 会马上启动。哪个大小适合你的 Mac、速度如何：[docs/MAC.md](docs/MAC.md)。Mac 版引擎只能跑 Qwen3.8-Flash-Next，另外十一个模型需要 NVIDIA 或 AMD 显卡。
+**Mac（Apple 芯片，M1 到 M5，macOS 15 或更新版本）：** 先安装一次 Apple 的 Command Line Tools（在终端里运行 `xcode-select --install`；不需要 Xcode 本身）。然后在 PolyStrata 文件夹里打开终端，运行 **`./setup.sh`**。它会在你的 Mac 上编译 Mac 版引擎（大约 7 分钟），问同样的问题，下载模型并启动。下次运行 `./setup.sh` 会马上启动。哪个大小适合你的 Mac、速度如何：[docs/MAC.md](docs/MAC.md)。默认装的是 Qwen3.8-Flash-Next。`./setup.sh --family qwen36` 或 `--family lfm25` 改装 Qwen3.6 或 LFM2.5，跑在 strata-poly 的 Metal 引擎上，算测试版：在 M5 Ultra 上，Qwen3.6 UD-Q2_K_XL 短对话每秒写 134 个 token，读 3,768 个 token 的提示每秒 2,978 个。安装程序在 Mac 上也提供 GLM、DeepSeek、Ornith、Gemma 4、Tiel Coder 和 MiniCPM-V，但还没在 Mac 上用真实权重跑过。Kolibri、Flint 和 Clover 需要 NVIDIA 或 AMD 显卡。
 
 安装程序会识别你的显卡，并装好对应的引擎。它会问你几个问题：
 

@@ -38,6 +38,7 @@ struct DeviceProp {   // the fields the host code reads
     char gcnArchName[256] = {};
     int major = 0, minor = 0, warpSize = 32, multiProcessorCount = 0;
     size_t totalGlobalMem = 0;
+    char luid[8] = {};   // CUDA's adapter id, which only Windows' DXGI reads (platform::gpu_local_memory_budget)
 };
 
 inline constexpr unsigned kHostAllocDefault = 0;

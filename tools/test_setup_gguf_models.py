@@ -163,7 +163,7 @@ class Main(unittest.TestCase):
                 self.assertEqual((self.encoder, cfg.get("vision")), ("none", None))   # --yes: no images
 
     def test_a_hybrid_cpu_gets_a_thread_count(self):
-        """The engine's own count is every logical CPU, which is the slowest on a hybrid one."""
+        """A hybrid CPU gets setup's count, the performance cores but one and half of the efficiency cores."""
         code, out, cfg = self.main(family="gemma4", ram=32.0, vram=8.0, cores=(8, 12))
         self.assertEqual(code, 0, out)
         args = cfg["args"]

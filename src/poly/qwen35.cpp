@@ -210,13 +210,17 @@ void Qwen35::assign_scratch() {
     k_ = fbuf(kv);
     v_ = fbuf(kv);
     att_ = fbuf(heads);
-    score_ = fbuf((size_t) chunk_ * n_head_ * opt_.max_context);
-    sg_ = fbuf(n);
-    if (rows_ >= kStageRows) awork_ = fbuf(heads + heads / 2 + 1 + 3 * n * n_head_);   // a prompt batch's attention
-    if (rows_ >= kStageRows && opt_.kv_format == KvFmt::kQ8_0) {
-        // the K and V blocks a q8 prompt batch dequantizes, side by side; work_halves_ halves each
-        work_halves_ = kQ8WorkRows * (size_t) n_kv_ * head_dim_;
-        q8w_ = fbuf((2 * work_halves_ + 1) / 2);
+#if defined(STRATA_GPU_METAL)
+    if (!opt_.metal_balanced)
+#endif
+    {
+        score_ = fbuf((size_t) chunk_ * n_head_ * opt_.max_context);
+        if (rows_ >= kStageRows) awork_ = fbuf(heads + heads / 2 + 1 + 3 * n * n_head_);   // a prompt batch's attention
+        if (rows_ >= kStageRows && opt_.kv_format == KvFmt::kQ8_0) {
+            // the K and V blocks a q8 prompt batch dequantizes, side by side; work_halves_ halves each
+            work_halves_ = kQ8WorkRows * (size_t) n_kv_ * head_dim_;
+            q8w_ = fbuf((2 * work_halves_ + 1) / 2);
+        }
     }
     if (gdn_mma_.initialize([&] {
 #ifdef STRATA_POLY_GDN_MMA
@@ -272,6 +276,7 @@ void Qwen35::assign_scratch() {
         hip_value_split_logged_ = true;
     }
 #endif
+    sg_ = fbuf(n);
 }
 
 // A recurrent layer's convolution and delta-rule state lie one behind the other in state_ (alloc_caches()).
@@ -517,7 +522,8 @@ void Qwen35::attn(Block& B, int64_t pos, int n) {
                                          n_kv_, scale, score_, (size_t) chunk_ * n_head_ * opt_.max_context, st_))))
         attend(q_, q8 ? nullptr : B.keys, q8 ? nullptr : B.vals, pos, n, score_, chunk_, att_, head_dim_, n_head_,
                n_kv_, scale, st_, 0, 0, false, at, at ? room(n) : 0, /*score_floats*/ 0,
-               q8 ? Kvq8{B.k_codes, B.k_scales} : Kvq8{}, q8 ? Kvq8{B.v_codes, B.v_scales} : Kvq8{});
+               q8 ? Kvq8{B.k_codes, B.k_scales} : Kvq8{}, q8 ? Kvq8{B.v_codes, B.v_scales} : Kvq8{}, nullptr,
+               (size_t) chunk_ * n_head_ * opt_.max_context /*part_floats: STRATA_HIP_SPLIT_ATTEND's partial sums*/);
     mul_sigmoid(att_, qg_ + head_dim_, head_dim_, n * n_head_, 2 * head_dim_, false, st_);
     lin(B.wo, att_, ao_, n);
 }

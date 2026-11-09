@@ -26,6 +26,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -48,14 +49,22 @@ struct Likeliest;
 /// block of int8 codes) and reads them back element by element; int8 is the same rule with the codes and the
 /// deltas in two arrays, which a reader can take four codes to a load, and int8k keeps only the keys' side
 /// quantized.  q8_0 is qwen35moe's; int8 and int8k are Gemma 4's - the two readers are not the same arithmetic,
-/// so a model has one or the other rather than a choice between them.
-enum class KvFmt { kFp16 = 0, kQ8_0 = 1, kInt8 = 2, kInt8K = 3 };
+/// so a model has one or the other rather than a choice between them.  Auto is resolved from model
+/// geometry before allocation on Metal; other backends default to fp16.
+enum class KvFmt { kAuto = -1, kFp16 = 0, kQ8_0 = 1, kInt8 = 2, kInt8K = 3 };
 
 struct Options {
+#if defined(STRATA_GPU_METAL)
+    bool metal_optimize = true;
+    bool metal_balanced = true;
+#endif
     std::string model;
     int max_context = 8192;
     int threads = 0;              ///< 0: the CPUs this process may use
     int vram_reserve_mib = -1;    ///< left free after the expert cache is filled; below 0: by the card's size
+    bool vram_pool = false;       ///< one pool of VRAM claimed at load, kept for the whole run: the expert cache and the
+                                  ///< attention caches trade pieces of it and nothing is given back to the card; the
+                                  ///< reserve above is then the margin left outside it (needs VMM)
     std::string profile;          ///< expert use counts; orders the expert cache, and save_profile() adds to it
     bool gpu_experts = true;
     bool no_disk_expert_exchange = false; ///< opt-in: exchange ownership of RAM and main GPU slots
@@ -95,17 +104,24 @@ struct Options {
                                   ///< below 0: as the two took the time between them; 0: none
     int expert_swaps = 64;        ///< experts on their way into the cache at a time while an answer is written, each
                                   ///< to the slot of one the answer uses less; 0: the cache stays as it was loaded
-    int64_t ram_experts_mib = -1; ///< the memory this process holds for the experts outside VRAM, answer or not:
+    int64_t ram_experts_mib = -2; ///< the memory this process holds for the experts outside VRAM, answer or not:
                                   ///< the ones used most lately are read into it from the files; the others are left
                                   ///< to the file cache, which gives them to whatever needs the memory, and come back
-                                  ///< from it or the disk when a token routes to them.  Below 0: all of them
-    bool stay_near = true;        ///< with several NUMA nodes, keep the CPU threads on the one that holds the experts
+                                  ///< from it or the disk when a token routes to them.  -1: all of them; below
+                                  ///< that, all of them when they fit in the RAM that is free, else a budget
+    bool lock_experts = false;    ///< the experts outside VRAM locked into RAM, so the system cannot drop them from
+                                  ///< the file cache when another program wants the memory (Linux: up to ulimit -l)
+    bool stay_near = true;       ///< with several NUMA nodes, keep the CPU threads on the one that holds the experts
     bool graphs = true;           ///< a token's fixed launches are recorded once, a CUDA graph a layer, and replayed
     bool trace_graphs = false;   ///< fence and measure graph capture/instantiate; diagnostic, changes timings
     bool compact_graphs = false; ///< DeepSeek4/MiMo/CUDA: one graph per CPU-expert boundary, preserving launch order
     bool kv_grow = true;          ///< the attention caches get VRAM as the sequence grows, where the card can map it
                                   ///< so; false: for the whole context at load, as the expert cache gets the rest
+#if defined(STRATA_GPU_METAL)
+    KvFmt kv_format = KvFmt::kAuto;   ///< Q8 for compatible Qwen35MoE geometry, otherwise fp16
+#else
     KvFmt kv_format = KvFmt::kFp16;   ///< the K and V caches' format; fp16 by default (byte-identical path)
+#endif
     int window = 0;               ///< the most tokens window() takes: the known one and guesses after it; 1: none;
                                   ///< 0: 8, or 4 where every guess keeps a copy of the recurrent state
     bool draft = true;            ///< run the block that guesses ahead, when there is one and window is above 1
@@ -577,6 +593,7 @@ protected:
                         float (*fix)(float));
     Layer::Host host_expert(const Layer& l, size_t e) const;
     void pin_host_weights(void* p, size_t bytes);
+    void ensure_stage();
     void start_swaps();
     void follow_resident(int available);
     void init_exchange();
@@ -658,6 +675,11 @@ protected:
     void vmm_map(Mapped& m, size_t bytes, size_t piece, const char* what);
     void vmm_unmap(Mapped& m, size_t bytes);
     void vmm_free(Mapped& m);
+    /// The pool (Options::vram_pool): handles of pg_ bytes, claimed once, that the maps take from and the unmaps give to.
+    void vpool_claim(size_t bytes);
+    bool vpool_claim_to_budget(size_t margin, size_t limit, size_t& claimed);
+    size_t vpool_bytes() const { return vpool_.size() * pg_; }
+    size_t kv_step_bytes() const;
     void shrink_cache(size_t bytes);
     int grow_cache(size_t bytes, bool later = false);
     void fill_now();
@@ -669,6 +691,20 @@ protected:
     int64_t kv_rows_for(int64_t end) const;   ///< the rows cover() maps for `end`
     void held_is_budget();
     void settle_swaps();
+#if defined(STRATA_GPU_METAL)
+    virtual std::optional<uint64_t> metal_host_available() const;
+    size_t metal_host_headroom();
+    void metal_invalidate_graphs();
+    void metal_sync_memory();
+    void metal_cover(int64_t end);
+    virtual void metal_resize_cache(size_t limit);
+    bool metal_mind_memory();
+    size_t metal_cache_limit_ = SIZE_MAX;
+    size_t metal_cache_bytes_ = 0;
+    size_t metal_warm_bytes_ = 0;
+    unsigned metal_growth_samples_ = 0;
+    bool metal_host_warning_ = false;
+#endif
 
     Options opt_;
     std::unique_ptr<Shards> gg_;
@@ -695,6 +731,12 @@ protected:
     double node_share_ = 0;
     std::thread mapper_;                  ///< reads the experts' pages once after load, so they are mapped
     std::atomic<bool> map_quit_{false};
+    /// Options::lock_experts: the experts whose pages are locked (layer * n_expert + expert), first by mapper_, then
+    /// by relock() between requests once mapper_ is done (locks_ready_)
+    std::vector<uint8_t> locked_;
+    std::atomic<bool> locks_ready_{false};
+    void lock_outside(const std::vector<std::pair<int, int>>& outside);
+    void relock();
     void* st_ = nullptr;   ///< the stream everything but the staging ahead runs on
     bool freeze_experts_ = false;            ///< STRATA_FREEZE_EXPERTS: the experts' split is frozen
                                              ///< for the engine's whole run (see Engine::load())
@@ -765,6 +807,10 @@ protected:
     size_t exp_at_ = 0;
     Mapped arena_;               ///< its VRAM, when the card maps VRAM a piece at a time
     bool vmm_ = false;           ///< it does; without that every cache is as large as it can get from the start
+    bool pool_on_ = false;       ///< Options::vram_pool, with VMM
+    bool pool_claimed_ = false;  ///< fill_expert_cache() has claimed the pool
+    size_t pg_ = 0;              ///< the pool's handle size
+    std::vector<unsigned long long> vpool_;   ///< the pool's handles that are not mapped
     int device_ = 0;
     size_t grain_ = 0;           ///< what the card maps VRAM in
     std::vector<Kv> kv_;         ///< the attention caches that grow with the sequence
@@ -776,6 +822,9 @@ protected:
         void* p = nullptr;
         size_t bytes = 0;   ///< a kv_alloc() buffer's for every `per` rows; a seq_alloc() one's, all of it
         int per = 0;        ///< 0: seq_alloc()'s
+#if defined(STRATA_GPU_METAL)
+        size_t capacity = 0; ///< allocated bytes, distinct from the logical context's address range
+#endif
     };
     struct Seq {
         int64_t pos = 0, kv_rows = 0, kv_reach = 0, ahead_pos = -1;
@@ -904,7 +953,8 @@ protected:
     bool stage_lent_ = false;                     ///< the expert cache has lent the buffer VRAM (widen_stage())
     size_t stage_cut_ = 0;                        ///< what the cache gave up for it, which it takes back
     int stage_turn_ = 0;
-    std::vector<int32_t> ids_, count_, first_, group_, round_;
+    std::vector<int32_t> ids_, count_, first_, group_, round_, round_row_;
+    std::vector<int> staged_tiles_;   ///< STRATA_POLY_STAGED_TILES: the rows that end a size class of staged experts
     std::vector<float> route_tmp_;   ///< route()'s scratch, a share for each host thread
     std::vector<float> bias_rl_;     ///< one token's scores with Options::cache_bias added (moe())
     struct Run {

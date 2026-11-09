@@ -17,6 +17,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#ifdef _WIN32
+// MSVC has no setenv/unsetenv: the CRT's _putenv_s covers both, an empty value clears the variable.
+static void setenv(const char* name, const char* value, int) { _putenv_s(name, value); }
+static void unsetenv(const char* name) { _putenv_s(name, ""); }
+#endif
 #include <random>
 #include <vector>
 
