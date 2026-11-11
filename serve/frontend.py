@@ -143,6 +143,13 @@ EFFORT = {"none": None, "off": None, "minimal": None, "disabled": None, "false":
 # the table above, unchanged.  GLM has no "medium": a client's medium means its middle level, high.
 GLM_EFFORT = {"none": None, "off": None, "minimal": None, "disabled": None, "false": None,
               "low": "low", "medium": "high", "high": "high", "max": "max", "maximum": "max", "xhigh": "max"}
+# DeepSeek-V4.1's template (the pack's chat_template.jinja) knows low, medium, high and max and raises
+# "should be int within [1,100] or one of ..." for anything else - xhigh included.  A client's xhigh (OpenCode
+# sends it on every request) is the top level here, as GLM spells it; a numeric effort follows the upstream
+# scale checked in its tests (low 50, medium 62, high 75, max 100).
+DSV41_EFFORT = {"none": None, "off": None, "minimal": None, "disabled": None, "false": None,
+                "low": "low", "medium": "medium", "high": "high", "max": "max", "maximum": "max",
+                "xhigh": "max"}
 
 
 def effort_kwargs(value, call_format=None) -> dict:
@@ -152,20 +159,27 @@ def effort_kwargs(value, call_format=None) -> dict:
     if value is False:
         return {"enable_thinking": False}
     key = str(value).strip().lower()
-    table = GLM_EFFORT if call_format == "glm" else EFFORT
+    table = GLM_EFFORT if call_format == "glm" else DSV41_EFFORT if call_format == "dsml" else EFFORT
+    if key not in table and call_format == "dsml" and key.isdigit():      # the [1,100] scale of its template
+        n = int(key)
+        if 1 <= n <= 100:
+            level = "low" if n <= 56 else "medium" if n <= 68 else "high" if n <= 87 else "max"
+            return {"reasoning_effort": level}
     if key not in table:
         raise ValueError(f"unknown reasoning effort {value!r}: use none, low, medium or high")
     level = table[key]
     return {"enable_thinking": False} if level is None else {"reasoning_effort": level}
 
 
-def budget_effort(tokens) -> dict:
-    """Anthropic's thinking budget (budget_tokens) -> a level: under 2K low, under 8K medium, else high."""
+def budget_effort(tokens, call_format=None) -> dict:
+    """Anthropic's thinking budget (budget_tokens) -> a level: under 2K low, under 8K medium, else high.
+    A DeepSeek-V4.1 template has no xhigh (its top is max), so the level is spelled per the call format."""
     try:
         n = int(tokens)
     except (TypeError, ValueError):
         return {}
-    return {"reasoning_effort": "low" if n < 2048 else "medium" if n < 8192 else "xhigh"}
+    top = "max" if call_format == "dsml" else "xhigh"
+    return {"reasoning_effort": "low" if n < 2048 else "medium" if n < 8192 else top}
 
 
 def _has_image(content) -> bool:
@@ -700,7 +714,7 @@ def anthropic_to_messages(req: dict, think_unasked: bool = True,
     elif effort:
         kwargs.update(effort_kwargs(effort, call_format))
     elif isinstance(thinking, dict) and thinking.get("budget_tokens"):
-        kwargs.update(budget_effort(thinking["budget_tokens"]))
+        kwargs.update(budget_effort(thinking["budget_tokens"], call_format))
     return _answers_in_call_order(_env_to_user(_late_system_to_user(messages))), tools, kwargs
 
 

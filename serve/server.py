@@ -873,9 +873,10 @@ class StrataEngine:
     @property
     def disk_sessions(self) -> bool:
         """SAVE / RESTORE.  Upstream's strata-poly does not speak them (issue 114); this repository's engine
-        answers SAVE and RESTORE itself (main.cpp, the line protocol's session files), so the refusal stands down.
-        The 501 path below stays for an engine built elsewhere that lacks the handler."""
-        return True
+        answers SAVE and RESTORE itself (main.cpp, the line protocol's session files; strata-dsv41 since the
+        11-11 patch), so the refusal stands down for them.  The name test is poly_engine()'s, on the binary
+        this engine would spawn rather than on a config."""
+        return Path(str(self.spawn[0])).stem.lower() not in ("strata-poly", "strata-glm")   # 114: poly's answer would end it
 
     def __init__(self, exe: str, args: list[str], cwd: str | None = None, log: str | None = None,
                  env: dict | None = None, lazy: bool = False, cpus: list[int] | None = None, _attempt: int = 0):
@@ -3001,6 +3002,31 @@ def ordered_gpus(cfg: dict, scores=None, vrams=None) -> list[int]:
     return out
 
 
+# (from upstream Strata serve/server.py: deepseek_slot_env) DeepSeek-V4.1 has no SESSION control line in its
+# engine (ds4_main.cpp speaks only NOTE sessions:), so the server decides its conversation slots the way upstream
+# does: through the engine's own STRATA_DS4_SLOT_* environment.  Qwen's environment is untouched.
+DS41_SLOT_KEEP_DEFAULT = "1"      # the engine keeps a displaced conversation in RAM and in the slot folder
+DS41_SLOT_GB_DEFAULT = "2"        # the folder's cap in GB (a 6.5K-token conversation is about 17 MB)
+
+
+def deepseek_slot_env(env: dict, cfg: dict) -> None:
+    """DeepSeek-V4.1 only.  The engine sets a conversation aside when another request takes the model and takes it
+    back at its checkpoints.  STRATA_DS4_SLOT_KEEP switches it (the default above; a config's env or the shell
+    wins); the folder is `ds4-slots` next to the run log (STRATA_DS4_SLOT_DIR names another); the engine caps the
+    folder (STRATA_DS4_SLOT_GB, 2 here, 16 in the engine) and removes what is older than a week.
+    On by default; STRATA_DS4_SLOT_KEEP=0 turns it off.  The server's own --ds4-slots-path / --ds4-slots-cap
+    (written into the config as ds4_slots_path / ds4_slots_cap) win over the config's env and the shell."""
+    env.setdefault("STRATA_DS4_SLOT_KEEP", DS41_SLOT_KEEP_DEFAULT)
+    env.setdefault("STRATA_DS4_SLOT_GB", DS41_SLOT_GB_DEFAULT)
+    log = cfg.get("log")
+    if "STRATA_DS4_SLOT_DIR" not in env and log:
+        env["STRATA_DS4_SLOT_DIR"] = str(Path(log).parent / "ds4-slots")
+    if cfg.get("ds4_slots_path"):                          # the command line's --ds4-slots-path: it wins outright
+        env["STRATA_DS4_SLOT_DIR"] = str(cfg["ds4_slots_path"])
+    if cfg.get("ds4_slots_cap") is not None:               # --ds4-slots-cap likewise
+        env["STRATA_DS4_SLOT_GB"] = str(cfg["ds4_slots_cap"])
+
+
 def child_env(cfg: dict) -> dict:
     """The engine's environment: the CUDA libraries setup installed (pip's nvidia packages, or the toolkit that
     compiled it) first on the library search path."""
@@ -3012,6 +3038,8 @@ def child_env(cfg: dict) -> dict:
         env["CUDA_VISIBLE_DEVICES"] = ",".join(str(i) for i in ordered_gpus(cfg))
     for k, v in (cfg.get("env") or {}).items():      # engine settings the config carries (AMD: the GEMM tuning table)
         env[str(k)] = str(v)
+    if (cfg.get("arch") or "") == "deepseek41":      # (only this engine reads these; Qwen's environment is untouched)
+        deepseek_slot_env(env, cfg)
     dirs = [d for d in cfg.get("lib_dirs") or [] if Path(d).is_dir()]
     if dirs:
         var = "PATH" if os.name == "nt" else "LD_LIBRARY_PATH"
@@ -3398,10 +3426,15 @@ class Service:
         im_end = tokenizer.encode(IM_END, parse_special=True)
         if len(im_end) == 1:
             self.stop_ids = set(im_end + tokenizer.encode("<|endoftext|>", parse_special=True))
-        else:   # not a ChatML model (GLM): the ids its GGUF names for the end of the text, the turn and the message
+        else:   # not a ChatML model (GLM, DeepSeek-V4.1): the ids its GGUF names for the end of the text, the turn
+                # and the message; a tools/strata_tokenizer.py folder names them shortly (DeepSeek-V4.1's pack:
+                # special_ids "eos": 1 only) - without that fallback its EOS token streamed into the answer text
+                # (the engine stopped on its own --eos but the server printed the id it stopped on).
             special = getattr(tokenizer, "special_ids", None) or {}
             self.stop_ids = {special[k] for k in ("tokenizer.ggml.eos_token_id", "tokenizer.ggml.eot_token_id",
                                                   "tokenizer.ggml.eom_token_id") if k in special}
+            if not self.stop_ids:
+                self.stop_ids = {special[k] for k in ("eos", "eot", "eom") if k in special}
         # these are exactly the engine's default --eos-ids (a ChatML model's <|im_end|> and <|endoftext|>, else the
         # GGUF's eos, eot and eom): what it ends a slot's reply on.  The model-specific stops added below are not.
         if self.stop_ids:
@@ -3414,7 +3447,7 @@ class Service:
         # how the model writes a tool call (serve/frontend.py's OutputParser)
         pre = getattr(tokenizer, "pre", "")
         self.call_format = "glm" if pre in ("glm4", "glm5", "flint") else "gemma" if pre == "gemma4" else \
-            "dsml" if pre in ("joyai-llm", "deepseek-v3") else "lfm2" if pre == "lfm2" else "function"
+            "dsml" if pre in ("joyai-llm", "deepseek-v3", "deepseek3") else "lfm2" if pre == "lfm2" else "function"
         self.turn_ids = frozenset(t[0] for t in (tokenizer.encode(s, parse_special=True)
                                                  for s in TURN_OPENERS[self.call_format]) if len(t) == 1)
         self.engine.turn_ids = self.turn_ids            # the GEN line's turn_at (StrataEngine.turn_key)
@@ -3820,8 +3853,21 @@ class Service:
         follow-up, so keying on it would make follow-up restores impossible.  The GEN
         line still carries the current turn_at for the engine's own placement; the
         engine re-verifies every restore by tokens, so a wider candidate set here is
-        safe (a miss only costs a re-read)."""
-        return f"{self.model}\n{StrataEngine.sampling_keys(sampling or {})}"
+        safe (a miss only costs a re-read).
+
+        Also deliberately WITHOUT the pictures' keys (#2228).  They ride to the engine
+        in the GEN line, and the engine accepts a disk state only where its stored
+        per-prefix image set equals the request's images below that prefix
+        (generate.cpp: starts_with -> imgs_below(req_imgs, L) == pre_imgs, applied to
+        every checkpoint a RESTORE loads, not only to the RAM cache).  A deep prefix
+        never contains a picture the request appended later, so the engine's check was
+        already exact; keying the STORE on the picture list too only ever refused EVERY
+        checkpoint once a new picture was pasted - the whole conversation re-read at
+        prompt speed after every screenshot.  A picture swapped under the same tokens
+        still re-reads from that picture down: the engine refuses it, as #2228 promises.
+        """
+        without_pics = {k: v for k, v in (sampling or {}).items() if k != "strata_img_keys"}
+        return f"{self.model}\n{StrataEngine.sampling_keys(without_pics)}"
 
     def _auto_store(self):
         """The auto store dir, or None (no store: never fails the request)."""
@@ -8116,6 +8162,13 @@ def main() -> int:
     ap.add_argument("--slot-save-max-mb", type=int, default=None, metavar="N",
                     help="max total MiB of auto sessions (oldest evicted; manual saves are never touched; "
                          "also \"slot_save_max_mb\" in the config; default: unlimited)")
+    ap.add_argument("--ds4-slots-path", default=None, metavar="DIR",
+                    help="DeepSeek-V4.1 only: the folder its engine keeps finished conversations in (the engine's "
+                         "STRATA_DS4_SLOT_DIR; default: ds4-slots next to the run log; the flag beats the config's "
+                         "env and the shell)")
+    ap.add_argument("--ds4-slots-cap", type=float, default=None, metavar="GB",
+                    help="DeepSeek-V4.1 only: the cap in GB on that folder, oldest conversations evicted (the "
+                         "engine's STRATA_DS4_SLOT_GB; default 2; the flag beats the config's env and the shell)")
     ap.add_argument("--slot-save-min-tokens", type=int, default=None, metavar="N",
                     help="only sessions of at least N tokens are auto-saved/restored (a shorter prefix saves "
                          "little against a multi-GB write; also \"slot_save_min_tokens\" in the config; "
@@ -8137,6 +8190,10 @@ def main() -> int:
         cfg_overrides["replicas"] = a.replicas
     if a.gpu is not None:
         cfg_overrides["gpu"] = int(a.gpu) if a.gpu.strip().isdigit() else a.gpu
+    if a.ds4_slots_path:                                   # DeepSeek-V4.1 only, read by deepseek_slot_env()
+        cfg_overrides["ds4_slots_path"] = a.ds4_slots_path
+    if a.ds4_slots_cap is not None:
+        cfg_overrides["ds4_slots_cap"] = a.ds4_slots_cap
     cfg = run_config(a.config, cfg_overrides) if a.config else dict(cfg_overrides)
     a.host = a.host or cfg.get("host") or "127.0.0.1"   # issue #26: the run scripts pass no --host, the config can
     try:                                                # before the minutes of loading: is the port free?
