@@ -278,6 +278,17 @@ uint64_t session_read_peak_bytes(uint64_t file_bytes);
 bool session_file_read(const std::string& path, const SessionFileIdentity& id, SavedConversation& image,
                        size_t& bytes, std::string& error, const SessionReadLimits& limits = {},
                        SessionStatus* status = nullptr);
+// The RESTORE pre-peek, the shape the strata-dsv41 port's already-held short-circuit has: read ONLY the header's
+// identity, the live token list and the live image keys - the payload's first fields - stopping before any state,
+// and answer whether `live_ids`/`live_imgs` already carry this file's conversation at the file's depth: the same
+// tokens down to the file's length and the same images below it (the equality a GEN resume checks).  Nothing is
+// allocated beyond the caller's own token count and nothing is consulted of RAM; a true answer means mounting the
+// file would rebuild what the session already holds, so the mount may be skipped.  false means "read it as you
+// always did": a deeper file, a foreign identity, a broken head, an unreadable path, anything doubtful - `error`
+// says what the peek saw, but no refusal is ever its verdict (the ordinary read below reports those, checked whole).
+bool session_file_held(const std::string& path, const SessionFileIdentity& id,
+                       const std::vector<int32_t>& live_ids, const std::vector<ConversationImageKey>& live_imgs,
+                       size_t& tokens, size_t& bytes, std::string& error);
 
 // The folder the free-space preflight asks about for `path`, by the rules of Windows or of POSIX (exposed so both can
 // be tested anywhere).  Windows: backslashes and a trailing backslash, as GetDiskFreeSpaceExW requires for a UNC

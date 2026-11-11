@@ -15649,6 +15649,21 @@ int main(int argc, char** argv) {
                 } else {
                     strata::core::SavedConversation image;
                     size_t bytes = 0;
+                    // ALREADY-HELD short-circuit, the shape the strata-dsv41 port answers with: when the live session
+                    // IS this file's conversation at the file's depth, the mount below would read gigabytes back to
+                    // rebuild what is already in this process (and its RAM preflight may even refuse, though nothing
+                    // needs reading).  The server's own bookkeeping may not know - its markers are its own, and a
+                    // manual /slots restore never has any.  The peek touches the file's head only; any doubt falls
+                    // through to the ordinary read, which reports refusals exactly as it always did.
+                    size_t held_tokens = 0, held_bytes = 0;
+                    std::string held_why;
+                    if (strata::core::session_file_held(path, id, live, live_imgs, held_tokens, held_bytes, held_why)) {
+                        std::fprintf(stderr, "strata serve: session restore %s: the live session already holds it "
+                                             "(%zu tokens), nothing read\n", path.c_str(), held_tokens);
+                        std::printf("RESTORED %zu %zu %.1f\n", held_tokens, held_bytes, ms());
+                        std::fflush(stdout);
+                        continue;
+                    }
                     try {
                         // bounds this session can ever restore (geometry, layer range, tokens, checkpoints, every
                         // state and K/V part), checked as the file is parsed and before each array is allocated; the

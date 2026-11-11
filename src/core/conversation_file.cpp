@@ -1444,7 +1444,82 @@ bool read_impl(const std::string& path, const SessionFileIdentity& id, SavedConv
     st.error = SessionError::none;
     return true;
 }
+
+// The peek of session_file_held: the header as read_impl checks it (its own error words, never a protocol line),
+// then the payload's first fields only - geometry, layer range, cvec flag, the live ids and image keys - capped by
+// the caller's live token count, stopping before the first state byte.  The RAM preflight has no place here: the
+// whole read is capped by what the caller already holds in RAM.
+bool held_impl(const std::string& path, const SessionFileIdentity& id, const std::vector<int32_t>& live_ids,
+               const std::vector<ConversationImageKey>& live_imgs, size_t& tokens, size_t& bytes,
+               std::string& error) {
+    RawFile raw;
+    uint64_t size = 0;
+    if (!raw.open_session(path, size)) { error = raw.error(); return false; }
+    if (size < kHeader + kTrailer) { error = "size is below the minimum"; return false; }
+    FileSource f(raw);
+    if (!f.ok()) { error = f.error(); return false; }
+    uint8_t h[kHeader];
+    if (!f.read(h, kHeader)) { error = f.error(); return false; }
+    uint32_t version = 0, hsize = 0;
+    uint64_t model = 0, config = 0, payload = 0, r0 = 0, r1 = 0, hh = 0;
+    std::memcpy(&version, h + 8, 4); std::memcpy(&hsize, h + 12, 4);
+    std::memcpy(&model, h + 16, 8); std::memcpy(&config, h + 24, 8); std::memcpy(&payload, h + 32, 8);
+    std::memcpy(&r0, h + 40, 8); std::memcpy(&r1, h + 48, 8); std::memcpy(&hh, h + 56, 8);
+    if (std::memcmp(h, kMagic, 8) != 0) { error = "not a Strata session file (magic)"; return false; }
+    if (hh != session_hash64(h, 56, 0)) { error = "header checksum mismatch"; return false; }
+    if (version != kVersion || hsize != kHeader || r0 || r1) { error = "unsupported version or header fields"; return false; }
+    if (model != id.model || config != id.config) { error = "saved with another model or configuration"; return false; }
+    if (payload > size || size - kHeader - kTrailer != payload) { error = "size does not match the header"; return false; }
+    SessionReadLimits limits;                 // the token ceiling is all the peek needs: never above the caller's own
+    limits.max_tokens = live_ids.size();
+    std::string why;                          // the parser's words about a broken head: never a verdict, only `error`
+    SavedConversation head;                   // its geometry array is the payload's first field (18 values, read on)
+    In in{&f, SessionHasher(0), payload, why, limits};
+    for (auto& g : head.geometry) if (!in.i64(g)) { error = why; return false; }
+    int64_t layer_lo = 0, layer_hi = 0;
+    uint64_t cvec = 0;
+    if (!in.i64(layer_lo) || !in.i64(layer_hi) || !in.u64(cvec)) { error = why; return false; }
+    std::vector<int32_t> ids;
+    if (!in.vec(ids, limits.max_tokens)) { error = why; return false; }   // deeper than the live session: a real mount
+    uint64_t n = 0;
+    if (!in.count(n, 16, limits.max_tokens)) { error = why; return false; }
+    std::vector<ConversationImageKey> imgs((size_t) n);
+    for (auto& k : imgs) if (!in.i64(k.start) || !in.u64(k.hash)) { error = why; return false; }
+    // The decision.  Tokens: the file's conversation is the head of the live one.  Images: the same keys below the
+    // file's depth, in order (generate.cpp's starts_with / imgs_below, applied to the live session instead of a
+    // request).  A file corrupt BEYOND these fields still says true: the live session is not made of that file, and
+    // skipping its mount can never damage it - the next real read finds the corruption and refuses, as always.
+    const size_t L = ids.size();
+    if (L < 1 || live_ids.size() < L) return false;                        // empty, or the file reaches deeper
+    for (size_t i = 0; i < L; ++i) if (ids[i] != live_ids[i]) return false;
+    size_t j = 0;
+    for (const auto& k : live_imgs) {
+        if (k.start >= (int64_t) L) break;
+        if (j >= imgs.size() || imgs[j].start != k.start || imgs[j].hash != k.hash) return false;
+        ++j;
+    }
+    if (j != imgs.size()) return false;                                    // a file image the live session lacks below L
+    tokens = L;
+    bytes = (size_t) size;
+    error.clear();
+    return true;
+}
 } // namespace
+
+bool session_file_held(const std::string& path, const SessionFileIdentity& id,
+                       const std::vector<int32_t>& live_ids, const std::vector<ConversationImageKey>& live_imgs,
+                       size_t& tokens, size_t& bytes, std::string& error) {
+    tokens = 0;
+    bytes = 0;
+    try {
+        return held_impl(path, id, live_ids, live_imgs, tokens, bytes, error);
+    } catch (const std::bad_alloc&) {                    // a peek that cannot allocate decides nothing: read normally
+        tokens = 0;
+        bytes = 0;
+        error = "out of memory while peeking";
+        return false;
+    }
+}
 
 bool session_file_read(const std::string& path, const SessionFileIdentity& id, SavedConversation& image,
                        size_t& bytes, std::string& error, const SessionReadLimits& limits, SessionStatus* status) {

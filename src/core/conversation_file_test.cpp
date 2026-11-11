@@ -190,6 +190,49 @@ int main() {
         check(read == written, "read reports the file size");
         check(same(original, back), "round trip is identical");
     }
+    // session_file_held: the RESTORE pre-peek (the strata-dsv41 port's already-held short-circuit, in words the
+    // eager Qwen reader can answer).  The sample's live ids are 1000..1999, one image at position 3.
+    {
+        size_t toks = 0, byt = 0;
+        std::string why;
+        const std::vector<int32_t> exact(original.live.ids.begin(), original.live.ids.end());
+        const std::vector<ConversationImageKey> img1 = original.live.imgs;
+        check(session_file_held(good.string(), id, exact, img1, toks, byt, why) && toks == 1000 && byt == written,
+              "held: the live session IS the file's conversation");
+        std::vector<int32_t> deeper = exact;
+        for (int i = 0; i < 500; ++i) deeper.push_back(int32_t(2000 + i));
+        check(session_file_held(good.string(), id, deeper, img1, toks, byt, why) && toks == 1000,
+              "held: a live session reaching deeper holds the file's too");
+        const std::vector<int32_t> shallower(exact.begin(), exact.end() - 1);
+        check(!session_file_held(good.string(), id, shallower, img1, toks, byt, why) && toks == 0,
+              "not held: the file reaches deeper than the live session");
+        std::vector<int32_t> other = exact;
+        other[5] = 77;
+        check(!session_file_held(good.string(), id, other, img1, toks, byt, why), "not held: one token differs");
+        check(!session_file_held(good.string(), id, {}, {}, toks, byt, why), "not held: no live session yet");
+        check(!session_file_held(good.string(), id, exact, {}, toks, byt, why),
+              "not held: the live session lacks the image the file carries");
+        const std::vector<ConversationImageKey> extra = {{3, 0x1234567890abcdefull ^ 1}, {1500, 0xdeadbeefull}};
+        check(session_file_held(good.string(), id, deeper, extra, toks, byt, why),
+              "held: a live image above the file's depth is none of its business");
+        const SessionFileIdentity foreign{1, 2};
+        check(!session_file_held(good.string(), foreign, exact, img1, toks, byt, why),
+              "not held: another model's or configuration's file describes nothing here");
+        const fs::path torn = dir / "torn.bin";
+        std::vector<char> t = slurp(good);
+        t[t.size() / 2] ^= 0x40;                        // a state byte, far below the ids and images the peek reads
+        spit(torn, t);
+        check(session_file_held(torn.string(), id, exact, img1, toks, byt, why) && toks == 1000,
+              "held: a file corrupt below the ids still describes the held conversation (the real read refuses it)");
+        const fs::path broken = dir / "broken-header.bin";
+        t = slurp(good);
+        t[16] ^= 0x40;                                  // the model fingerprint byte
+        spit(broken, t);
+        check(!session_file_held(broken.string(), id, exact, img1, toks, byt, why),
+              "not held: a broken identity header decides nothing");
+        check(!session_file_held((dir / "absent.bin").string(), id, exact, img1, toks, byt, why),
+              "not held: an unreadable path decides nothing");
+    }
     // writing twice produces the same bytes (deterministic format)
     {
         const fs::path again = dir / "again.bin";
