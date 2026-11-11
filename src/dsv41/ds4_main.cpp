@@ -607,9 +607,13 @@ int serve(strata::ds4::Model& m, const std::string& eos_list, bool spec, float c
         if (slots[i].data)   // a RAM slot: its buffer simply dies
             slots[i].data.reset();
         else {
-            std::error_code ec;
-            std::filesystem::remove(slots[i].path, ec);
-            std::filesystem::remove(meta_of(slots[i].path), ec);
+            std::error_code ec, se;
+            // (the file goes only with the folder it lives in: a RESTOREd slot's file belongs to the server's
+            // store, which evicts it itself - dropping over a transient failure must not destroy it here)
+            if (std::filesystem::equivalent(std::filesystem::path(slots[i].path).parent_path(), slot_dir, se) && !se) {
+                std::filesystem::remove(slots[i].path, ec);
+                std::filesystem::remove(meta_of(slots[i].path), ec);
+            }
         }
         slots.erase(slots.begin() + (long) i);
     };
@@ -787,6 +791,98 @@ int serve(strata::ds4::Model& m, const std::string& eos_list, bool spec, float c
                       prompt.size() - len);
         note(msg);
         return len;
+    };
+    // SERVER DISK SESSIONS (PolyStrata): the server's Qwen disk-session protocol spoken by this engine, so
+    // serve/server.py --slot-save-path / --slot-save-auto works here unchanged.  In: SAVE <path> and
+    // RESTORE <path> between requests; out: SAVED <tokens> <bytes> <ms> / RESTORED <tokens> <bytes> <ms>, or
+    // SERR <invalid|storage|memory|io> <0|1> <reason> (the server's SessionRefused kinds).  A RESTORE adds the
+    // file to the slot list as a file slot, so the next GEN's own matcher (slot_take) takes it back at the
+    // deepest checkpoint the prompt still agrees with - a server file whose first 75% the prompt shares comes
+    // back at 75%, not only straight continuations.  The engine's own slot_dir and its caps are untouched; a
+    // restored slot pushed out of RAM later is written again as a duplicate inside the engine's folder.
+    const auto server_save = [&](const std::string& path) {
+        const auto t0 = std::chrono::steady_clock::now();
+        if (m.seq_count() > 1) {   // (--parallel: which conversation the state holds is the loop's business, not this line's)
+            std::printf("SERR invalid 0 SAVE is not answered with --parallel\n"); std::fflush(stdout); return;
+        }
+        if (path.size() < 5 || path.compare(path.size() - 4, 4, ".bin") != 0) {   // meta_of() cuts the extension off
+            std::printf("SERR invalid 0 a session file ends in .bin\n"); std::fflush(stdout); return;
+        }
+        if (!held.empty()) {   // (a slot is text only - the engine's own rule, slot_put is asked the same way: what
+            std::printf("SERR invalid 0 a conversation holding pictures is not saved\n");   // (the state returns holds
+            std::fflush(stdout); return;                                                    // (no pictures, so it never saves them
+        }
+        const std::vector<int32_t>& t = m.tokens();
+        if (t.size() < 2) {
+            std::printf("SERR invalid 0 no conversation yet\n"); std::fflush(stdout); return;
+        }
+        auto buf = std::make_shared<std::vector<uint8_t>>();
+        std::string e;
+        const uint64_t bytes = m.slot_save(*buf, e);   // (the same snapshot the engine's own slots keep)
+        if (bytes == 0) {
+            for (char& ch : e) if (ch == '\n' || ch == '\r') ch = ' ';   // (one line is the protocol)
+            std::printf("SERR invalid 0 %s\n", e.c_str()); std::fflush(stdout); return;
+        }
+        std::error_code ec;
+        {
+            std::ofstream f(path + ".tmp", std::ios::binary | std::ios::trunc);
+            f.write((const char*) buf->data(), (std::streamsize) buf->size());
+            f.flush();
+            if (!f) {
+                std::filesystem::remove(path + ".tmp", ec);
+                std::printf("SERR storage 0 writing %s.tmp failed (disk full?)\n", path.c_str()); std::fflush(stdout); return;
+            }
+        }
+        fs::rename(path + ".tmp", path, ec);
+        if (ec || !meta_write(meta_of(path), t, bytes, m.check_positions())) {   // the same .meta the folder scan reads
+            std::filesystem::remove(path + ".tmp", ec);
+            std::filesystem::remove(path, ec);
+            std::printf("SERR storage %d writing %s failed\n", ec ? 0 : 1, path.c_str()); std::fflush(stdout); return;
+        }
+        std::printf("SAVED %zu %llu %.1f\n", t.size(), (unsigned long long) bytes,
+                    std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() * 1000.0);
+        std::fflush(stdout);
+    };
+    const auto server_restore = [&](const std::string& path) {
+        const auto t0 = std::chrono::steady_clock::now();
+        if (m.seq_count() > 1) {
+            std::printf("SERR invalid 0 RESTORE is not answered with --parallel\n"); std::fflush(stdout); return;
+        }
+        if (slot_max <= 0) {   // (slot_take takes nothing back while the slots are off: an honest refusal beats a
+            std::printf("SERR invalid 0 conversations are not kept (STRATA_DS4_SLOT_KEEP=0 or the slot folder is "
+                        "not writable) - nothing would ever take this file back\n");                        // (RESTORE's yes,
+            std::fflush(stdout); return;
+        }
+        if (path.size() < 5 || path.compare(path.size() - 4, 4, ".bin") != 0) {   // meta_of() cuts the extension off
+            std::printf("SERR invalid 0 a session file ends in .bin\n"); std::fflush(stdout); return;
+        }
+        std::vector<int32_t> toks; uint64_t bytes = 0; std::vector<int64_t> cks;
+        std::error_code ec;
+        const auto size = std::filesystem::file_size(path, ec);
+        if (ec) { std::printf("SERR io 0 cannot read %s\n", path.c_str()); std::fflush(stdout); return; }
+        if (!meta_read(meta_of(path), toks, bytes, cks) || size < bytes || toks.size() < 2) {
+            std::printf("SERR invalid 0 %s is not a conversation of this model\n", path.c_str()); std::fflush(stdout); return;
+        }
+        const auto ms = [&] { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() * 1000.0; };
+        for (Slot& sl : slots)   // this conversation is already held: a restore costs nothing, just re-rank it
+            if (sl.tokens == toks) {
+                sl.used = ++slot_clock;
+                std::printf("RESTORED %zu %llu %.1f\n", toks.size(), (unsigned long long) bytes, ms());
+                std::fflush(stdout); return;
+            }
+        size_t files = 0;   // (a bounded list: file slots hold no state between requests, and pick() scans them
+        for (const Slot& sl : slots) if (!sl.data) ++files;                    // (all on every GEN - a night of
+        while (files > 48) {                                                   // (agent sessions must not slow it)
+            size_t lru = SIZE_MAX;                                             // (erased, not slot_dropped: the file
+            for (size_t i = 0; i < slots.size(); ++i)
+                if (!slots[i].data && (lru == SIZE_MAX || slots[i].used < slots[lru].used)) lru = i;
+            if (lru == SIZE_MAX) break;
+            slots.erase(slots.begin() + lru);   // (the server store owns these files; a later RESTORE pushes it again)
+            --files;
+        }
+        slots.push_back({toks, path, bytes, ++slot_clock, nullptr, cks});   // a file slot: slot_take reads it when it takes
+        std::printf("RESTORED %zu %llu %.1f\n", toks.size(), (unsigned long long) bytes, ms());
+        std::fflush(stdout);
     };
     // SHARED STARTS (#607): the state at the end of a system prompt and its tools (the shared start of a prompt read from
     // token 0) is also kept apart from its conversation, in RAM, so a NEW conversation behind the same start - after an
@@ -1359,9 +1455,11 @@ int serve(strata::ds4::Model& m, const std::string& eos_list, bool spec, float c
         settle_stop();    // (a line arrived, or the input closed)
         if (!have_line) break;
         if (line == "QUIT") break;
+        if (line.rfind("SAVE ", 0) == 0) { server_save(line.substr(5)); continue; }        // server disk sessions
+        if (line.rfind("RESTORE ", 0) == 0) { server_restore(line.substr(8)); continue; }  // (see above)
         const bool geni = line.rfind("GENI ", 0) == 0;
         if (!geni && line.rfind("GEN ", 0) != 0) {
-            std::printf("ERR unsupported command '%s' (GEN, GENI, STOP and QUIT)\n", line.substr(0, line.find(' ')).c_str());
+            std::printf("ERR unsupported command '%s' (GEN, GENI, SAVE, RESTORE, STOP and QUIT)\n", line.substr(0, line.find(' ')).c_str());
             std::fflush(stdout);
             continue;
         }
@@ -1952,12 +2050,16 @@ int serve(strata::ds4::Model& m, const std::string& eos_list, bool spec, float c
             if (ln == "QUIT") {
                 quit = true;
                 in.stop_all.store(true);
+            } else if (ln.rfind("SAVE ", 0) == 0) {
+                server_save(ln.substr(5));    // server disk sessions (the single loop's same handlers)
+            } else if (ln.rfind("RESTORE ", 0) == 0) {
+                server_restore(ln.substr(8));
             } else if (ln.rfind("GEN ", 0) == 0 || ln.rfind("GENI ", 0) == 0) {
                 settle_stop();   // (a request: the idle ends)
                 waiting.push_back(ln);
                 admit_waiting();
             } else {
-                std::printf("ERR unsupported command '%s' (GEN, GENI, STOP and QUIT)\n",
+                std::printf("ERR unsupported command '%s' (GEN, GENI, SAVE, RESTORE, STOP and QUIT)\n",
                             ln.substr(0, ln.find(' ')).c_str());
                 std::fflush(stdout);
             }
