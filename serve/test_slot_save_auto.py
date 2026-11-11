@@ -288,6 +288,24 @@ class Hooks(unittest.TestCase):
         self.assertEqual(n, 2050)
         self.assertTrue(any(s.startswith("RESTORE ") for s in self.engine.proc.sent))
 
+    def test_pasted_picture_keeps_the_stored_checkpoint(self):
+        """A NEW picture in the request must not invalidate stored sessions.
+
+        The deep prefix never holds a picture the request appended later, and the
+        engine re-checks a restored state's images per prefix itself (#2228:
+        generate.cpp starts_with / imgs_below).  Keying the STORE on the picture list
+        too refused EVERY checkpoint after a pasted screenshot: every restart re-read
+        the whole conversation at prompt speed.  Sampling changes must still refuse."""
+        self.svc.slot_save_auto = True
+        one_pic = {**self.sampling(), "strata_img_keys": ["aaaaaaaaaaaaaaaa"]}
+        new_pic = {**self.sampling(), "strata_img_keys": ["aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"]}
+        gen = make_ids(50, 9000)
+        self.svc.auto_save_session(self.ids, gen, one_pic)
+        again = self.ids + gen + make_ids(30, 9500)          # + a turn, + the pasted screenshot
+        self.assertEqual(self.svc.auto_restore_session(again, new_pic), 2050)
+        other = {**new_pic, "temperature": 0.3}              # the engine's answers would differ
+        self.assertEqual(self.svc.auto_restore_session(again, other), 0)
+
     def test_save_below_floor_skipped(self):
         self.svc.slot_save_auto = True
         self.svc.auto_save_session(make_ids(100), [1], self.sampling())

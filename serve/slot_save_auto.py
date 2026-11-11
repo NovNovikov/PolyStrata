@@ -105,6 +105,15 @@ def meta_name(session: str) -> str:
     return session + META_SUFFIX
 
 
+def sidecar_name(session: str) -> str:
+    """The engine's sidecar beside a session bin: strata-dsv41 writes <stem>.meta (tokens, checkpoints,
+    identity) next to the file it is told to save.  Qwen's saves carry no such file, so counting and
+    removing one is a no-op there."""
+    if session.endswith(SESSION_SUFFIX):
+        return session[:-len(SESSION_SUFFIX)] + ".meta"
+    return session + ".meta"
+
+
 def strict_auto_name(name: str) -> bool:
     """Only our own <16 hex>-<digits>.bin names (never a manual save, never a link target)."""
     stem, dot, ext = name.partition(".")
@@ -243,6 +252,14 @@ def evict(dir: Path, max_count: int, max_bytes: int, entries=None) -> None:
     except OSError:
         return
     for name in names:
+        if name.endswith(".meta") and strict_auto_name(name[:-5]):
+            # (an engine sidecar whose session bin is gone by any hand: nothing can use it; Qwen has no such files)
+            if not (dir / name[:-5]).exists():
+                try:
+                    os.remove(dir / name)
+                except OSError:
+                    pass
+            continue
         if not strict_auto_name(name):
             continue
         meta = read_meta(dir, name)
@@ -250,6 +267,7 @@ def evict(dir: Path, max_count: int, max_bytes: int, entries=None) -> None:
             continue
         try:
             os.remove(dir / name)
+            os.remove(dir / sidecar_name(name))     # (its engine sidecar too, when the engine wrote one)
         except OSError:
             pass
     if max_count <= 0 and max_bytes <= 0:
@@ -262,25 +280,32 @@ def evict(dir: Path, max_count: int, max_bytes: int, entries=None) -> None:
             mst = os.lstat(dir / meta_name(session))
         except OSError:
             continue
-        items.append((min(st.st_mtime, mst.st_mtime), st.st_size + mst.st_size, session))
+        items.append((min(st.st_mtime, mst.st_mtime), st.st_size + mst.st_size + _sidecar_size(dir, session), session))
     items.sort()
     total = sum(size for _, size, _ in items)
     while items and ((max_count > 0 and len(items) > max_count)
                      or (max_bytes > 0 and total > max_bytes)):
         _, size, session = items.pop(0)
         total -= size
-        for name in (session, meta_name(session)):
+        for name in (session, meta_name(session), sidecar_name(session)):
             try:
                 os.remove(dir / name)
             except OSError:
                 pass
 
 
+def _sidecar_size(dir: Path, session: str) -> int:
+    try:
+        return os.lstat(dir / sidecar_name(session)).st_size
+    except OSError:
+        return 0      # (Qwen's saves carry no sidecar: this is 0 there, the cap math stays exactly as before)
+
+
 def remove_pair(dir: Path, session: str) -> None:
-    """Drop a rejected candidate (bad restore): both files, never anything else."""
+    """Drop a rejected candidate (bad restore): its bin, meta and engine sidecar, never anything else."""
     if not strict_auto_name(session):
         return
-    for name in (session, meta_name(session)):
+    for name in (session, meta_name(session), sidecar_name(session)):
         try:
             os.remove(dir / name)
         except OSError:
