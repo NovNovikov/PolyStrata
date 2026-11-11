@@ -213,7 +213,7 @@ class FakeProc:
                 self.engine.lines.put("SERR invalid 0 no complete session to save\n")
             else:
                 Path(path).write_bytes(b"x" * 1234)
-                self.engine.lines.put("SAVED 62993 1234 401.5\n")
+                self.engine.lines.put(f"SAVED {self.engine.saved or 62993} 1234 401.5\n")
         elif cmd == "RESTORE":
             if self.engine.fail_dead:
                 self.engine.lines.put(None)
@@ -250,6 +250,7 @@ class FakeEngine(StrataEngine):
         self.fail = False
         self.fail_dead = False
         self.fail_ram = False
+        self.saved = None            # what SAVE answers as the token count (None: the default 62993)
         self.silence_s = 300.0
         self.proc = FakeProc(self)
 
@@ -303,8 +304,8 @@ class Hooks(unittest.TestCase):
         self.svc.auto_save_session(self.ids, gen, one_pic)
         again = self.ids + gen + make_ids(30, 9500)          # + a turn, + the pasted screenshot
         self.assertEqual(self.svc.auto_restore_session(again, new_pic), 2050)
-        other = {**new_pic, "temperature": 0.3}              # the engine's answers would differ
-        self.assertEqual(self.svc.auto_restore_session(again, other), 0)
+        other = {**new_pic, "temperature": 0.3}              # only a knob differs: the state still mounts
+        self.assertEqual(self.svc.auto_restore_session(again, other), 2050)
 
     def test_save_below_floor_skipped(self):
         self.svc.slot_save_auto = True
@@ -318,6 +319,39 @@ class Hooks(unittest.TestCase):
         n = self.svc.auto_restore_session(self.ids + [1, 2, 3], self.sampling())
         self.assertEqual(n, 0)
         self.assertEqual(auto.list_entries(auto.auto_dir(self.dir.name)), [])
+
+    def test_sampling_knobs_leave_the_fingerprint_but_state_fields_stay(self):
+        """11-11: turning a knob mid-chat used to invalidate every stored pair (a 140k re-read here
+        costs minutes); what a state HOLDS depends on the tokens only.  A field that is not a known
+        knob (strata_tune: engine settings for the request) still separates: nothing leaves the
+        fingerprint by default.  And a re-save under another temperature must not store a twin."""
+        self.svc.slot_save_auto = True
+        gen = make_ids(50, 9000)
+        self.svc.auto_save_session(self.ids, gen, {"temperature": 0.7})
+        again = self.ids + gen + make_ids(30, 9500)
+        self.assertEqual(self.svc.auto_restore_session(again, {"temperature": 0.2}), 2050)
+        self.assertEqual(self.svc.auto_restore_session(again, {"seed": 7, "top_k": 40}), 2050)
+        tuned = {"temperature": 0.7, "strata_tune": {"pcie_frac": 0.5}}
+        self.assertEqual(self.svc.auto_restore_session(again, tuned), 0)          # not a knob: refused
+        self.svc.auto_save_session(self.ids, gen, {"temperature": 0.2})          # the twin save dedups
+        self.assertEqual(len(auto.list_entries(auto.auto_dir(self.dir.name))), 1)
+
+    def test_one_short_of_full_indexes_the_state_not_the_promise(self):
+        """An answer that ended on a stop token the engine never commits: the file holds ONE token
+        less than ids+gen.  The meta must index the depth the engine can actually mount, or every
+        restore silently re-reads the token the index had promised (measured 11-11: every restore of
+        this very chat re-read one token because of it)."""
+        self.svc.slot_save_auto = True
+        gen = make_ids(50, 9000)
+        self.engine.saved = len(self.ids) + len(gen) - 1     # the trailing stop token stayed uncommitted
+        self.svc.auto_save_session(self.ids, gen, self.sampling())
+        entries = auto.list_entries(auto.auto_dir(self.dir.name))
+        self.assertEqual(len(entries), 1)
+        _session, meta = entries[0]
+        self.assertEqual(meta["ntokens"], self.engine.saved)
+        self.assertEqual(max(length for length, _sha in auto.entry_pairs(meta)), self.engine.saved)
+        again = self.ids + gen + make_ids(30, 9500)          # the next turn: the state's depth is found
+        self.assertEqual(self.svc.auto_restore_session(again, self.sampling()), self.engine.saved)
 
     def test_engine_ram_refusal_keeps_the_pair(self):
         """A memory SERR is about the box, not the file: keep it for a later attempt."""

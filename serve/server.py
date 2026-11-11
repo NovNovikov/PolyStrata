@@ -3847,7 +3847,15 @@ class Service:
                     and hasattr(self.engine, "session_file"))
 
     def auto_session_keys(self, ids, sampling) -> str:
-        """The fingerprint a stored session must match: model plus sampling.
+        """The fingerprint a stored session must match: model plus the sampling a state depends on.
+
+        Pure sampling knobs (SAMPLING_KNOBS) left the fingerprint on 11-11: what a stored state holds
+        depends on the TOKENS, not on how the next answer is drawn, and the engine re-verifies every
+        restore by identity, tokens and pictures itself - so a knob change could only ever REFUSE a
+        restore that was perfectly safe, and on this rig refusing one costs the full re-read (a 140k
+        conversation, minutes).  Same reasoning #2228 used to take the pictures' keys out.  Everything
+        else sampling carries (image_pad, strata_tune, and any future field) stays in: a field is let
+        out only once it is known to hold no state, never by default.
 
         Deliberately WITHOUT turn_key (the last-turn position): it moves with every
         follow-up, so keying on it would make follow-up restores impossible.  The GEN
@@ -3855,19 +3863,16 @@ class Service:
         engine re-verifies every restore by tokens, so a wider candidate set here is
         safe (a miss only costs a re-read).
 
-        Also deliberately WITHOUT the pictures' keys (#2228).  They ride to the engine
-        in the GEN line, and the engine accepts a disk state only where its stored
-        per-prefix image set equals the request's images below that prefix
-        (generate.cpp: starts_with -> imgs_below(req_imgs, L) == pre_imgs, applied to
-        every checkpoint a RESTORE loads, not only to the RAM cache).  A deep prefix
-        never contains a picture the request appended later, so the engine's check was
-        already exact; keying the STORE on the picture list too only ever refused EVERY
-        checkpoint once a new picture was pasted - the whole conversation re-read at
-        prompt speed after every screenshot.  A picture swapped under the same tokens
-        still re-reads from that picture down: the engine refuses it, as #2228 promises.
+        Also deliberately WITHOUT the pictures' keys (#2228).
         """
-        without_pics = {k: v for k, v in (sampling or {}).items() if k != "strata_img_keys"}
-        return f"{self.model}\n{StrataEngine.sampling_keys(without_pics)}"
+        without_knobs = {k: v for k, v in (sampling or {}).items() if k not in self.SAMPLING_KNOBS}
+        return f"{self.model}\n{StrataEngine.sampling_keys(without_knobs)}"
+
+    # The knobs of the engine's GEN sampling line (and the store-side flags of this server): none of
+    # them changes one byte of a saved state, so none of them may decide whether one mounts.
+    SAMPLING_KNOBS = frozenset(("temperature", "top_p", "top_k", "min_p", "repetition_penalty",
+                                "frequency_penalty", "presence_penalty", "penalty_last_n", "seed",
+                                "strata_checkpoint", "strata_img_keys"))      # strata_img_keys: #2228
 
     def _auto_store(self):
         """The auto store dir, or None (no store: never fails the request)."""
@@ -3944,9 +3949,20 @@ class Service:
         except OSError as e:
             self.auto_log(f"auto slot save skipped: {e}")
             return
+        # The engine's live state can end one token short of ids+gen (an answer that ended on a stop
+        # token the engine never committed); it reports what it really saved.  Index only what the
+        # file can actually mount - the old meta promised one deeper than the state, so every restore
+        # silently re-read that token - and keep the deepest mountable depth indexed even when no turn
+        # boundary falls there.
+        saved = int(r.get("tokens") or 0)
+        if saved > 0:
+            pairs = [(length, sha) for length, sha in pairs if length <= saved]
+            if not pairs or pairs[0][0] < saved <= len(full):
+                pairs.insert(0, (saved, auto_sessions.prefix_hashes(full, [saved])[saved]))
+                pairs.sort(reverse=True)
         try:
             auto_sessions.write_meta(store, session, {"model": self.model, "keys": keys,
-                                                      "ntokens": len(full),
+                                                      "ntokens": pairs[0][0] if pairs else len(full),
                                                       "saved_tokens": int(r.get("tokens") or len(full)),
                                                       "sha256": sha_full,
                                                       "prefixes": [[length, sha] for length, sha in pairs],
