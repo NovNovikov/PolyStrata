@@ -3334,8 +3334,6 @@ class Service:
         self.slot_save_idle_seconds = 60              # --slot-save-idle-seconds: idle flush delay (-1 = disabled)
         self._auto_index = auto_sessions.StoreIndex()  # in-memory index of the auto store
         self._auto_last = None                        # last finished solo state (ids, generated, sampling)
-        self._held_proc = None                        # the engine PROCESS the held markers below belong to
-        self._held = set()                            # conversations this live engine already carries in RAM
         self.embeddings = threading.local()           # the current request's image embeddings file (GENI)
         self.checkpoints = threading.local()          # semantic prompt anchors for the current request
         self.api_key = ""                              # when set, /v1/* needs it (Bearer or x-api-key)
@@ -3899,29 +3897,6 @@ class Service:
         except OSError:
             pass
 
-    def _mark_held(self, sha: str) -> None:
-        """Note that the RUNNING engine process carries this conversation as its live state.
-
-        The marker is the process object itself: a restart, an unload-reload or a model
-        swap puts a new object in `engine.proc`, and every marker then goes stale on its
-        own - nothing has to notify anyone, and a dead engine can never be believed.
-        The set is capped: a long-lived chat adds one entry per save, and losing a marker
-        costs only a restore attempt that could have been skipped."""
-        proc = getattr(self.engine, "proc", None)
-        if proc is None or not sha:
-            return
-        if self._held_proc is not proc:
-            self._held_proc, self._held = proc, set()
-        while len(self._held) >= 64:
-            self._held.pop()
-        self._held.add(sha)
-
-    def _is_held(self, sha: str) -> bool:
-        """True when the engine process in front of us was the one that ran or mounted
-        this conversation and nothing has replaced it since."""
-        proc = getattr(self.engine, "proc", None)
-        return proc is not None and self._held_proc is proc and bool(sha) and sha in self._held
-
     def auto_save_session(self, ids, gen_ids, sampling, acquire=False) -> None:
         """SAVE this finished conversation for later requests (never fails the request).
 
@@ -3957,9 +3932,6 @@ class Service:
         if not pairs:
             return
         sha_full = pairs[0][1]
-        # This runs after the engine FINISHED this very conversation, so its process now
-        # carries the whole thing live; remember that for auto_restore_session below.
-        self._mark_held(sha_full)
         entries = self._auto_index.entries(store)
         try:
             if auto_sessions.covered(store, self.model, keys, sha_full, entries):
@@ -4039,14 +4011,6 @@ class Service:
             self.auto_log(f"auto slot restore none: {why}")
             return 0
         session, meta = found
-        if self._is_held(meta.get("sha256") or ""):
-            # The file's conversation is one the running engine already carries live: it ran
-            # or mounted it in this very process and nothing replaced the engine since.  Mounting
-            # it back from disk costs what the engine state costs nothing (measured 11-11: every
-            # turn of a live chat paid ~5 s remounting its own 3.4 GB state when RAM was free,
-            # and logged a RAM refusal every turn when it was not).  The marker dies with the
-            # process: the first request after a restart, reload or model swap still tries.
-            return 0
         try:
             r = self.engine.session_file("restore", str(store / session))
         except SessionRefused as e:
@@ -4065,7 +4029,6 @@ class Service:
             self.auto_log(f"auto slot restore skipped ({session}): {e}")
             return 0
         n = int(meta.get("ntokens") or 0)
-        self._mark_held(meta.get("sha256") or "")       # the engine holds it now: no remount next turn
         self.auto_log(f"auto slot restored: {session} ({r.get('tokens')} tokens, {n} prefix)")
         return n
 

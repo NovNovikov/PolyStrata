@@ -284,29 +284,10 @@ class Hooks(unittest.TestCase):
         gen = make_ids(50, 9000)
         self.svc.auto_save_session(self.ids, gen, self.sampling())
         self.assertTrue(any(s.startswith("SAVE ") for s in self.engine.proc.sent))
-        self.engine.proc = FakeProc(self.engine)      # a new process: the restart the store exists for
         again = self.ids + gen + make_ids(30, 9500)
         n = self.svc.auto_restore_session(again, self.sampling())
         self.assertEqual(n, 2050)
         self.assertTrue(any(s.startswith("RESTORE ") for s in self.engine.proc.sent))
-
-    def test_the_engine_holding_a_conversation_does_not_mount_it_back(self):
-        """Measured 11-11: every turn of a live chat tried to RESTORE the state that very
-        engine already carried in RAM - ~5 s and gigabytes of disk each turn when RAM was
-        free, a refusal line each turn when it was not.  A save (or a restore) inside a
-        process means that process HOLDS the conversation; the attempt resumes with the
-        next one, and only there: an engine restart, an unload-reload or a model swap puts
-        a new process object in front of the service, and every marker goes stale with it."""
-        self.svc.slot_save_auto = True
-        gen = make_ids(50, 9000)
-        self.svc.auto_save_session(self.ids, gen, self.sampling())
-        again = self.ids + gen + make_ids(30, 9500)
-        self.assertEqual(self.svc.auto_restore_session(again, self.sampling()), 0)
-        self.assertFalse(any(s.startswith("RESTORE ") for s in self.engine.proc.sent))
-        self.engine.proc = FakeProc(self.engine)              # the engine died and restarted
-        self.assertEqual(self.svc.auto_restore_session(again, self.sampling()), 2050)
-        self.assertTrue(any(s.startswith("RESTORE ") for s in self.engine.proc.sent))
-        self.assertEqual(self.svc.auto_restore_session(again, self.sampling()), 0)  # held again now
 
     def test_pasted_picture_keeps_the_stored_checkpoint(self):
         """A NEW picture in the request must not invalidate stored sessions.
@@ -321,10 +302,8 @@ class Hooks(unittest.TestCase):
         new_pic = {**self.sampling(), "strata_img_keys": ["aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"]}
         gen = make_ids(50, 9000)
         self.svc.auto_save_session(self.ids, gen, one_pic)
-        self.engine.proc = FakeProc(self.engine)              # the NEXT process asks (a live one holds its own)
         again = self.ids + gen + make_ids(30, 9500)          # + a turn, + the pasted screenshot
         self.assertEqual(self.svc.auto_restore_session(again, new_pic), 2050)
-        self.engine.proc = FakeProc(self.engine)              # another restart: the probe sees the store fresh
         other = {**new_pic, "temperature": 0.3}              # only a knob differs: the state still mounts
         self.assertEqual(self.svc.auto_restore_session(again, other), 2050)
 
@@ -336,7 +315,6 @@ class Hooks(unittest.TestCase):
     def test_engine_refusal_never_fails_and_drops_pair(self):
         self.svc.slot_save_auto = True
         self.svc.auto_save_session(self.ids, [1, 2], self.sampling())
-        self.engine.proc = FakeProc(self.engine)              # the attempt belongs to a new process
         self.engine.fail = True
         n = self.svc.auto_restore_session(self.ids + [1, 2, 3], self.sampling())
         self.assertEqual(n, 0)
@@ -351,12 +329,9 @@ class Hooks(unittest.TestCase):
         gen = make_ids(50, 9000)
         self.svc.auto_save_session(self.ids, gen, {"temperature": 0.7})
         again = self.ids + gen + make_ids(30, 9500)
-        self.engine.proc = FakeProc(self.engine)              # a restart reads the store; a live engine holds its own
         self.assertEqual(self.svc.auto_restore_session(again, {"temperature": 0.2}), 2050)
-        self.engine.proc = FakeProc(self.engine)
         self.assertEqual(self.svc.auto_restore_session(again, {"seed": 7, "top_k": 40}), 2050)
         tuned = {"temperature": 0.7, "strata_tune": {"pcie_frac": 0.5}}
-        self.engine.proc = FakeProc(self.engine)              # fresh again: the refusal below is the KEYS one
         self.assertEqual(self.svc.auto_restore_session(again, tuned), 0)          # not a knob: refused
         self.svc.auto_save_session(self.ids, gen, {"temperature": 0.2})          # the twin save dedups
         self.assertEqual(len(auto.list_entries(auto.auto_dir(self.dir.name))), 1)
@@ -376,14 +351,12 @@ class Hooks(unittest.TestCase):
         self.assertEqual(meta["ntokens"], self.engine.saved)
         self.assertEqual(max(length for length, _sha in auto.entry_pairs(meta)), self.engine.saved)
         again = self.ids + gen + make_ids(30, 9500)          # the next turn: the state's depth is found
-        self.engine.proc = FakeProc(self.engine)              # a restart mounts; a live engine needs no mount
         self.assertEqual(self.svc.auto_restore_session(again, self.sampling()), self.engine.saved)
 
     def test_engine_ram_refusal_keeps_the_pair(self):
         """A memory SERR is about the box, not the file: keep it for a later attempt."""
         self.svc.slot_save_auto = True
         self.svc.auto_save_session(self.ids, [1, 2], self.sampling())
-        self.engine.proc = FakeProc(self.engine)              # a new process, so the attempts below are real
         (session, _), = auto.list_entries(auto.auto_dir(self.dir.name))
         self.engine.fail_ram = True
         n = self.svc.auto_restore_session(self.ids + [1, 2, 3], self.sampling())
@@ -409,7 +382,6 @@ class Hooks(unittest.TestCase):
     def test_dead_engine_keeps_the_pair(self):
         self.svc.slot_save_auto = True
         self.svc.auto_save_session(self.ids, [1, 2], self.sampling())
-        self.engine.proc = FakeProc(self.engine)              # a new process, so the attempt below is real
         (session, _), = auto.list_entries(auto.auto_dir(self.dir.name))
         self.engine.fail_dead = True
         n = self.svc.auto_restore_session(self.ids + [1, 2, 3], self.sampling())
