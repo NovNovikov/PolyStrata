@@ -224,7 +224,7 @@ class FakeProc:
             elif not Path(path).exists() or self.engine.fail:
                 self.engine.lines.put("SERR invalid 0 session file: saved with another model\n")
             else:
-                self.engine.lines.put("RESTORED 62993 1234 560.2\n")
+                self.engine.lines.put(f"RESTORED 62993 1234 {self.engine.ms}\n")
 
     def flush(self):
         pass
@@ -251,6 +251,7 @@ class FakeEngine(StrataEngine):
         self.fail_dead = False
         self.fail_ram = False
         self.saved = None            # what SAVE answers as the token count (None: the default 62993)
+        self.ms = "560.2"            # what RESTORED answers as the engine's own milliseconds
         self.silence_s = 300.0
         self.proc = FakeProc(self)
 
@@ -288,6 +289,29 @@ class Hooks(unittest.TestCase):
         n = self.svc.auto_restore_session(again, self.sampling())
         self.assertEqual(n, 2050)
         self.assertTrue(any(s.startswith("RESTORE ") for s in self.engine.proc.sent))
+
+    def test_the_log_names_a_held_conversation_held_not_restored(self):
+        """The console line the user reads must tell the RAM answer from a disk mount.
+
+        The engine times its own answer: session_file_held (engine 57d503b3) reads the
+        file's head and answers in milliseconds, a real mount moves the whole file and
+        takes seconds.  One word "restored" for both made the short-circuit invisible -
+        the user watched "auto slot restored" after EVERY turn and concluded nothing had
+        changed, while the engine log of the same seconds said "already holds it,
+        nothing read" (11-11)."""
+        self.svc.slot_save_auto = True
+        gen = make_ids(50, 9000)
+        self.svc.auto_save_session(self.ids, gen, self.sampling())
+        again = self.ids + gen + make_ids(30, 9500)
+        logs: list[str] = []
+        self.svc.auto_log = logs.append
+        self.engine.ms = "560.2"                  # a real mount: seconds of engine time
+        self.assertEqual(self.svc.auto_restore_session(again, self.sampling()), 2050)
+        self.assertTrue(any("auto slot restored" in s and "560 ms" in s for s in logs), logs)
+        logs.clear()
+        self.engine.ms = "12.0"                   # already held: the head read only
+        self.assertEqual(self.svc.auto_restore_session(again, self.sampling()), 2050)
+        self.assertTrue(any("held by the engine" in s and "nothing read" in s for s in logs), logs)
 
     def test_pasted_picture_keeps_the_stored_checkpoint(self):
         """A NEW picture in the request must not invalidate stored sessions.

@@ -4029,7 +4029,18 @@ class Service:
             self.auto_log(f"auto slot restore skipped ({session}): {e}")
             return 0
         n = int(meta.get("ntokens") or 0)
-        self.auto_log(f"auto slot restored: {session} ({r.get('tokens')} tokens, {n} prefix)")
+        # Honest wording.  The engine's own ms covers its whole answer: the already-held
+        # short-circuit (session_file_held, engine 57d503b3) reads the file's head only
+        # (~860 KB for a 180K conversation) and answers in milliseconds, while a real
+        # mount moves the whole file (3.5 GB measured here: seconds).  One word
+        # "restored" for both made the RAM answer indistinguishable from a disk read in
+        # the console - and the short-circuit looked like it had never shipped.  500 ms
+        # separates the two cleanly.
+        if r["ms"] < 500:
+            self.auto_log(f"auto slot held by the engine: {session} ({r.get('tokens')} tokens, {n} prefix, "
+                          f"{r['ms']:.1f} ms, nothing read)")
+        else:
+            self.auto_log(f"auto slot restored: {session} ({r.get('tokens')} tokens, {n} prefix, {r['ms']:.0f} ms)")
         return n
 
     def auto_idle_save(self) -> None:
