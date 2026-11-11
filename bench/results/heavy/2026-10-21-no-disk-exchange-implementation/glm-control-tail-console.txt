@@ -1,0 +1,30 @@
+glm-control-tail load elapsed_s 1
+glm-control-tail load elapsed_s 11
+glm-control-tail load elapsed_s 21
+glm-control-tail load elapsed_s 31
+glm-control-tail load elapsed_s 42
+glm-control-tail load elapsed_s 52
+glm-control-tail load elapsed_s 62
+glm-control-tail load elapsed_s 72
+glm-control-tail load elapsed_s 82
+glm-control-tail load elapsed_s 92
+glm-control-tail load elapsed_s 102
+glm-control-tail load elapsed_s 112
+glm-control-tail load elapsed_s 122
+glm-control-tail load elapsed_s 132
+glm-control-tail load elapsed_s 142
+glm-control-tail load elapsed_s 152
+glm-control-tail load elapsed_s 162
+glm-control-tail load elapsed_s 172
+glm-control-tail READY 181.22
+glm-control-tail request-1 PP 1380 2050 10599 130.2
+glm-control-tail request-1 generated=129
+glm-control-tail request-1 generated=373
+glm-control-tail request-1 {"generated": 512, "prompt_ms": 14611.5, "decode_ms": 21808.8, "decode_tps": 23.43090862404167, "ttft_s": 14.60999999998603, "resume": 0, "drafts_accepted": 336, "drafts_offered": 406}
+glm-control-tail request-2 generated=220
+glm-control-tail request-2 generated=417
+glm-control-tail request-2 {"generated": 512, "prompt_ms": 66.4, "decode_ms": 24843.5, "decode_tps": 20.568760440356634, "ttft_s": 0.062000000005355105, "resume": 2049, "drafts_accepted": 277, "drafts_offered": 344}
+glm-control-tail request-3 generated=197
+glm-control-tail request-3 generated=425
+glm-control-tail request-3 {"generated": 512, "prompt_ms": 75.3, "decode_ms": 24236.9, "decode_tps": 21.083554414962308, "ttft_s": 0.0779999999795109, "resume": 2049, "drafts_accepted": 270, "drafts_offered": 342}
+FINISHED glm-control-tail {"completed": true}

@@ -1,0 +1,783 @@
+{
+  "method": "Offline header arithmetic and existing public results; no GPU timings measured",
+  "model": "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+  "architecture": "deepseek4",
+  "layers": 43,
+  "experts_per_layer": 256,
+  "total_experts": 11008,
+  "used_experts": 6,
+  "embedding": 4096,
+  "streams": 4,
+  "stage_mib": 2848.0,
+  "layer_geometry": [
+    {
+      "layer": 0,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 1,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 2,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 3,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 4,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 5,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 6,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 7,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 8,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 9,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 10,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 11,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 12,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 13,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 14,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 15,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 16,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 17,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "Q3_K"
+      ],
+      "raw_bytes": 10813440,
+      "main_slot_bytes": 10813880,
+      "full_layer_bytes": 2768240640,
+      "prefill_capacity": 276,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 18,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "Q3_K"
+      ],
+      "raw_bytes": 10813440,
+      "main_slot_bytes": 10813880,
+      "full_layer_bytes": 2768240640,
+      "prefill_capacity": 276,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 19,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "Q3_K"
+      ],
+      "raw_bytes": 10813440,
+      "main_slot_bytes": 10813880,
+      "full_layer_bytes": 2768240640,
+      "prefill_capacity": 276,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 20,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "Q3_K"
+      ],
+      "raw_bytes": 10813440,
+      "main_slot_bytes": 10813880,
+      "full_layer_bytes": 2768240640,
+      "prefill_capacity": 276,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 21,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "Q3_K"
+      ],
+      "raw_bytes": 10813440,
+      "main_slot_bytes": 10813880,
+      "full_layer_bytes": 2768240640,
+      "prefill_capacity": 276,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 22,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "Q3_K"
+      ],
+      "raw_bytes": 10813440,
+      "main_slot_bytes": 10813880,
+      "full_layer_bytes": 2768240640,
+      "prefill_capacity": 276,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 23,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "Q3_K"
+      ],
+      "raw_bytes": 10813440,
+      "main_slot_bytes": 10813880,
+      "full_layer_bytes": 2768240640,
+      "prefill_capacity": 276,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 24,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "Q3_K"
+      ],
+      "raw_bytes": 10813440,
+      "main_slot_bytes": 10813880,
+      "full_layer_bytes": 2768240640,
+      "prefill_capacity": 276,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 25,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "Q3_K"
+      ],
+      "raw_bytes": 10813440,
+      "main_slot_bytes": 10813880,
+      "full_layer_bytes": 2768240640,
+      "prefill_capacity": 276,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 26,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 27,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 28,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 29,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 30,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 31,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 32,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 33,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 34,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 35,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 36,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 37,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 38,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 39,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 40,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 41,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    },
+    {
+      "layer": 42,
+      "types": [
+        "Q3_K",
+        "Q3_K",
+        "MXFP4"
+      ],
+      "raw_bytes": 11665408,
+      "main_slot_bytes": 11668800,
+      "full_layer_bytes": 2986344448,
+      "prefill_capacity": 256,
+      "full_layer_fits": true
+    }
+  ],
+  "main_gpu_reconstruction": {
+    "small_count": 132,
+    "large_count": 435,
+    "gpu_allocated_bytes": 6503360160,
+    "gpu_raw_bytes": 6501826560
+  },
+  "all_raw_experts_GiB": 117.765625,
+  "host_raw_bytes": 119948050432,
+  "host_raw_GiB": 111.7103271484375,
+  "current_two_read_expert_H2D_GiB": 223.420654296875,
+  "schedules": [
+    {
+      "requested_chunk": 16384,
+      "actual_read_rows": 16384,
+      "rows_mib": 1024.0,
+      "extra_rows_mib": -1024.0,
+      "reads": [
+        {
+          "rows": 16384,
+          "calls": [
+            4096,
+            4096,
+            4096,
+            4096
+          ],
+          "layer_major": true
+        },
+        {
+          "rows": 16384,
+          "calls": [
+            4096,
+            4096,
+            4096,
+            4096
+          ],
+          "layer_major": true
+        },
+        {
+          "rows": 16384,
+          "calls": [
+            4096,
+            4096,
+            4096,
+            4096
+          ],
+          "layer_major": true
+        },
+        {
+          "rows": 847,
+          "calls": [
+            847
+          ],
+          "layer_major": false
+        }
+      ],
+      "microbatches": 13,
+      "all_reads_layer_major": false,
+      "estimated_weight_H2D_GiB": null
+    },
+    {
+      "requested_chunk": 32768,
+      "actual_read_rows": 32768,
+      "rows_mib": 2048.0,
+      "extra_rows_mib": 0.0,
+      "reads": [
+        {
+          "rows": 32768,
+          "calls": [
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096
+          ],
+          "layer_major": true
+        },
+        {
+          "rows": 17231,
+          "calls": [
+            4096,
+            4096,
+            4096,
+            4096,
+            847
+          ],
+          "layer_major": true
+        }
+      ],
+      "microbatches": 13,
+      "all_reads_layer_major": true,
+      "estimated_weight_H2D_GiB": 223.420654296875
+    },
+    {
+      "requested_chunk": 50000,
+      "actual_read_rows": 49152,
+      "rows_mib": 3072.0,
+      "extra_rows_mib": 1024.0,
+      "reads": [
+        {
+          "rows": 49152,
+          "calls": [
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096
+          ],
+          "layer_major": true
+        },
+        {
+          "rows": 847,
+          "calls": [
+            847
+          ],
+          "layer_major": false
+        }
+      ],
+      "microbatches": 13,
+      "all_reads_layer_major": false,
+      "estimated_weight_H2D_GiB": null
+    },
+    {
+      "requested_chunk": 53248,
+      "actual_read_rows": 53248,
+      "rows_mib": 3328.0,
+      "extra_rows_mib": 1280.0,
+      "reads": [
+        {
+          "rows": 49999,
+          "calls": [
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            847
+          ],
+          "layer_major": true
+        }
+      ],
+      "microbatches": 13,
+      "all_reads_layer_major": true,
+      "estimated_weight_H2D_GiB": 112.9603271484375
+    },
+    {
+      "requested_chunk": 65536,
+      "actual_read_rows": 65536,
+      "rows_mib": 4096.0,
+      "extra_rows_mib": 2048.0,
+      "reads": [
+        {
+          "rows": 49999,
+          "calls": [
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            4096,
+            847
+          ],
+          "layer_major": true
+        }
+      ],
+      "microbatches": 13,
+      "all_reads_layer_major": true,
+      "estimated_weight_H2D_GiB": 113.7103271484375
+    }
+  ],
+  "PP_chunks": [
+    {
+      "first_read_rows": 32768,
+      "first_read_ms": 47102.0,
+      "remaining_read_rows": 17231,
+      "remaining_plus_last_eval_ms": 39015.100000000006,
+      "first_read_tps": 695.6817120292131,
+      "full_prompt_ms": 86117.1
+    },
+    {
+      "first_read_rows": 32768,
+      "first_read_ms": 46920.0,
+      "remaining_read_rows": 17231,
+      "remaining_plus_last_eval_ms": 39414.2,
+      "first_read_tps": 698.380221653879,
+      "full_prompt_ms": 86334.2
+    }
+  ]
+}

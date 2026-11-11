@@ -1,0 +1,40 @@
+{
+  "command": [
+    "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+    "--serve",
+    "--no-disk",
+    "--model",
+    "L:\\AI_pictures_generate\\PolyStrata-data\\models\\glm-3.0BIT\\GLM-5.3-Flash-GSQ-RCO-3.0bit-q4kattn.gguf",
+    "--max-context",
+    "200000",
+    "--expert-profile",
+    "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-no-disk-exchange-implementation\\glm-exchange-max8-work\\expert-profile.txt",
+    "--draft-model",
+    "L:\\AI_pictures_generate\\PolyStrata-data\\mtp\\glm-5.3-flash\\draft-block.gguf",
+    "--conversation-cache-mib",
+    "0",
+    "--conversation-cache-no-branch",
+    "--prompt-cache",
+    "6",
+    "--conversation-cache-min-free-mib",
+    "512",
+    "--session-min-free-mib",
+    "4096",
+    "--session-dir",
+    "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-no-disk-exchange-implementation\\glm-exchange-max8-work\\sessions",
+    "--session-max-mib",
+    "16384",
+    "--vram-reserve-mib",
+    "1024",
+    "--no-disk-expert-exchange",
+    "--no-disk-exchange-max",
+    "8",
+    "--dump-buffers"
+  ],
+  "pid": 14064,
+  "exe_sha256": "939abfe8c148075fc03e3e3369279c1f664d81620827cd626498264fe66b0779",
+  "environment": {
+    "STRATA_TRACE_DECODE_COSTS": "1",
+    "STRATA_TRACE_DRAFT_POLICY": "1"
+  }
+}

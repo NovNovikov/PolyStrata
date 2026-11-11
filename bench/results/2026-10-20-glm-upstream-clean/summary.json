@@ -1,0 +1,56 @@
+{
+  "exe": "L:\\AI_pictures_generate\\PolyStrata-upstream-glm-20261020\\build-20\\strata-poly.exe",
+  "args": [
+    "--model",
+    "L:\\AI_pictures_generate\\PolyStrata-data\\models\\glm-3.0BIT\\GLM-5.3-Flash-GSQ-RCO-3.0bit-q4kattn.gguf",
+    "--max-context",
+    "200000",
+    "--expert-profile",
+    "L:\\Temp\\opencode\\glm-upstream-clean-20261020\\expert-profile.txt",
+    "--draft-model",
+    "L:\\AI_pictures_generate\\PolyStrata-data\\mtp\\glm-5.3-flash\\draft-block.gguf",
+    "--conversation-cache-mib",
+    "0",
+    "--prompt-cache",
+    "6",
+    "--conversation-cache-min-free-mib",
+    "512"
+  ],
+  "prompt_tokens": 2050,
+  "results": [
+    {
+      "number": 1,
+      "prompt_ms": 86266.8,
+      "decode_ms": 20648.7,
+      "generated": 512,
+      "drafts_accepted": 305,
+      "drafts_offered": 348,
+      "resume": 0,
+      "gpu_hits": 75581,
+      "lookups": 189624
+    },
+    {
+      "number": 2,
+      "prompt_ms": 59.2,
+      "decode_ms": 17782.0,
+      "generated": 512,
+      "drafts_accepted": 336,
+      "drafts_offered": 374,
+      "resume": 2049,
+      "gpu_hits": 80847,
+      "lookups": 188120
+    },
+    {
+      "number": 3,
+      "prompt_ms": 60.9,
+      "decode_ms": 19052.0,
+      "generated": 512,
+      "drafts_accepted": 299,
+      "drafts_offered": 341,
+      "resume": 2049,
+      "gpu_hits": 73775,
+      "lookups": 188784
+    }
+  ],
+  "decode_costs": []
+}

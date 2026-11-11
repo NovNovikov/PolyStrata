@@ -1,0 +1,13 @@
+START glm-control
+END glm-control {'exit': 0, 'completed': True}
+START glm-exchange-max2
+END glm-exchange-max2 {'exit': 0, 'completed': True}
+START glm-exchange-max4
+END glm-exchange-max4 {'exit': 0, 'completed': True}
+START glm-exchange-max8
+END glm-exchange-max8 {'exit': 0, 'completed': True}
+START glm-smoke-no-graphs
+END glm-smoke-no-graphs {'exit': 0, 'completed': True}
+START deepseek-smoke
+END deepseek-smoke {'exit': 0, 'error': "'--draft-model' is not in list"}
+SUITE_FINISHED

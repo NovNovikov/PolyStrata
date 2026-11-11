@@ -1,0 +1,30 @@
+{
+  "mmap-control": {
+    "rss": 110.80067443847656,
+    "private": 25.370620727539062,
+    "available_ram_gib": 4.749256134033203,
+    "local_gpu_gib": 22.055477142333984,
+    "nonlocal_gpu_gib": 2.298828125,
+    "asked_gpu_gib": 24.354305267333984,
+    "cpu_percent": 1013.75,
+    "gpu_util": 33.0,
+    "gpu_sm_mhz": 2025.0,
+    "gpu_power": 96.7305,
+    "gpu_temp": 53.0,
+    "pcie_rx_mibs": 105.3330078125
+  },
+  "bat-no-disk": {
+    "rss": 95.27345275878906,
+    "private": 117.30499267578125,
+    "available_ram_gib": 20.050926208496094,
+    "local_gpu_gib": 21.79593276977539,
+    "nonlocal_gpu_gib": 0.4315185546875,
+    "asked_gpu_gib": 22.22745132446289,
+    "cpu_percent": 1037.5,
+    "gpu_util": 33,
+    "gpu_sm_mhz": 1815,
+    "gpu_power": 90.018,
+    "gpu_temp": 56,
+    "pcie_rx_mibs": 65.7548828125
+  }
+}

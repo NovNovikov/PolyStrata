@@ -1,0 +1,27 @@
+deepseek-smoke load elapsed_s 1
+deepseek-smoke load elapsed_s 11
+deepseek-smoke load elapsed_s 21
+deepseek-smoke load elapsed_s 31
+deepseek-smoke load elapsed_s 42
+deepseek-smoke load elapsed_s 52
+deepseek-smoke load elapsed_s 62
+deepseek-smoke load elapsed_s 72
+deepseek-smoke load elapsed_s 82
+deepseek-smoke load elapsed_s 92
+deepseek-smoke load elapsed_s 102
+deepseek-smoke load elapsed_s 112
+deepseek-smoke load elapsed_s 122
+deepseek-smoke load elapsed_s 132
+deepseek-smoke load elapsed_s 142
+deepseek-smoke load elapsed_s 152
+deepseek-smoke load elapsed_s 162
+deepseek-smoke load elapsed_s 172
+deepseek-smoke load elapsed_s 183
+deepseek-smoke load elapsed_s 193
+deepseek-smoke load elapsed_s 203
+deepseek-smoke load elapsed_s 213
+deepseek-smoke load elapsed_s 223
+deepseek-smoke load elapsed_s 233
+deepseek-smoke load elapsed_s 243
+FAILED '--draft-model' is not in list
+FINISHED deepseek-smoke {"error": "'--draft-model' is not in list"}

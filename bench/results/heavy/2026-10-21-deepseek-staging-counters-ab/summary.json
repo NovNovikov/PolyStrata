@@ -1,0 +1,1272 @@
+{
+  "bat-no-disk": {
+    "load_s": 236.87666319997516,
+    "exit": 0,
+    "command": [
+      "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+      "--serve",
+      "--compact-scratch",
+      "--compact-graphs",
+      "--no-disk",
+      "--rows-vram",
+      "--read-chunk",
+      "32768",
+      "--prompt-batch",
+      "4096",
+      "--stage-mib",
+      "2848",
+      "--model",
+      "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+      "--max-context",
+      "131072",
+      "--expert-profile",
+      "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-staging-counters-ab\\bat-no-disk-work\\expert-profile.txt",
+      "--conversation-cache-mib",
+      "0",
+      "--conversation-cache-no-branch",
+      "--prompt-cache",
+      "6",
+      "--conversation-cache-min-free-mib",
+      "512",
+      "--session-min-free-mib",
+      "4096",
+      "--session-dir",
+      "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-staging-counters-ab\\bat-no-disk-work\\sessions",
+      "--session-max-mib",
+      "16384",
+      "--vram-reserve-mib",
+      "256",
+      "--no-disk-vram-margin-mib",
+      "256",
+      "--expert-swaps",
+      "64",
+      "--dump-buffers"
+    ],
+    "requests": [
+      {
+        "number": 1,
+        "prompt_tokens": 50000,
+        "generated": 256,
+        "requested": 256,
+        "resume": 0,
+        "prompt_ms": 93227.7,
+        "decode_ms": 15763.9,
+        "finish": "length",
+        "drafts_accepted": 24,
+        "drafts_offered": 44,
+        "raw_done_gpu": 21245,
+        "raw_done_lookups": 70950,
+        "read": 50000,
+        "elapsed_s": 109.02762329997495,
+        "ttft_s": 93.25190799997654,
+        "decode_tps": 16.176200052017585,
+        "prompt_tps": 536.3212864845964,
+        "stdin_bytes": 229117,
+        "process_gpu_after": {
+          "used": 23908995072,
+          "spilled": 648675328,
+          "shared": 648675328,
+          "asked": 24557670400
+        },
+        "resume_to_last_pp_s": 93.22694640001282,
+        "resume_to_last_pp_tps": 536.3256218375197,
+        "decode_costs": {
+          "generated": 256.0,
+          "accounted_tokens": 255.0,
+          "wall_ms": 15763.894,
+          "cpu_expert_ms": 9490.478,
+          "route_wait_ms": 4777.166,
+          "uploads": 470.0,
+          "drafts_offered": 44.0,
+          "drafts_accepted": 24.0,
+          "gpu_experts": 21245.0,
+          "cpu_experts": 49705.0
+        },
+        "decode_hit_rate": 0.2994362226920366,
+        "output_sha256": "0f8378899a11a983dc467d6d2b453bf99f8224031ae1c1993f108b4e18c16b9d",
+        "prefill_samples": {
+          "samples": 167,
+          "sampled_s": 92.47971610003151,
+          "cpu_percent": {
+            "min": 21.5,
+            "median": 97.4,
+            "max": 118.3,
+            "mean": 96.37365269461078
+          },
+          "rss": {
+            "min": 122224414720,
+            "median": 122314010624,
+            "max": 122443264000,
+            "mean": 122318135492.21558
+          },
+          "private": {
+            "min": 146531495936,
+            "median": 146531987456,
+            "max": 146726670336,
+            "mean": 146538689198.7545
+          },
+          "num_page_faults": {
+            "min": 31632956,
+            "median": 31687255,
+            "max": 31687449,
+            "mean": 31686650.065868262
+          },
+          "available_ram": {
+            "min": 3131658240,
+            "median": 3314778112,
+            "max": 3508879360,
+            "mean": 3318829374.8502994
+          },
+          "process_gpu_used": {
+            "min": 23849517056,
+            "median": 23914434560,
+            "max": 23914778624,
+            "mean": 23913503811.4491
+          },
+          "process_gpu_spilled": {
+            "min": 627048448,
+            "median": 3438411776,
+            "max": 3601727488,
+            "mean": 3202803577.1017966
+          },
+          "process_gpu_shared": {
+            "min": 627048448,
+            "median": 3438411776,
+            "max": 3601727488,
+            "mean": 3305677045.269461
+          },
+          "process_gpu_asked": {
+            "min": 24535994368,
+            "median": 27364560896,
+            "max": 27516506112,
+            "mean": 27315207284.502995
+          },
+          "gpu_util": {
+            "min": 2,
+            "median": 100,
+            "max": 100,
+            "mean": 87.0119760479042
+          },
+          "gpu_sm_mhz": {
+            "min": 2430,
+            "median": 2430,
+            "max": 2445,
+            "mean": 2430.179640718563
+          },
+          "gpu_memory_mhz": {
+            "min": 10251,
+            "median": 10251,
+            "max": 10251,
+            "mean": 10251
+          },
+          "gpu_power": {
+            "min": 19.892,
+            "median": 197.566,
+            "max": 226.641,
+            "mean": 193.9366886227545
+          },
+          "gpu_temp": {
+            "min": 44,
+            "median": 60,
+            "max": 68,
+            "mean": 59.23353293413174
+          },
+          "gpu_pcie_rx_mb": {
+            "min": 0.142578125,
+            "median": 821.11328125,
+            "max": 42769.669921875,
+            "mean": 5349.806067552395
+          },
+          "gpu_pcie_tx_mb": {
+            "min": 0.0947265625,
+            "median": 1184.3671875,
+            "max": 4487.0849609375,
+            "mean": 1250.8513461358532
+          },
+          "gpu_mem_used": {
+            "min": 25367465984,
+            "median": 25432150016,
+            "max": 25447616512,
+            "mean": 25432102531.832336
+          },
+          "gpu_throttle_reason_values": [
+            1,
+            36
+          ],
+          "system_disk_read_bytes_delta": 572396544,
+          "system_disk_write_bytes_delta": 23243264,
+          "io_read_bytes_delta": 0,
+          "io_write_bytes_delta": 2330,
+          "page_fault_delta": 54493
+        },
+        "decode_samples": {
+          "samples": 27,
+          "sampled_s": 15.034636500000488,
+          "cpu_percent": {
+            "min": 668.1,
+            "median": 1054.2,
+            "max": 1139.6,
+            "mean": 1034.3851851851853
+          },
+          "rss": {
+            "min": 122337648640,
+            "median": 122367324160,
+            "max": 122375741440,
+            "mean": 122367677781.33333
+          },
+          "private": {
+            "min": 146555437056,
+            "median": 146585325568,
+            "max": 146593673216,
+            "mean": 146585635802.07407
+          },
+          "num_page_faults": {
+            "min": 31693073,
+            "median": 31700332,
+            "max": 31702391,
+            "mean": 31700418.51851852
+          },
+          "available_ram": {
+            "min": 3190484992,
+            "median": 3307589632,
+            "max": 3508858880,
+            "mean": 3314637330.962963
+          },
+          "process_gpu_used": {
+            "min": 23908970496,
+            "median": 23908970496,
+            "max": 23910133760,
+            "mean": 23909057573.925926
+          },
+          "process_gpu_spilled": {
+            "min": 637861888,
+            "median": 638713856,
+            "max": 1178468352,
+            "mean": 678938396.4444444
+          },
+          "process_gpu_shared": {
+            "min": 637861888,
+            "median": 638713856,
+            "max": 1178468352,
+            "mean": 678938396.4444444
+          },
+          "process_gpu_asked": {
+            "min": 24546832384,
+            "median": 24547684352,
+            "max": 25088602112,
+            "mean": 24587995970.37037
+          },
+          "gpu_util": {
+            "min": 24,
+            "median": 43,
+            "max": 60,
+            "mean": 41.666666666666664
+          },
+          "gpu_sm_mhz": {
+            "min": 2430,
+            "median": 2430,
+            "max": 2430,
+            "mean": 2430
+          },
+          "gpu_memory_mhz": {
+            "min": 10251,
+            "median": 10251,
+            "max": 10251,
+            "mean": 10251
+          },
+          "gpu_power": {
+            "min": 96.313,
+            "median": 111.394,
+            "max": 200.53,
+            "mean": 114.17003703703703
+          },
+          "gpu_temp": {
+            "min": 54,
+            "median": 55,
+            "max": 57,
+            "mean": 54.925925925925924
+          },
+          "gpu_pcie_rx_mb": {
+            "min": 25.271484375,
+            "median": 102.853515625,
+            "max": 3202.6767578125,
+            "mean": 547.0130208333334
+          },
+          "gpu_pcie_tx_mb": {
+            "min": 24.0322265625,
+            "median": 49.3525390625,
+            "max": 1337.384765625,
+            "mean": 192.65769675925927
+          },
+          "gpu_mem_used": {
+            "min": 25422647296,
+            "median": 25423106048,
+            "max": 25462296576,
+            "mean": 25439652674.37037
+          },
+          "gpu_throttle_reason_values": [
+            1
+          ],
+          "system_disk_read_bytes_delta": 6499328,
+          "system_disk_write_bytes_delta": 2875392,
+          "io_read_bytes_delta": 0,
+          "io_write_bytes_delta": 2005,
+          "page_fault_delta": 9318
+        }
+      },
+      {
+        "number": 2,
+        "prompt_tokens": 50000,
+        "generated": 256,
+        "requested": 256,
+        "resume": 0,
+        "prompt_ms": 98298.4,
+        "decode_ms": 15705.4,
+        "finish": "length",
+        "drafts_accepted": 24,
+        "drafts_offered": 40,
+        "raw_done_gpu": 23437,
+        "raw_done_lookups": 69918,
+        "read": 50000,
+        "elapsed_s": 114.01461979997111,
+        "ttft_s": 98.30731189996004,
+        "decode_tps": 16.236453703821617,
+        "prompt_tps": 508.655278214091,
+        "stdin_bytes": 229117,
+        "process_gpu_after": {
+          "used": 23908970496,
+          "spilled": 638713856,
+          "shared": 638713856,
+          "asked": 24547684352
+        },
+        "resume_to_last_pp_s": 97.40011499996763,
+        "resume_to_last_pp_tps": 513.3464164802743,
+        "decode_costs": {
+          "generated": 256.0,
+          "accounted_tokens": 255.0,
+          "wall_ms": 15705.442,
+          "cpu_expert_ms": 9464.954,
+          "route_wait_ms": 4765.08,
+          "uploads": 277.0,
+          "drafts_offered": 40.0,
+          "drafts_accepted": 24.0,
+          "gpu_experts": 23437.0,
+          "cpu_experts": 46481.0
+        },
+        "decode_hit_rate": 0.33520695672073,
+        "output_sha256": "a9a7a83699dcd251e345340205707ab090f71eb3463a0d2ba08cf9642c758990",
+        "prefill_samples": {
+          "samples": 177,
+          "sampled_s": 97.73642349999864,
+          "cpu_percent": {
+            "min": 85.4,
+            "median": 98.4,
+            "max": 701.6,
+            "mean": 101.56158192090396
+          },
+          "rss": {
+            "min": 122358341632,
+            "median": 122358341632,
+            "max": 122380087296,
+            "mean": 122358587345.71751
+          },
+          "private": {
+            "min": 146576093184,
+            "median": 146576093184,
+            "max": 146597883904,
+            "mean": 146576339406.82486
+          },
+          "num_page_faults": {
+            "min": 31703455,
+            "median": 31703455,
+            "max": 31703455,
+            "mean": 31703455
+          },
+          "available_ram": {
+            "min": 2407546880,
+            "median": 2992508928,
+            "max": 3270631424,
+            "mean": 3001956965.242938
+          },
+          "process_gpu_used": {
+            "min": 23908945920,
+            "median": 23914434560,
+            "max": 23914778624,
+            "mean": 23913998602.124294
+          },
+          "process_gpu_spilled": {
+            "min": 627048448,
+            "median": 3426746368,
+            "max": 3601727488,
+            "mean": 3144358778.9378533
+          },
+          "process_gpu_shared": {
+            "min": 627048448,
+            "median": 3438411776,
+            "max": 3601727488,
+            "mean": 3259829508.338983
+          },
+          "process_gpu_asked": {
+            "min": 24535994368,
+            "median": 27364560896,
+            "max": 27516506112,
+            "mean": 27260611705.491524
+          },
+          "gpu_util": {
+            "min": 0,
+            "median": 100,
+            "max": 100,
+            "mean": 86.2090395480226
+          },
+          "gpu_sm_mhz": {
+            "min": 2430,
+            "median": 2430,
+            "max": 2430,
+            "mean": 2430
+          },
+          "gpu_memory_mhz": {
+            "min": 10251,
+            "median": 10251,
+            "max": 10251,
+            "mean": 10251
+          },
+          "gpu_power": {
+            "min": 67.066,
+            "median": 192.288,
+            "max": 226.972,
+            "mean": 189.85936723163843
+          },
+          "gpu_temp": {
+            "min": 52,
+            "median": 64,
+            "max": 69,
+            "mean": 62.71186440677966
+          },
+          "gpu_pcie_rx_mb": {
+            "min": 0.4765625,
+            "median": 966.548828125,
+            "max": 32877.7783203125,
+            "mean": 4405.565104166667
+          },
+          "gpu_pcie_tx_mb": {
+            "min": 1.287109375,
+            "median": 1400.7568359375,
+            "max": 4026.365234375,
+            "mean": 1558.6067322122176
+          },
+          "gpu_mem_used": {
+            "min": 25408950272,
+            "median": 25418256384,
+            "max": 25461248000,
+            "mean": 25420970388.971752
+          },
+          "gpu_throttle_reason_values": [
+            1
+          ],
+          "system_disk_read_bytes_delta": 125850112,
+          "system_disk_write_bytes_delta": 443221504,
+          "io_read_bytes_delta": 0,
+          "io_write_bytes_delta": 304127289,
+          "page_fault_delta": 0
+        },
+        "decode_samples": {
+          "samples": 28,
+          "sampled_s": 15.530392099986784,
+          "cpu_percent": {
+            "min": 334.8,
+            "median": 996.25,
+            "max": 1117.5,
+            "mean": 986.325
+          },
+          "rss": {
+            "min": 122376298496,
+            "median": 122391928832.0,
+            "max": 122398035968,
+            "mean": 122390637275.42857
+          },
+          "private": {
+            "min": 146594279424,
+            "median": 146609954816.0,
+            "max": 146616090624,
+            "mean": 146608682569.14285
+          },
+          "num_page_faults": {
+            "min": 31707847,
+            "median": 31711671.0,
+            "max": 31713166,
+            "mean": 31711355.464285713
+          },
+          "available_ram": {
+            "min": 3152252928,
+            "median": 3161399296.0,
+            "max": 3178455040,
+            "mean": 3163083922.285714
+          },
+          "process_gpu_used": {
+            "min": 23908970496,
+            "median": 23908970496.0,
+            "max": 23910502400,
+            "mean": 23909164032
+          },
+          "process_gpu_spilled": {
+            "min": 638713856,
+            "median": 638713856.0,
+            "max": 1350041600,
+            "mean": 728523922.2857143
+          },
+          "process_gpu_shared": {
+            "min": 638713856,
+            "median": 638713856.0,
+            "max": 1350041600,
+            "mean": 728910116.5714285
+          },
+          "process_gpu_asked": {
+            "min": 24547684352,
+            "median": 24547684352.0,
+            "max": 25260544000,
+            "mean": 24638074148.57143
+          },
+          "gpu_util": {
+            "min": 31,
+            "median": 46.0,
+            "max": 56,
+            "mean": 45.57142857142857
+          },
+          "gpu_sm_mhz": {
+            "min": 2430,
+            "median": 2430.0,
+            "max": 2430,
+            "mean": 2430
+          },
+          "gpu_memory_mhz": {
+            "min": 10251,
+            "median": 10251.0,
+            "max": 10251,
+            "mean": 10251
+          },
+          "gpu_power": {
+            "min": 102.915,
+            "median": 113.267,
+            "max": 188.029,
+            "mean": 116.1895
+          },
+          "gpu_temp": {
+            "min": 56,
+            "median": 57.0,
+            "max": 59,
+            "mean": 57.214285714285715
+          },
+          "gpu_pcie_rx_mb": {
+            "min": 34.2841796875,
+            "median": 77.22314453125,
+            "max": 738.572265625,
+            "mean": 172.77117047991072
+          },
+          "gpu_pcie_tx_mb": {
+            "min": 19.2158203125,
+            "median": 111.72216796875,
+            "max": 2634.095703125,
+            "mean": 383.78184291294644
+          },
+          "gpu_mem_used": {
+            "min": 25422319616,
+            "median": 25441554432.0,
+            "max": 25460207616,
+            "mean": 25439527497.142857
+          },
+          "gpu_throttle_reason_values": [
+            1
+          ],
+          "system_disk_read_bytes_delta": 3190784,
+          "system_disk_write_bytes_delta": 1410560,
+          "io_read_bytes_delta": 0,
+          "io_write_bytes_delta": 2092,
+          "page_fault_delta": 5319
+        }
+      }
+    ],
+    "allocations_mib": [
+      {
+        "phase": "load",
+        "total": 22306.09,
+        "dense": 7758.37,
+        "experts": 6202.09,
+        "KV": 860.0,
+        "staging": 2848.0,
+        "rows": 2048.0,
+        "other": 2589.63
+      },
+      {
+        "phase": "request",
+        "total": 22306.09,
+        "dense": 7758.37,
+        "experts": 6202.09,
+        "KV": 860.0,
+        "staging": 2848.0,
+        "rows": 2048.0,
+        "other": 2589.63
+      },
+      {
+        "phase": "request",
+        "total": 22306.09,
+        "dense": 7758.37,
+        "experts": 6202.09,
+        "KV": 860.0,
+        "staging": 2848.0,
+        "rows": 2048.0,
+        "other": 2589.63
+      }
+    ],
+    "placement_lines": [
+      "strata-poly: compact graphs prepared before expert placement: executions=280 templates=258 global_free_delta=119537664 bytes (device-wide, not exclusive ownership)",
+      "strata-poly: memory[load] expert placement: permanent=567, staging_cache=0/255 slots (0.00 MiB used inside existing staging); uploads=0",
+      "strata-poly: memory[request] expert placement: permanent=567, staging_cache=253/255 slots (2815.44 MiB used inside existing staging); uploads=470",
+      "strata-poly: memory[request] expert placement: permanent=567, staging_cache=255/255 slots (2837.70 MiB used inside existing staging); uploads=747"
+    ],
+    "graph_lines": [
+      "strata-poly: buffers[load] graphs[pos=0 room_key=0 window=8 batch=0]: execs=280 (live owners); layer slots=282 live=280; passes=0 live=0; tail=0",
+      "strata-poly: buffers[request] graphs[pos=50255 room_key=6 window=8 batch=0]: execs=281 (live owners); layer slots=282 live=280; passes=0 live=0; tail=1",
+      "strata-poly: buffers[request] graphs[pos=50255 room_key=6 window=8 batch=0]: execs=281 (live owners); layer slots=282 live=280; passes=0 live=0; tail=1"
+    ],
+    "exchange_lines": [],
+    "park_lines": [
+      "strata-poly: conversation cache: parked 49999 tokens in 898.3 ms; parked=1 bytes=0 evictions=0"
+    ],
+    "prefill_progress_file": "protocol.txt"
+  },
+  "bat-counters": {
+    "load_s": 199.71457180002471,
+    "exit": 0,
+    "command": [
+      "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+      "--serve",
+      "--compact-scratch",
+      "--compact-graphs",
+      "--no-disk",
+      "--rows-vram",
+      "--read-chunk",
+      "32768",
+      "--prompt-batch",
+      "4096",
+      "--stage-mib",
+      "2848",
+      "--model",
+      "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+      "--max-context",
+      "131072",
+      "--expert-profile",
+      "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-staging-counters-ab\\bat-counters-work\\expert-profile.txt",
+      "--conversation-cache-mib",
+      "0",
+      "--conversation-cache-no-branch",
+      "--prompt-cache",
+      "6",
+      "--conversation-cache-min-free-mib",
+      "512",
+      "--session-min-free-mib",
+      "4096",
+      "--session-dir",
+      "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-staging-counters-ab\\bat-counters-work\\sessions",
+      "--session-max-mib",
+      "16384",
+      "--vram-reserve-mib",
+      "256",
+      "--no-disk-vram-margin-mib",
+      "256",
+      "--expert-swaps",
+      "64",
+      "--dump-buffers"
+    ],
+    "requests": [
+      {
+        "number": 1,
+        "prompt_tokens": 50000,
+        "generated": 256,
+        "requested": 256,
+        "resume": 0,
+        "prompt_ms": 89939.9,
+        "decode_ms": 14559.8,
+        "finish": "length",
+        "drafts_accepted": 23,
+        "drafts_offered": 39,
+        "raw_done_gpu": 20925,
+        "raw_done_lookups": 69918,
+        "read": 50000,
+        "elapsed_s": 104.52117690001614,
+        "ttft_s": 89.94803540001158,
+        "decode_tps": 17.513976840341215,
+        "prompt_tps": 555.926791112732,
+        "stdin_bytes": 229117,
+        "process_gpu_after": {
+          "used": 23975948288,
+          "spilled": 571604992,
+          "shared": 571604992,
+          "asked": 24547553280
+        },
+        "resume_to_last_pp_s": 89.93983350001508,
+        "resume_to_last_pp_tps": 555.9272021555568,
+        "decode_costs": {
+          "generated": 256.0,
+          "accounted_tokens": 255.0,
+          "wall_ms": 14559.797,
+          "cpu_expert_ms": 8543.08,
+          "route_wait_ms": 4623.178,
+          "uploads": 465.0,
+          "drafts_offered": 39.0,
+          "drafts_accepted": 23.0,
+          "gpu_experts": 20925.0,
+          "cpu_experts": 48993.0
+        },
+        "decode_hit_rate": 0.2992791555822535,
+        "output_sha256": "029d42b0f1323a8dff9110eeaf612c37fc1134f82c98bfff49ad6f4821f0c1b1",
+        "prefill_samples": {
+          "samples": 159,
+          "sampled_s": 88.90169359999709,
+          "cpu_percent": {
+            "min": 85.1,
+            "median": 96.4,
+            "max": 147.0,
+            "mean": 96.99371069182389
+          },
+          "rss": {
+            "min": 122187968512,
+            "median": 122244485120,
+            "max": 122309341184,
+            "mean": 122260077973.73586
+          },
+          "private": {
+            "min": 146520113152,
+            "median": 146520576000,
+            "max": 146717343744,
+            "mean": 146525546946.8176
+          },
+          "num_page_faults": {
+            "min": 31623694,
+            "median": 31654020,
+            "max": 31654058,
+            "mean": 31653501.540880505
+          },
+          "available_ram": {
+            "min": 3004280832,
+            "median": 3330387968,
+            "max": 3894845440,
+            "mean": 3423458877.1823897
+          },
+          "process_gpu_used": {
+            "min": 23952420864,
+            "median": 23981391872,
+            "max": 23981756416,
+            "mean": 23980577128.654087
+          },
+          "process_gpu_spilled": {
+            "min": 559939584,
+            "median": 3359637504,
+            "max": 3534618624,
+            "mean": 3025219661.283019
+          },
+          "process_gpu_shared": {
+            "min": 559939584,
+            "median": 3359637504,
+            "max": 3546284032,
+            "mean": 3171998043.773585
+          },
+          "process_gpu_asked": {
+            "min": 26674958336,
+            "median": 27352739840,
+            "max": 27516375040,
+            "mean": 27323071919.496857
+          },
+          "gpu_util": {
+            "min": 0,
+            "median": 100,
+            "max": 100,
+            "mean": 84.0251572327044
+          },
+          "gpu_sm_mhz": {
+            "min": 450,
+            "median": 2430,
+            "max": 2445,
+            "mean": 2417.830188679245
+          },
+          "gpu_memory_mhz": {
+            "min": 5001,
+            "median": 10251,
+            "max": 10251,
+            "mean": 10217.981132075472
+          },
+          "gpu_power": {
+            "min": 15.459,
+            "median": 200.8,
+            "max": 245.685,
+            "mean": 196.22550943396226
+          },
+          "gpu_temp": {
+            "min": 39,
+            "median": 58,
+            "max": 66,
+            "mean": 57.283018867924525
+          },
+          "gpu_pcie_rx_mb": {
+            "min": 0.0,
+            "median": 405.9306640625,
+            "max": 44402.7890625,
+            "mean": 4428.527761399371
+          },
+          "gpu_pcie_tx_mb": {
+            "min": 0.0,
+            "median": 588.130859375,
+            "max": 4432.4873046875,
+            "mean": 830.412324341588
+          },
+          "gpu_mem_used": {
+            "min": 25427628032,
+            "median": 25477533696,
+            "max": 25601904640,
+            "mean": 25494125587.320755
+          },
+          "gpu_throttle_reason_values": [
+            1,
+            36
+          ],
+          "system_disk_read_bytes_delta": 1126305792,
+          "system_disk_write_bytes_delta": 101884928,
+          "io_read_bytes_delta": 0,
+          "io_write_bytes_delta": 2329,
+          "page_fault_delta": 30364
+        },
+        "decode_samples": {
+          "samples": 26,
+          "sampled_s": 14.444772699964233,
+          "cpu_percent": {
+            "min": 413.3,
+            "median": 1100.85,
+            "max": 1195.3,
+            "mean": 1068.9346153846154
+          },
+          "rss": {
+            "min": 122267365376,
+            "median": 122297298944.0,
+            "max": 122297651200,
+            "mean": 122293775911.38461
+          },
+          "private": {
+            "min": 146543390720,
+            "median": 146573426688.0,
+            "max": 146573639680,
+            "mean": 146569867894.15384
+          },
+          "num_page_faults": {
+            "min": 31659655,
+            "median": 31666978.0,
+            "max": 31667064,
+            "mean": 31666116.03846154
+          },
+          "available_ram": {
+            "min": 3408580608,
+            "median": 3430746112.0,
+            "max": 3468820480,
+            "mean": 3430440329.8461537
+          },
+          "process_gpu_used": {
+            "min": 23975948288,
+            "median": 23975948288.0,
+            "max": 23981391872,
+            "mean": 23976205390.76923
+          },
+          "process_gpu_spilled": {
+            "min": 570753024,
+            "median": 571604992.0,
+            "max": 3347972096,
+            "mean": 699979933.5384616
+          },
+          "process_gpu_shared": {
+            "min": 570753024,
+            "median": 571604992.0,
+            "max": 3347972096,
+            "mean": 700844504.6153846
+          },
+          "process_gpu_asked": {
+            "min": 24546701312,
+            "median": 24547553280.0,
+            "max": 27329363968,
+            "mean": 24681339982.76923
+          },
+          "gpu_util": {
+            "min": 22,
+            "median": 45.0,
+            "max": 100,
+            "mean": 44.42307692307692
+          },
+          "gpu_sm_mhz": {
+            "min": 2430,
+            "median": 2430.0,
+            "max": 2430,
+            "mean": 2430
+          },
+          "gpu_memory_mhz": {
+            "min": 10251,
+            "median": 10251.0,
+            "max": 10251,
+            "mean": 10251
+          },
+          "gpu_power": {
+            "min": 90.107,
+            "median": 112.3735,
+            "max": 156.456,
+            "mean": 112.20076923076923
+          },
+          "gpu_temp": {
+            "min": 53,
+            "median": 54.0,
+            "max": 64,
+            "mean": 54.26923076923077
+          },
+          "gpu_pcie_rx_mb": {
+            "min": 0.4287109375,
+            "median": 53.69140625,
+            "max": 14915.3232421875,
+            "mean": 998.4177058293269
+          },
+          "gpu_pcie_tx_mb": {
+            "min": 21.88671875,
+            "median": 33.56884765625,
+            "max": 282.8115234375,
+            "mean": 58.41571514423077
+          },
+          "gpu_mem_used": {
+            "min": 25550917632,
+            "median": 25558695936.0,
+            "max": 25559678976,
+            "mean": 25558535404.307693
+          },
+          "gpu_throttle_reason_values": [
+            1
+          ],
+          "system_disk_read_bytes_delta": 49950208,
+          "system_disk_write_bytes_delta": 2039296,
+          "io_read_bytes_delta": 0,
+          "io_write_bytes_delta": 2068,
+          "page_fault_delta": 7409
+        }
+      },
+      {
+        "number": 2,
+        "prompt_tokens": 50000,
+        "generated": 256,
+        "requested": 256,
+        "resume": 0,
+        "prompt_ms": 85396.2,
+        "decode_ms": 14225.9,
+        "finish": "length",
+        "drafts_accepted": 18,
+        "drafts_offered": 23,
+        "raw_done_gpu": 23235,
+        "raw_done_lookups": 67080,
+        "read": 50000,
+        "elapsed_s": 99.63310099998489,
+        "ttft_s": 85.40527099999599,
+        "decode_tps": 17.925052193534327,
+        "prompt_tps": 585.5061466435275,
+        "stdin_bytes": 229117,
+        "process_gpu_after": {
+          "used": 23975948288,
+          "spilled": 571604992,
+          "shared": 571604992,
+          "asked": 24547553280
+        },
+        "resume_to_last_pp_s": 84.54345940001076,
+        "resume_to_last_pp_tps": 591.411805890612,
+        "decode_costs": {
+          "generated": 256.0,
+          "accounted_tokens": 255.0,
+          "wall_ms": 14225.931,
+          "cpu_expert_ms": 8422.004,
+          "route_wait_ms": 4585.979,
+          "uploads": 283.0,
+          "drafts_offered": 23.0,
+          "drafts_accepted": 18.0,
+          "gpu_experts": 23235.0,
+          "cpu_experts": 43845.0
+        },
+        "decode_hit_rate": 0.34637745974955275,
+        "output_sha256": "3ffeaff6561572a403202d1d3cf9bdb18f9029ea878a9213eea54f523a58188b",
+        "prefill_samples": {
+          "samples": 152,
+          "sampled_s": 84.39708550000796,
+          "cpu_percent": {
+            "min": 87.0,
+            "median": 95.7,
+            "max": 153.3,
+            "mean": 97.59276315789474
+          },
+          "rss": {
+            "min": 122280206336,
+            "median": 122280206336.0,
+            "max": 122301952000,
+            "mean": 122280349399.57895
+          },
+          "private": {
+            "min": 146556059648,
+            "median": 146556059648.0,
+            "max": 146577850368,
+            "mean": 146556203008
+          },
+          "num_page_faults": {
+            "min": 31668117,
+            "median": 31668117.0,
+            "max": 31668117,
+            "mean": 31668117
+          },
+          "available_ram": {
+            "min": 2442264576,
+            "median": 2785529856.0,
+            "max": 3486490624,
+            "mean": 2837225741.4736843
+          },
+          "process_gpu_used": {
+            "min": 23975923712,
+            "median": 23981412352.0,
+            "max": 23981756416,
+            "mean": 23980881408
+          },
+          "process_gpu_spilled": {
+            "min": 559939584,
+            "median": 3359637504.0,
+            "max": 3534618624,
+            "mean": 3031386219.7894735
+          },
+          "process_gpu_shared": {
+            "min": 559939584,
+            "median": 3359637504.0,
+            "max": 3534618624,
+            "mean": 3187763738.9473686
+          },
+          "process_gpu_asked": {
+            "min": 24535863296,
+            "median": 27363758080.0,
+            "max": 27516375040,
+            "mean": 27254228318.31579
+          },
+          "gpu_util": {
+            "min": 3,
+            "median": 100.0,
+            "max": 100,
+            "mean": 84.49342105263158
+          },
+          "gpu_sm_mhz": {
+            "min": 2430,
+            "median": 2430.0,
+            "max": 2430,
+            "mean": 2430
+          },
+          "gpu_memory_mhz": {
+            "min": 10251,
+            "median": 10251.0,
+            "max": 10251,
+            "mean": 10251
+          },
+          "gpu_power": {
+            "min": 61.83,
+            "median": 210.808,
+            "max": 255.396,
+            "mean": 208.35596052631578
+          },
+          "gpu_temp": {
+            "min": 51,
+            "median": 65.0,
+            "max": 70,
+            "mean": 63.75
+          },
+          "gpu_pcie_rx_mb": {
+            "min": 0.1904296875,
+            "median": 146.9365234375,
+            "max": 41141.890625,
+            "mean": 4054.382433439556
+          },
+          "gpu_pcie_tx_mb": {
+            "min": 0.0947265625,
+            "median": 35.357421875,
+            "max": 4521.8935546875,
+            "mean": 634.2832866467928
+          },
+          "gpu_mem_used": {
+            "min": 25389789184,
+            "median": 25457864704.0,
+            "max": 25560711168,
+            "mean": 25459302588.63158
+          },
+          "gpu_throttle_reason_values": [
+            1
+          ],
+          "system_disk_read_bytes_delta": 422828032,
+          "system_disk_write_bytes_delta": 535607296,
+          "io_read_bytes_delta": 0,
+          "io_write_bytes_delta": 132625553,
+          "page_fault_delta": 0
+        },
+        "decode_samples": {
+          "samples": 25,
+          "sampled_s": 13.941984099976253,
+          "cpu_percent": {
+            "min": 347.7,
+            "median": 1071.6,
+            "max": 1166.7,
+            "mean": 1028.204
+          },
+          "rss": {
+            "min": 122298343424,
+            "median": 122311790592,
+            "max": 122311794688,
+            "mean": 122311019233.28
+          },
+          "private": {
+            "min": 146574446592,
+            "median": 146587906048,
+            "max": 146587906048,
+            "mean": 146587138129.92
+          },
+          "num_page_faults": {
+            "min": 31672553,
+            "median": 31675845,
+            "max": 31675846,
+            "mean": 31675656.2
+          },
+          "available_ram": {
+            "min": 2529554432,
+            "median": 2624696320,
+            "max": 2746056704,
+            "mean": 2651247247.36
+          },
+          "process_gpu_used": {
+            "min": 23975948288,
+            "median": 23975948288,
+            "max": 23977480192,
+            "mean": 23976132116.48
+          },
+          "process_gpu_spilled": {
+            "min": 570753024,
+            "median": 571604992,
+            "max": 1281228800,
+            "mean": 656657612.8
+          },
+          "process_gpu_shared": {
+            "min": 570753024,
+            "median": 571604992,
+            "max": 1281228800,
+            "mean": 657124229.12
+          },
+          "process_gpu_asked": {
+            "min": 24546701312,
+            "median": 24547553280,
+            "max": 25258708992,
+            "mean": 24633256345.6
+          },
+          "gpu_util": {
+            "min": 21,
+            "median": 47,
+            "max": 100,
+            "mean": 47.48
+          },
+          "gpu_sm_mhz": {
+            "min": 2430,
+            "median": 2430,
+            "max": 2430,
+            "mean": 2430
+          },
+          "gpu_memory_mhz": {
+            "min": 10251,
+            "median": 10251,
+            "max": 10251,
+            "mean": 10251
+          },
+          "gpu_power": {
+            "min": 106.646,
+            "median": 117.74,
+            "max": 201.908,
+            "mean": 120.6752
+          },
+          "gpu_temp": {
+            "min": 56,
+            "median": 57,
+            "max": 69,
+            "mean": 57.88
+          },
+          "gpu_pcie_rx_mb": {
+            "min": 26.03515625,
+            "median": 38.7666015625,
+            "max": 683.1162109375,
+            "mean": 90.907578125
+          },
+          "gpu_pcie_tx_mb": {
+            "min": 15.6875,
+            "median": 38.00390625,
+            "max": 3713.7978515625,
+            "mean": 228.01359375
+          },
+          "gpu_mem_used": {
+            "min": 25383456768,
+            "median": 25452216320,
+            "max": 25459126272,
+            "mean": 25433417809.92
+          },
+          "gpu_throttle_reason_values": [
+            1
+          ],
+          "system_disk_read_bytes_delta": 28810752,
+          "system_disk_write_bytes_delta": 38050304,
+          "io_read_bytes_delta": 0,
+          "io_write_bytes_delta": 2065,
+          "page_fault_delta": 3293
+        }
+      }
+    ],
+    "allocations_mib": [
+      {
+        "phase": "load",
+        "total": 22306.09,
+        "dense": 7758.37,
+        "experts": 6202.09,
+        "KV": 860.0,
+        "staging": 2848.0,
+        "rows": 2048.0,
+        "other": 2589.63
+      },
+      {
+        "phase": "request",
+        "total": 22306.09,
+        "dense": 7758.37,
+        "experts": 6202.09,
+        "KV": 860.0,
+        "staging": 2848.0,
+        "rows": 2048.0,
+        "other": 2589.63
+      },
+      {
+        "phase": "request",
+        "total": 22306.09,
+        "dense": 7758.37,
+        "experts": 6202.09,
+        "KV": 860.0,
+        "staging": 2848.0,
+        "rows": 2048.0,
+        "other": 2589.63
+      }
+    ],
+    "placement_lines": [
+      "strata-poly: compact graphs prepared before expert placement: executions=280 templates=258 global_free_delta=119537664 bytes (device-wide, not exclusive ownership)",
+      "strata-poly: memory[load] expert placement: permanent=567, staging_cache=0/255 slots (0.00 MiB used inside existing staging); uploads=0",
+      "strata-poly: memory[request] expert placement: permanent=567, staging_cache=255/255 slots (2837.70 MiB used inside existing staging); uploads=465",
+      "strata-poly: memory[request] expert placement: permanent=567, staging_cache=255/255 slots (2837.70 MiB used inside existing staging); uploads=748"
+    ],
+    "graph_lines": [
+      "strata-poly: buffers[load] graphs[pos=0 room_key=0 window=8 batch=0]: execs=280 (live owners); layer slots=282 live=280; passes=0 live=0; tail=0",
+      "strata-poly: buffers[request] graphs[pos=50255 room_key=6 window=8 batch=0]: execs=281 (live owners); layer slots=282 live=280; passes=0 live=0; tail=1",
+      "strata-poly: buffers[request] graphs[pos=50255 room_key=6 window=8 batch=0]: execs=281 (live owners); layer slots=282 live=280; passes=0 live=0; tail=1"
+    ],
+    "exchange_lines": [],
+    "park_lines": [
+      "strata-poly: conversation cache: parked 49999 tokens in 852.7 ms; parked=1 bytes=0 evictions=0"
+    ],
+    "prefill_progress_file": "protocol.txt"
+  }
+}

@@ -1,0 +1,8 @@
+
+=== ИТОГ: тёплые повторы (req 3+), медианы ===
+plain   : decode 30.89 ток/с | hit 50.3% | accept 91.8%
+scratch : decode 29.78 ток/с   (-3.6% к plain) | hit 50.9% | accept 91.2%
+both    : decode 29.24 ток/с   (-5.3% к plain) | hit 50.7% | accept 82.6%
+plain    VRAM: strata-poly: no-disk ready: 12032 experts total, 11203 in locked RAM, 829 direct in VRAM; locked=107061 MiB, read=126915831296 bytes, model files closed; VRAM free=1280 MiB, host buffers=103 MiB
+scratch  VRAM: strata-poly: no-disk ready: 12032 experts total, 11172 in locked RAM, 860 direct in VRAM; locked=106767 MiB, read=126915831296 bytes, model files closed; VRAM free=1280 MiB, host buffers=103 MiB
+both     VRAM: strata-poly: no-disk ready: 12032 experts total, 11178 in locked RAM, 854 direct in VRAM; locked=106824 MiB, read=126915831296 bytes, model files closed; VRAM free=1284 MiB, host buffers=103 MiB

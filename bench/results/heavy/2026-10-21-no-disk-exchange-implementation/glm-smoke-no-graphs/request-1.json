@@ -1,0 +1,90 @@
+{
+  "number": 1,
+  "prompt_tokens": 31,
+  "generated": 16,
+  "requested": 16,
+  "ids": [
+    11,
+    31421,
+    23495,
+    11,
+    323,
+    13373,
+    16134,
+    315,
+    279,
+    1849,
+    7481,
+    304,
+    279,
+    9701,
+    13,
+    4615
+  ],
+  "resume": 0,
+  "prompt_ms": 2030.9,
+  "decode_ms": 1034.5,
+  "finish": "length",
+  "drafts_accepted": 0,
+  "drafts_offered": 0,
+  "raw_done_gpu": 951,
+  "raw_done_lookups": 5040,
+  "read": 31,
+  "elapsed_s": 3.062000000005355,
+  "ttft_s": 2.0309999999881256,
+  "decode_tps": 14.499758337361044,
+  "prompt_tps": 15.264168595204096,
+  "token_times": [
+    0.0,
+    0.125,
+    0.20300000000861473,
+    0.25,
+    0.3120000000053551,
+    0.375,
+    0.4370000000053551,
+    0.5,
+    0.5620000000053551,
+    0.6410000000032596,
+    0.7030000000086147,
+    0.7660000000032596,
+    0.8280000000086147,
+    0.9060000000172295,
+    0.9690000000118744,
+    1.0310000000172295
+  ],
+  "stdin_bytes": 165,
+  "io_before": {
+    "read_count": 2276979,
+    "write_count": 210,
+    "read_bytes": 113605076730,
+    "write_bytes": 30947,
+    "other_count": 1303,
+    "other_bytes": 18231122
+  },
+  "io_after": {
+    "read_count": 2276980,
+    "write_count": 289,
+    "read_bytes": 113605076895,
+    "write_bytes": 35964,
+    "other_count": 1303,
+    "other_bytes": 18231122
+  },
+  "cpu_before": {
+    "user": 6.578125,
+    "system": 52.890625,
+    "children_user": 0.0,
+    "children_system": 0.0
+  },
+  "cpu_after": {
+    "user": 31.109375,
+    "system": 53.390625,
+    "children_user": 0.0,
+    "children_system": 0.0
+  },
+  "process_gpu_after": {
+    "used": 22903816192,
+    "spilled": 328728576,
+    "shared": 328728576,
+    "asked": 23232544768
+  }
+}

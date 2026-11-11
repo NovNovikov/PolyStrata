@@ -1,0 +1,1064 @@
+strata-poly: no-disk VRAM[before-plan]: free=10288.00 MiB (10787749888 bytes), reserve=1024 MiB, load_margin=512 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=12691.78 MiB
+strata-poly: no-disk RAM: policy=allocate-and-lock, available_now=114105 MiB, held=743 MiB, future_rows=512 MiB, explicit_limit=0 MiB (0=none)
+strata-poly: no-disk plan: attempt=1, 11279 experts in RAM (95974 MiB), 1105 permanent in VRAM (8750 MiB); expert budgets RAM=allocation/lock VRAM=8752 MiB; staging=2048 MiB
+strata-poly: no-disk VRAM[after-ram-arena]: free=10288.00 MiB (10787749888 bytes), reserve=1024 MiB, load_margin=512 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=12691.78 MiB
+strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=2048 MiB, limit=2050 MiB; original resident RAM, no host staging copy
+strata-poly: no-disk VRAM[after-registration]: free=10288.00 MiB (10787749888 bytes), reserve=1024 MiB, load_margin=512 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=12691.78 MiB
+strata-poly: no-disk VRAM[after-expert-allocation]: free=1536.00 MiB (1610612736 bytes), reserve=1024 MiB, load_margin=512 MiB, used_since_previous=+8752.00 MiB, used_since_plan=+8752.00 MiB, engine_allocated=21441.89 MiB
+strata-poly: no-disk VRAM[after-expert-zero]: free=1491.94 MiB (1564413952 bytes), reserve=1024 MiB, load_margin=512 MiB, used_since_previous=+44.06 MiB, used_since_plan=+8796.06 MiB, engine_allocated=21441.89 MiB
+strata-poly: no-disk loaded experts of layer 3
+strata-poly: no-disk loaded experts of layer 4
+strata-poly: no-disk loaded experts of layer 5
+strata-poly: no-disk loaded experts of layer 6
+strata-poly: no-disk loaded experts of layer 7
+strata-poly: no-disk loaded experts of layer 8
+strata-poly: no-disk loaded experts of layer 9
+strata-poly: no-disk loaded experts of layer 10
+strata-poly: no-disk loaded experts of layer 11
+strata-poly: no-disk loaded experts of layer 12
+strata-poly: no-disk loaded experts of layer 13
+strata-poly: no-disk loaded experts of layer 14
+strata-poly: no-disk loaded experts of layer 15
+strata-poly: no-disk loaded experts of layer 16
+strata-poly: no-disk loaded experts of layer 17
+strata-poly: no-disk loaded experts of layer 18
+strata-poly: no-disk loaded experts of layer 19
+strata-poly: no-disk loaded experts of layer 20
+strata-poly: no-disk loaded experts of layer 21
+strata-poly: no-disk loaded experts of layer 22
+strata-poly: no-disk loaded experts of layer 23
+strata-poly: no-disk loaded experts of layer 24
+strata-poly: no-disk loaded experts of layer 25
+strata-poly: no-disk loaded experts of layer 26
+strata-poly: no-disk loaded experts of layer 27
+strata-poly: no-disk loaded experts of layer 28
+strata-poly: no-disk loaded experts of layer 29
+strata-poly: no-disk loaded experts of layer 30
+strata-poly: no-disk loaded experts of layer 31
+strata-poly: no-disk loaded experts of layer 32
+strata-poly: no-disk loaded experts of layer 33
+strata-poly: no-disk loaded experts of layer 34
+strata-poly: no-disk loaded experts of layer 35
+strata-poly: no-disk loaded experts of layer 36
+strata-poly: no-disk loaded experts of layer 37
+strata-poly: no-disk loaded experts of layer 38
+strata-poly: no-disk loaded experts of layer 39
+strata-poly: no-disk loaded experts of layer 40
+strata-poly: no-disk loaded experts of layer 41
+strata-poly: no-disk loaded experts of layer 42
+strata-poly: no-disk loaded experts of layer 43
+strata-poly: no-disk loaded experts of layer 44
+strata-poly: no-disk loaded experts of layer 45
+strata-poly: no-disk VRAM[after-expert-copy]: free=1495.08 MiB (1567703040 bytes), reserve=1024 MiB, load_margin=512 MiB, used_since_previous=-3.14 MiB, used_since_plan=+8792.92 MiB, engine_allocated=21441.89 MiB
+strata-poly: no-disk VRAM[after-file-close]: free=1495.08 MiB (1567703040 bytes), reserve=1024 MiB, load_margin=512 MiB, used_since_previous=+0.00 MiB, used_since_plan=+8792.92 MiB, engine_allocated=21441.89 MiB
+strata-poly: no-disk ready: 12384 experts total, 11279 in locked RAM, 1105 direct in VRAM; locked=96617 MiB, read=116364172664 bytes, model files closed; VRAM free=1495 MiB, host buffers=100 MiB
+strata-poly: no-disk decode cache borrows staging: 151 slots of 14156064 bytes, 64 uploads in flight; no additional weight allocation; permanent slots protected
+strata-poly: no-disk RAM free after load: 18549 MiB
+strata-poly: memory[load] card=0 context=200000 sequences=1: KV=2636.72 MiB VRAM (full-context=2636.72 MiB), rows=0.00 MiB VRAM (chunk=8192, batch=1024), h_res_=0.00 MiB RAM (max=512.00 MiB)
+strata-poly: memory[load] card=0 VRAM allocations total=21441.89 MiB: dense=5622.06, experts=8750.11, KV=2636.72, staging=2048.00, rows=0.00, other=2385.00; reserve=1024 MiB
+strata-poly: memory[load] expert placement: permanent=1105, staging_cache=0/151 slots (0.00 MiB used inside existing staging); uploads=0
+strata-poly: memory[load] card=0 RAM weights+buffers total=96717.27 MiB: resident_weights=96617.06, pinned_buffers=100.21 (includes h_res_); CUDA/HIP-registered window=2048.00 MiB (part of resident_weights, peak=2048.00 MiB); whole process RSS=97132.71 MiB, system RAM free=18549.73 MiB
+strata-poly: memory[load] card=0 whole device used=23068.42 / 24563.50 MiB, free=1495.08 MiB (includes CUDA libraries and other processes)
+strata-poly: buffers[load] card=0: device=21441.89 MiB (plain=18793.12, sequence=12.05, attention caches=2636.72), pinned=100.21 MiB, scratch slices=1669.46 MiB in 1669.46 MiB
+strata-poly: buffers[load] no-disk permanent experts          device              1 x  8750.106 MiB =   8750.106 MiB
+strata-poly: buffers[load] the dense weights                  device              1 x  5622.063 MiB =   5622.063 MiB
+strata-poly: buffers[load] the attention cache (KV)           attention cache    24 x    24.414 MiB =   2636.719 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[load] the expert staging buffer          device              1 x  2048.000 MiB =   2048.000 MiB
+strata-poly: buffers[load] scratch_ (arch scratch arena)      device              1 x  1669.463 MiB =   1669.463 MiB
+strata-poly: buffers[load] snap_ (window states)              device              1 x   436.688 MiB =    436.688 MiB
+strata-poly: buffers[load] the recurrent state                device              1 x   161.578 MiB =    161.578 MiB
+strata-poly: buffers[load] pinned memory                      pinned              8 x     0.000 MiB =    100.080 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[load] mq_ (MMQ rows of x)                device              1 x    36.018 MiB =     36.018 MiB
+strata-poly: buffers[load] mq2_ (MMQ rows of the expert output) device              1 x    18.018 MiB =     18.018 MiB
+strata-poly: buffers[load] mqx_ (MMQ rows of q8_tile)         device              1 x    18.018 MiB =     18.018 MiB
+strata-poly: buffers[load] q8_ (quantized weights)            device              1 x    18.000 MiB =     18.000 MiB
+strata-poly: buffers[load] the indexer cache                  sequence            1 x    12.047 MiB =     12.047 MiB
+strata-poly: buffers[load] scratch                            device              1 x     8.016 MiB =      8.016 MiB
+strata-poly: buffers[load] xq_ (quantized activations)        device              1 x     4.500 MiB =      4.500 MiB
+strata-poly: buffers[load] wlogits_ (window()/step() logits)  device              1 x     2.363 MiB =      2.363 MiB
+strata-poly: buffers[load] tab_ (MoE tile tables)             device              1 x     0.100 MiB =      0.100 MiB
+strata-poly: buffers[load] h_tab_ (MoE tile tables)           pinned              1 x     0.100 MiB =      0.100 MiB
+strata-poly: buffers[load] d_slots_ (expert slots)            device              1 x     0.099 MiB =      0.099 MiB
+strata-poly: buffers[load] d_ids_ (row -> expert)             device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[load] d_wts_ (row -> weight)             device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[load] h_ids_ (row -> expert)             pinned              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[load] iota_ (row indices)                device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[load] at_ (recorded positions)           device              1 x     0.000 MiB =      0.000 MiB
+strata-poly: buffers[load] scratch r_ (layer input rows)          offset=        0 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2277
+strata-poly: buffers[load] scratch cur_                           offset=134217728 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2279
+strata-poly: buffers[load] scratch xn_ (normed input)             offset=150994944 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2280
+strata-poly: buffers[load] scratch ao_ (attention output)         offset=167772160 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2281
+strata-poly: buffers[load] scratch fo_ (layer output)             offset=184549376 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2282
+strata-poly: buffers[load] scratch g_ (expert gate rows)          offset=201326592 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2283
+strata-poly: buffers[load] scratch u_ (expert up rows)            offset=251658240 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2284
+strata-poly: buffers[load] scratch h_ (expert hidden rows)        offset=301989888 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2285
+strata-poly: buffers[load] scratch d_ (MoE sums in progress)      offset=352321536 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2286
+strata-poly: buffers[load] scratch rl_ (router logits)            offset=352845824 bytes=   1179648 (  1.125 MiB) count=294912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2287
+strata-poly: buffers[load] scratch logits_                        offset=354025472 bytes=    619520 (  0.591 MiB) count=154880 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2288
+strata-poly: buffers[load] scratch wf_ (BF16 matrix as floats)    offset=354644992 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2289
+strata-poly: buffers[load] scratch gu_ (expert gate/up rows)      offset=388199424 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2293
+strata-poly: buffers[load] scratch hx_ (expert activation rows)   offset=522417152 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2294
+strata-poly: buffers[load] scratch dx_ (expert down rows)         offset=589526016 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2295
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=723743744 bytes=    102400 (  0.098 MiB) count=25600 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:249
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=723846144 bytes=     81920 (  0.078 MiB) count=20480 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:250
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=723928064 bytes= 100663296 ( 96.000 MiB) count=25165824 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:252
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=824591360 bytes= 100663296 ( 96.000 MiB) count=25165824 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:253
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=925254656 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:254
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=925778944 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:255
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=926303232 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:256
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=959857664 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:257
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=993412096 bytes=    262144 (  0.250 MiB) count=65536 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:258
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=993674240 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:259
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1027228672 bytes=   6291456 (  6.000 MiB) count=1572864 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:261
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1033520128 bytes=   6291456 (  6.000 MiB) count=1572864 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:262
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1039811584 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:263
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1106920448 bytes=   2097152 (  2.000 MiB) count=524288 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:264
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1109017600 bytes=   2097152 (  2.000 MiB) count=524288 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:265
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1111114752 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:266
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1245332480 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:267
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1379550208 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:268
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1446659072 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:269
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1447183360 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:270
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1447707648 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:271
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1448231936 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:272
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1465009152 bytes=    131072 (  0.125 MiB) count=32768 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:273
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1465140224 bytes= 134202880 (127.986 MiB) count=33550671 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:274
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1599343104 bytes= 134414336 (128.188 MiB) count=33603584 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:277
+strata-poly: buffers[load] scratch (unnamed fbuf)                 offset=1733757440 bytes=  16801792 ( 16.023 MiB) count=4200448 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:278
+strata-poly: buffers[load] check: scratch slices 1669.46 of 1669.46 MiB (0.00 alignment and tail), unnamed slices 26; allocator records device=21441.89, pinned=100.21 MiB; mapped KV (VMM, not in device_sizes_)=0.00 of the 2636.72 requested; arena mapped=0.00 MiB
+strata-poly: buffers[load] graphs[pos=0 room_key=0 window=4 batch=0]: execs=0 (live owners); layer slots=0 live=0; passes=0 live=0; tail=0
+strata-poly: device-memory[load] global_free=1567703040 global_total=25756696576 bytes
+strata-poly: loaded in 184.0 s; 1105 of 12384 routed experts in VRAM (8.5 GiB), 12 CPU threads
+strata-poly: memory[h_res_ grown] card=0 context=200000 sequences=1: KV=2636.72 MiB VRAM (full-context=2636.72 MiB), rows=0.00 MiB VRAM (chunk=8192, batch=1024), h_res_=256.00 MiB RAM (max=512.00 MiB)
+strata-poly: memory[h_res_ grown] card=0 VRAM allocations total=21441.89 MiB: dense=5622.06, experts=8750.11, KV=2636.72, staging=2048.00, rows=0.00, other=2385.00; reserve=1024 MiB
+strata-poly: memory[h_res_ grown] expert placement: permanent=1105, staging_cache=0/151 slots (0.00 MiB used inside existing staging); uploads=0
+strata-poly: memory[h_res_ grown] card=0 RAM weights+buffers total=96973.27 MiB: resident_weights=96617.06, pinned_buffers=356.21 (includes h_res_); CUDA/HIP-registered window=2048.00 MiB (part of resident_weights, peak=2048.00 MiB); whole process RSS=97404.95 MiB, system RAM free=18203.49 MiB
+strata-poly: memory[h_res_ grown] card=0 whole device used=23068.42 / 24563.50 MiB, free=1495.08 MiB (includes CUDA libraries and other processes)
+strata-poly: buffers[h_res_ grown] card=0: device=21441.89 MiB (plain=18793.12, sequence=12.05, attention caches=2636.72), pinned=356.21 MiB, scratch slices=1669.46 MiB in 1669.46 MiB
+strata-poly: buffers[h_res_ grown] no-disk permanent experts          device              1 x  8750.106 MiB =   8750.106 MiB
+strata-poly: buffers[h_res_ grown] the dense weights                  device              1 x  5622.063 MiB =   5622.063 MiB
+strata-poly: buffers[h_res_ grown] the attention cache (KV)           attention cache    24 x    24.414 MiB =   2636.719 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[h_res_ grown] the expert staging buffer          device              1 x  2048.000 MiB =   2048.000 MiB
+strata-poly: buffers[h_res_ grown] scratch_ (arch scratch arena)      device              1 x  1669.463 MiB =   1669.463 MiB
+strata-poly: buffers[h_res_ grown] snap_ (window states)              device              1 x   436.688 MiB =    436.688 MiB
+strata-poly: buffers[h_res_ grown] pinned memory                      pinned              9 x     0.000 MiB =    356.080 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[h_res_ grown] the recurrent state                device              1 x   161.578 MiB =    161.578 MiB
+strata-poly: buffers[h_res_ grown] mq_ (MMQ rows of x)                device              1 x    36.018 MiB =     36.018 MiB
+strata-poly: buffers[h_res_ grown] mq2_ (MMQ rows of the expert output) device              1 x    18.018 MiB =     18.018 MiB
+strata-poly: buffers[h_res_ grown] mqx_ (MMQ rows of q8_tile)         device              1 x    18.018 MiB =     18.018 MiB
+strata-poly: buffers[h_res_ grown] q8_ (quantized weights)            device              1 x    18.000 MiB =     18.000 MiB
+strata-poly: buffers[h_res_ grown] the indexer cache                  sequence            1 x    12.047 MiB =     12.047 MiB
+strata-poly: buffers[h_res_ grown] scratch                            device              1 x     8.016 MiB =      8.016 MiB
+strata-poly: buffers[h_res_ grown] xq_ (quantized activations)        device              1 x     4.500 MiB =      4.500 MiB
+strata-poly: buffers[h_res_ grown] wlogits_ (window()/step() logits)  device              1 x     2.363 MiB =      2.363 MiB
+strata-poly: buffers[h_res_ grown] tab_ (MoE tile tables)             device              1 x     0.100 MiB =      0.100 MiB
+strata-poly: buffers[h_res_ grown] h_tab_ (MoE tile tables)           pinned              1 x     0.100 MiB =      0.100 MiB
+strata-poly: buffers[h_res_ grown] d_slots_ (expert slots)            device              1 x     0.099 MiB =      0.099 MiB
+strata-poly: buffers[h_res_ grown] d_ids_ (row -> expert)             device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[h_res_ grown] d_wts_ (row -> weight)             device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[h_res_ grown] h_ids_ (row -> expert)             pinned              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[h_res_ grown] iota_ (row indices)                device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[h_res_ grown] at_ (recorded positions)           device              1 x     0.000 MiB =      0.000 MiB
+strata-poly: buffers[h_res_ grown] scratch r_ (layer input rows)          offset=        0 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2277
+strata-poly: buffers[h_res_ grown] scratch cur_                           offset=134217728 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2279
+strata-poly: buffers[h_res_ grown] scratch xn_ (normed input)             offset=150994944 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2280
+strata-poly: buffers[h_res_ grown] scratch ao_ (attention output)         offset=167772160 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2281
+strata-poly: buffers[h_res_ grown] scratch fo_ (layer output)             offset=184549376 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2282
+strata-poly: buffers[h_res_ grown] scratch g_ (expert gate rows)          offset=201326592 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2283
+strata-poly: buffers[h_res_ grown] scratch u_ (expert up rows)            offset=251658240 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2284
+strata-poly: buffers[h_res_ grown] scratch h_ (expert hidden rows)        offset=301989888 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2285
+strata-poly: buffers[h_res_ grown] scratch d_ (MoE sums in progress)      offset=352321536 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2286
+strata-poly: buffers[h_res_ grown] scratch rl_ (router logits)            offset=352845824 bytes=   1179648 (  1.125 MiB) count=294912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2287
+strata-poly: buffers[h_res_ grown] scratch logits_                        offset=354025472 bytes=    619520 (  0.591 MiB) count=154880 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2288
+strata-poly: buffers[h_res_ grown] scratch wf_ (BF16 matrix as floats)    offset=354644992 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2289
+strata-poly: buffers[h_res_ grown] scratch gu_ (expert gate/up rows)      offset=388199424 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2293
+strata-poly: buffers[h_res_ grown] scratch hx_ (expert activation rows)   offset=522417152 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2294
+strata-poly: buffers[h_res_ grown] scratch dx_ (expert down rows)         offset=589526016 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2295
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=723743744 bytes=    102400 (  0.098 MiB) count=25600 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:249
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=723846144 bytes=     81920 (  0.078 MiB) count=20480 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:250
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=723928064 bytes= 100663296 ( 96.000 MiB) count=25165824 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:252
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=824591360 bytes= 100663296 ( 96.000 MiB) count=25165824 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:253
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=925254656 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:254
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=925778944 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:255
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=926303232 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:256
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=959857664 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:257
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=993412096 bytes=    262144 (  0.250 MiB) count=65536 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:258
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=993674240 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:259
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1027228672 bytes=   6291456 (  6.000 MiB) count=1572864 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:261
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1033520128 bytes=   6291456 (  6.000 MiB) count=1572864 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:262
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1039811584 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:263
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1106920448 bytes=   2097152 (  2.000 MiB) count=524288 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:264
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1109017600 bytes=   2097152 (  2.000 MiB) count=524288 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:265
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1111114752 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:266
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1245332480 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:267
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1379550208 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:268
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1446659072 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:269
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1447183360 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:270
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1447707648 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:271
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1448231936 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:272
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1465009152 bytes=    131072 (  0.125 MiB) count=32768 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:273
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1465140224 bytes= 134202880 (127.986 MiB) count=33550671 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:274
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1599343104 bytes= 134414336 (128.188 MiB) count=33603584 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:277
+strata-poly: buffers[h_res_ grown] scratch (unnamed fbuf)                 offset=1733757440 bytes=  16801792 ( 16.023 MiB) count=4200448 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:278
+strata-poly: buffers[h_res_ grown] check: scratch slices 1669.46 of 1669.46 MiB (0.00 alignment and tail), unnamed slices 26; allocator records device=21441.89, pinned=356.21 MiB; mapped KV (VMM, not in device_sizes_)=0.00 of the 2636.72 requested; arena mapped=0.00 MiB
+strata-poly: buffers[h_res_ grown] graphs[pos=0 room_key=0 window=4 batch=0]: execs=0 (live owners); layer slots=0 live=0; passes=0 live=0; tail=0
+strata-poly: device-memory[h_res_ grown] global_free=1567703040 global_total=25756696576 bytes
+strata-poly: expert-cache decode: tokens=128 interval=128 GPU=12289 CPU=37007 hit=24.93% uploads=264 speed=18.79 tok/s
+strata-poly: expert-cache decode: tokens=256 interval=128 GPU=12385 CPU=34383 hit=26.48% uploads=45 speed=20.37 tok/s
+strata-poly: expert-cache decode: tokens=384 interval=128 GPU=14960 CPU=33416 hit=30.92% uploads=51 speed=21.95 tok/s
+strata-poly: draft-policy begin produced=512 rounds=196 decode_ms=24725.454
+strata-poly: draft-policy round=0 offered=0 match=0 q=0.750000 chosen=2 lookup=0 accepted=1 setup=1 elapsed_ms=110.780 counted_ms=0.000 costs=1:1.000/0/0,2:1.350/0/0,3:1.700/0/0,4:2.050/0/0
+strata-poly: draft-policy round=1 offered=0 match=0 q=0.750000 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=157.730 counted_ms=157.730 costs=1:1.000/0/1,2:1.350/0/1,3:1.700/0/1,4:2.050/0/1
+strata-poly: draft-policy round=2 offered=0 match=0 q=0.750000 chosen=2 lookup=0 accepted=0 setup=1 elapsed_ms=137.749 counted_ms=0.000 costs=1:116.837/0/2,2:157.730/1/1,3:198.623/0/2,4:239.516/0/2
+strata-poly: draft-policy round=3 offered=0 match=0 q=0.750000 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=72.386 counted_ms=72.386 costs=1:116.837/0/3,2:157.730/1/2,3:198.623/0/3,4:239.516/0/3
+strata-poly: draft-policy round=4 offered=0 match=0 q=0.750000 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=52.797 counted_ms=52.797 costs=1:72.386/1/1,2:157.730/1/3,3:160.840/0/4,4:193.954/0/4
+strata-poly: draft-policy round=5 offered=0 match=0 q=0.750000 chosen=4 lookup=0 accepted=3 setup=1 elapsed_ms=193.580 counted_ms=0.000 costs=1:70.427/2/1,2:157.730/1/4,3:146.025/0/5,4:176.089/0/5
+strata-poly: draft-policy round=6 offered=0 match=0 q=0.750000 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=65.455 counted_ms=65.455 costs=1:70.427/2/2,2:157.730/1/5,3:146.025/0/6,4:176.089/0/6
+strata-poly: draft-policy round=7 offered=0 match=0 q=0.750000 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=59.624 counted_ms=59.624 costs=1:69.930/3/1,2:157.730/1/6,3:138.817/0/7,4:167.397/0/7
+strata-poly: draft-policy round=8 offered=0 match=0 q=0.750000 chosen=4 lookup=0 accepted=0 setup=0 elapsed_ms=183.404 counted_ms=183.404 costs=1:68.899/4/1,2:157.730/1/7,3:133.428/0/8,4:160.898/0/8
+strata-poly: draft-policy round=9 offered=0 match=0 q=0.750000 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=58.826 counted_ms=58.826 costs=1:68.899/4/2,2:157.730/1/8,3:136.538/0/9,4:183.404/1/1
+strata-poly: draft-policy round=10 offered=0 match=0 q=0.750000 chosen=4 lookup=0 accepted=0 setup=1 elapsed_ms=164.137 counted_ms=0.000 costs=1:67.892/5/1,2:157.730/1/9,3:132.543/0/10,4:183.404/1/2
+strata-poly: draft-policy round=11 offered=0 match=0 q=0.750000 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=170.704 counted_ms=170.704 costs=1:67.892/5/2,2:157.730/1/10,3:132.543/0/11,4:183.404/1/3
+strata-poly: draft-policy round=12 offered=3 match=4 q=0.750000 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=199.356 counted_ms=199.356 costs=1:67.892/5/3,2:157.730/1/11,3:134.723/0/12,4:182.134/2/1
+strata-poly: draft-policy round=13 offered=3 match=7 q=0.880000 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=197.786 counted_ms=197.786 costs=1:67.892/5/4,2:157.730/1/12,3:137.012/0/13,4:183.856/3/1
+strata-poly: draft-policy round=14 offered=3 match=4 q=0.750000 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=177.042 counted_ms=177.042 costs=1:67.892/5/5,2:157.730/1/13,3:139.019/0/14,4:185.249/4/1
+strata-poly: draft-policy round=15 offered=0 match=0 q=0.750000 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=72.908 counted_ms=72.908 costs=1:67.892/5/6,2:157.730/1/14,3:140.037/0/15,4:184.429/5/1
+strata-poly: draft-policy round=16 offered=0 match=0 q=0.750000 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=150.392 counted_ms=150.392 costs=1:68.394/6/1,2:157.730/1/15,3:138.412/0/16,4:184.429/5/2
+strata-poly: draft-policy round=17 offered=3 match=5 q=0.750000 chosen=4 lookup=0 accepted=1 setup=0 elapsed_ms=172.036 counted_ms=172.036 costs=1:68.394/6/2,2:157.730/1/16,3:138.227/0/17,4:181.025/6/1
+strata-poly: draft-policy round=18 offered=0 match=0 q=0.750000 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=161.936 counted_ms=161.936 costs=1:68.394/6/3,2:157.730/1/17,3:138.704/0/18,4:180.126/7/1
+strata-poly: draft-policy round=19 offered=0 match=0 q=0.750000 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=159.036 counted_ms=159.036 costs=1:68.394/6/4,2:157.730/1/18,3:138.610/0/19,4:178.307/8/1
+strata-poly: draft-policy round=20 offered=0 match=0 q=0.750000 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=63.153 counted_ms=63.153 costs=1:68.394/6/5,2:157.730/1/19,3:138.290/0/20,4:176.380/9/1
+strata-poly: draft-policy round=21 offered=0 match=0 q=0.750000 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=57.523 counted_ms=57.523 costs=1:67.870/7/1,2:157.730/1/20,3:136.628/0/21,4:176.380/9/2
+strata-poly: draft-policy round=22 offered=3 match=3 q=0.750000 chosen=3 lookup=1 accepted=2 setup=1 elapsed_ms=149.709 counted_ms=0.000 costs=1:66.835/8/1,2:157.730/1/21,3:134.665/0/22,4:176.380/9/3
+strata-poly: draft-policy round=23 offered=3 match=6 q=0.880000 chosen=3 lookup=1 accepted=0 setup=0 elapsed_ms=144.609 counted_ms=144.609 costs=1:66.835/8/2,2:157.730/1/22,3:134.665/0/23,4:176.380/9/4
+strata-poly: draft-policy round=24 offered=0 match=0 q=0.833333 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=66.780 counted_ms=66.780 costs=1:66.835/8/3,2:157.730/1/23,3:144.609/1/1,4:176.380/9/5
+strata-poly: draft-policy round=25 offered=0 match=0 q=0.833333 chosen=3 lookup=0 accepted=2 setup=1 elapsed_ms=142.222 counted_ms=0.000 costs=1:66.829/9/1,2:157.730/1/24,3:144.609/1/2,4:176.380/9/6
+strata-poly: draft-policy round=26 offered=0 match=0 q=0.833333 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=63.339 counted_ms=63.339 costs=1:66.829/9/2,2:157.730/1/25,3:144.609/1/3,4:176.380/9/7
+strata-poly: draft-policy round=27 offered=0 match=0 q=0.833333 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=54.566 counted_ms=54.566 costs=1:66.480/10/1,2:157.730/1/26,3:144.609/1/4,4:176.380/9/8
+strata-poly: draft-policy round=28 offered=0 match=0 q=0.833333 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=59.650 counted_ms=59.650 costs=1:65.289/11/1,2:157.730/1/27,3:144.609/1/5,4:176.380/9/9
+strata-poly: draft-policy round=29 offered=0 match=0 q=0.833333 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=67.340 counted_ms=67.340 costs=1:64.725/12/1,2:157.730/1/28,3:144.609/1/6,4:176.380/9/10
+strata-poly: draft-policy round=30 offered=0 match=0 q=0.833333 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=192.658 counted_ms=192.658 costs=1:64.987/13/1,2:157.730/1/29,3:144.609/1/7,4:176.380/9/11
+strata-poly: draft-policy round=31 offered=3 match=4 q=0.833333 chosen=3 lookup=1 accepted=2 setup=0 elapsed_ms=160.173 counted_ms=160.173 costs=1:64.987/13/2,2:157.730/1/30,3:144.609/1/8,4:178.008/10/1
+strata-poly: draft-policy round=32 offered=3 match=7 q=0.704000 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=178.449 counted_ms=178.449 costs=1:64.987/13/3,2:157.730/1/31,3:146.166/2/1,4:178.008/10/2
+strata-poly: draft-policy round=33 offered=3 match=11 q=0.704000 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=165.847 counted_ms=165.847 costs=1:64.987/13/4,2:157.730/1/32,3:146.166/2/2,4:178.052/11/1
+strata-poly: draft-policy round=34 offered=0 match=0 q=0.874055 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=80.969 counted_ms=80.969 costs=1:64.987/13/5,2:157.730/1/33,3:146.166/2/3,4:176.831/12/1
+strata-poly: draft-policy round=35 offered=0 match=0 q=0.874055 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=110.608 counted_ms=110.608 costs=1:64.987/13/6,2:150.054/2/1,3:146.166/2/4,4:176.831/12/2
+strata-poly: draft-policy round=36 offered=3 match=3 q=0.874055 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=162.122 counted_ms=162.122 costs=1:64.987/13/7,2:146.109/3/1,3:146.166/2/5,4:176.831/12/3
+strata-poly: draft-policy round=37 offered=3 match=7 q=0.704000 chosen=3 lookup=1 accepted=2 setup=0 elapsed_ms=139.115 counted_ms=139.115 costs=1:64.987/13/8,2:146.109/3/2,3:146.166/2/6,4:175.360/13/1
+strata-poly: draft-policy round=38 offered=3 match=10 q=0.791966 chosen=3 lookup=1 accepted=2 setup=0 elapsed_ms=129.864 counted_ms=129.864 costs=1:64.987/13/9,2:146.109/3/3,3:145.461/3/1,4:175.360/13/2
+strata-poly: draft-policy round=39 offered=3 match=13 q=0.930000 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=181.194 counted_ms=181.194 costs=1:64.987/13/10,2:146.109/3/4,3:143.901/4/1,4:175.360/13/3
+strata-poly: draft-policy round=40 offered=3 match=17 q=0.960000 chosen=4 lookup=1 accepted=1 setup=0 elapsed_ms=188.555 counted_ms=188.555 costs=1:64.987/13/11,2:146.109/3/5,3:143.901/4/2,4:175.944/14/1
+strata-poly: draft-policy round=41 offered=0 match=0 q=0.907594 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=107.080 counted_ms=107.080 costs=1:64.987/13/12,2:146.109/3/6,3:143.901/4/3,4:177.205/15/1
+strata-poly: draft-policy round=42 offered=0 match=0 q=0.907594 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=103.132 counted_ms=103.132 costs=1:64.987/13/13,2:142.206/4/1,3:143.901/4/4,4:177.205/15/2
+strata-poly: draft-policy round=43 offered=3 match=4 q=0.907594 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=163.590 counted_ms=163.590 costs=1:64.987/13/14,2:138.299/5/1,3:143.901/4/5,4:177.205/15/3
+strata-poly: draft-policy round=44 offered=3 match=8 q=0.840005 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=159.363 counted_ms=159.363 costs=1:64.987/13/15,2:138.299/5/2,3:143.901/4/6,4:175.843/16/1
+strata-poly: draft-policy round=45 offered=3 match=12 q=0.856341 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=171.744 counted_ms=171.744 costs=1:64.987/13/16,2:138.299/5/3,3:143.901/4/7,4:174.195/17/1
+strata-poly: draft-policy round=46 offered=3 match=16 q=0.893732 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=157.810 counted_ms=157.810 costs=1:64.987/13/17,2:138.299/5/4,3:143.901/4/8,4:173.950/18/1
+strata-poly: draft-policy round=47 offered=3 match=20 q=0.915973 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=165.201 counted_ms=165.201 costs=1:64.987/13/18,2:138.299/5/5,3:143.901/4/9,4:172.336/19/1
+strata-poly: draft-policy round=48 offered=3 match=24 q=0.960000 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=157.964 counted_ms=157.964 costs=1:64.987/13/19,2:138.299/5/6,3:143.901/4/10,4:171.623/20/1
+strata-poly: draft-policy round=49 offered=3 match=28 q=0.977143 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=165.780 counted_ms=165.780 costs=1:64.987/13/20,2:138.299/5/7,3:143.901/4/11,4:170.257/21/1
+strata-poly: draft-policy round=50 offered=3 match=32 q=0.983855 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=182.689 counted_ms=182.689 costs=1:64.987/13/21,2:138.299/5/8,3:143.901/4/12,4:169.809/22/1
+strata-poly: draft-policy round=51 offered=3 match=36 q=0.987434 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=192.010 counted_ms=192.010 costs=1:64.987/13/22,2:138.299/5/9,3:143.901/4/13,4:171.097/23/1
+strata-poly: draft-policy round=52 offered=3 match=40 q=0.989658 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=168.801 counted_ms=168.801 costs=1:64.987/13/23,2:138.299/5/10,3:143.901/4/14,4:173.188/24/1
+strata-poly: draft-policy round=53 offered=3 match=44 q=0.991173 chosen=4 lookup=1 accepted=1 setup=0 elapsed_ms=203.887 counted_ms=203.887 costs=1:64.987/13/24,2:138.299/5/11,3:143.901/4/15,4:172.750/25/1
+strata-poly: draft-policy round=54 offered=0 match=0 q=0.926563 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=99.301 counted_ms=99.301 costs=1:64.987/13/25,2:138.299/5/12,3:143.901/4/16,4:175.863/26/1
+strata-poly: draft-policy round=55 offered=0 match=0 q=0.926563 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=120.945 counted_ms=120.945 costs=1:64.987/13/26,2:134.399/6/1,3:143.901/4/17,4:175.863/26/2
+strata-poly: draft-policy round=56 offered=3 match=3 q=0.926563 chosen=4 lookup=1 accepted=0 setup=0 elapsed_ms=189.374 counted_ms=189.374 costs=1:64.987/13/27,2:133.054/7/1,3:143.901/4/18,4:175.863/26/3
+strata-poly: draft-policy round=57 offered=0 match=0 q=0.860419 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=92.973 counted_ms=92.973 costs=1:64.987/13/28,2:133.054/7/2,3:143.901/4/19,4:177.214/27/1
+strata-poly: draft-policy round=58 offered=0 match=0 q=0.860419 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=96.325 counted_ms=96.325 costs=1:64.987/13/29,2:129.046/8/1,3:143.901/4/20,4:177.214/27/2
+strata-poly: draft-policy round=59 offered=0 match=0 q=0.860419 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=102.640 counted_ms=102.640 costs=1:64.987/13/30,2:125.774/9/1,3:143.901/4/21,4:177.214/27/3
+strata-poly: draft-policy round=60 offered=0 match=0 q=0.860419 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=89.737 counted_ms=89.737 costs=1:64.987/13/31,2:123.460/10/1,3:143.901/4/22,4:177.214/27/4
+strata-poly: draft-policy round=61 offered=0 match=0 q=0.860419 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=86.483 counted_ms=86.483 costs=1:64.987/13/32,2:120.088/11/1,3:143.901/4/23,4:177.214/27/5
+strata-poly: draft-policy round=62 offered=0 match=0 q=0.860419 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=58.026 counted_ms=58.026 costs=1:64.987/13/33,2:116.727/12/1,3:143.901/4/24,4:177.214/27/6
+strata-poly: draft-policy round=63 offered=0 match=0 q=0.860419 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=91.250 counted_ms=91.250 costs=1:64.290/14/1,2:116.727/12/2,3:143.901/4/25,4:177.214/27/7
+strata-poly: draft-policy round=64 offered=3 match=3 q=0.860419 chosen=4 lookup=1 accepted=0 setup=0 elapsed_ms=177.294 counted_ms=177.294 costs=1:64.290/14/2,2:114.180/13/1,3:143.901/4/26,4:177.214/27/8
+strata-poly: draft-policy round=65 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=90.479 counted_ms=90.479 costs=1:64.290/14/3,2:114.180/13/2,3:143.901/4/27,4:177.222/28/1
+strata-poly: draft-policy round=66 offered=3 match=5 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=87.202 counted_ms=87.202 costs=1:64.290/14/4,2:111.810/14/1,3:143.901/4/28,4:177.222/28/2
+strata-poly: draft-policy round=67 offered=3 match=7 q=0.881318 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=177.895 counted_ms=177.895 costs=1:64.290/14/5,2:109.349/15/1,3:143.901/4/29,4:177.222/28/3
+strata-poly: draft-policy round=68 offered=3 match=4 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=88.573 counted_ms=88.573 costs=1:64.290/14/6,2:109.349/15/2,3:143.901/4/30,4:177.290/29/1
+strata-poly: draft-policy round=69 offered=3 match=13 q=0.930715 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=174.260 counted_ms=174.260 costs=1:64.290/14/7,2:107.271/16/1,3:143.901/4/31,4:177.290/29/2
+strata-poly: draft-policy round=70 offered=3 match=17 q=0.941199 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=161.047 counted_ms=161.047 costs=1:64.290/14/8,2:107.271/16/2,3:143.901/4/32,4:176.987/30/1
+strata-poly: draft-policy round=71 offered=3 match=5 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=147.243 counted_ms=147.243 costs=1:64.290/14/9,2:107.271/16/3,3:143.901/4/33,4:175.393/31/1
+strata-poly: draft-policy round=72 offered=3 match=24 q=0.941125 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=196.433 counted_ms=196.433 costs=1:64.290/14/10,2:107.271/16/4,3:144.235/5/1,4:175.393/31/2
+strata-poly: draft-policy round=73 offered=3 match=28 q=0.949172 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=160.936 counted_ms=160.936 costs=1:64.290/14/11,2:107.271/16/5,3:144.235/5/2,4:177.497/32/1
+strata-poly: draft-policy round=74 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=93.138 counted_ms=93.138 costs=1:64.290/14/12,2:107.271/16/6,3:144.235/5/3,4:175.841/33/1
+strata-poly: draft-policy round=75 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=96.687 counted_ms=96.687 costs=1:64.290/14/13,2:105.858/17/1,3:144.235/5/4,4:175.841/33/2
+strata-poly: draft-policy round=76 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=88.435 counted_ms=88.435 costs=1:64.290/14/14,2:104.941/18/1,3:144.235/5/5,4:175.841/33/3
+strata-poly: draft-policy round=77 offered=3 match=5 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=107.458 counted_ms=107.458 costs=1:64.290/14/15,2:103.290/19/1,3:144.235/5/6,4:175.841/33/4
+strata-poly: draft-policy round=78 offered=3 match=7 q=0.905858 chosen=4 lookup=1 accepted=1 setup=0 elapsed_ms=182.325 counted_ms=182.325 costs=1:64.290/14/16,2:103.707/20/1,3:144.235/5/7,4:175.841/33/5
+strata-poly: draft-policy round=79 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=88.325 counted_ms=88.325 costs=1:64.290/14/17,2:103.707/20/2,3:144.235/5/8,4:176.489/34/1
+strata-poly: draft-policy round=80 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=89.768 counted_ms=89.768 costs=1:64.290/14/18,2:102.169/21/1,3:144.235/5/9,4:176.489/34/2
+strata-poly: draft-policy round=81 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=92.347 counted_ms=92.347 costs=1:64.290/14/19,2:100.929/22/1,3:144.235/5/10,4:176.489/34/3
+strata-poly: draft-policy round=82 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=107.248 counted_ms=107.248 costs=1:64.290/14/20,2:100.071/23/1,3:144.235/5/11,4:176.489/34/4
+strata-poly: draft-policy round=83 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=89.633 counted_ms=89.633 costs=1:64.290/14/21,2:100.788/24/1,3:144.235/5/12,4:176.489/34/5
+strata-poly: draft-policy round=84 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=87.691 counted_ms=87.691 costs=1:64.290/14/22,2:99.673/25/1,3:144.235/5/13,4:176.489/34/6
+strata-poly: draft-policy round=85 offered=3 match=4 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=100.444 counted_ms=100.444 costs=1:64.290/14/23,2:98.475/26/1,3:144.235/5/14,4:176.489/34/7
+strata-poly: draft-policy round=86 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=101.629 counted_ms=101.629 costs=1:64.290/14/24,2:98.672/27/1,3:144.235/5/15,4:176.489/34/8
+strata-poly: draft-policy round=87 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=101.700 counted_ms=101.700 costs=1:64.290/14/25,2:98.967/28/1,3:144.235/5/16,4:176.489/34/9
+strata-poly: draft-policy round=88 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=115.375 counted_ms=115.375 costs=1:64.290/14/26,2:99.241/29/1,3:144.235/5/17,4:176.489/34/10
+strata-poly: draft-policy round=89 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=104.690 counted_ms=104.690 costs=1:64.290/14/27,2:100.854/30/1,3:144.235/5/18,4:176.489/34/11
+strata-poly: draft-policy round=90 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=104.191 counted_ms=104.191 costs=1:64.290/14/28,2:101.238/31/1,3:144.235/5/19,4:176.489/34/12
+strata-poly: draft-policy round=91 offered=3 match=3 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=142.404 counted_ms=142.404 costs=1:64.290/14/29,2:101.533/32/1,3:144.235/5/20,4:176.489/34/13
+strata-poly: draft-policy round=92 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=81.568 counted_ms=81.568 costs=1:64.290/14/30,2:101.533/32/2,3:144.235/5/21,4:173.081/35/1
+strata-poly: draft-policy round=93 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=100.814 counted_ms=100.814 costs=1:64.290/14/31,2:99.536/33/1,3:144.235/5/22,4:173.081/35/2
+strata-poly: draft-policy round=94 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=74.359 counted_ms=74.359 costs=1:64.290/14/32,2:99.664/34/1,3:144.235/5/23,4:173.081/35/3
+strata-poly: draft-policy round=95 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=58.578 counted_ms=58.578 costs=1:64.290/14/33,2:97.134/35/1,3:144.235/5/24,4:173.081/35/4
+strata-poly: draft-policy round=96 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=90.794 counted_ms=90.794 costs=1:63.719/15/1,2:97.134/35/2,3:144.235/5/25,4:173.081/35/5
+strata-poly: draft-policy round=97 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=73.765 counted_ms=73.765 costs=1:63.719/15/2,2:96.500/36/1,3:144.235/5/26,4:173.081/35/6
+strata-poly: draft-policy round=98 offered=3 match=5 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=85.728 counted_ms=85.728 costs=1:63.719/15/3,2:94.226/37/1,3:144.235/5/27,4:173.081/35/7
+strata-poly: draft-policy round=99 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=73.951 counted_ms=73.951 costs=1:63.719/15/4,2:93.376/38/1,3:144.235/5/28,4:173.081/35/8
+strata-poly: draft-policy round=100 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=85.019 counted_ms=85.019 costs=1:63.719/15/5,2:91.434/39/1,3:144.235/5/29,4:173.081/35/9
+strata-poly: draft-policy round=101 offered=3 match=5 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=85.667 counted_ms=85.667 costs=1:63.719/15/6,2:90.792/40/1,3:144.235/5/30,4:173.081/35/10
+strata-poly: draft-policy round=102 offered=3 match=7 q=0.855521 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=82.313 counted_ms=82.313 costs=1:63.719/15/7,2:90.280/41/1,3:144.235/5/31,4:173.081/35/11
+strata-poly: draft-policy round=103 offered=3 match=9 q=0.855521 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=79.233 counted_ms=79.233 costs=1:63.719/15/8,2:89.483/42/1,3:144.235/5/32,4:173.081/35/12
+strata-poly: draft-policy round=104 offered=3 match=11 q=0.855521 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=128.808 counted_ms=128.808 costs=1:63.719/15/9,2:88.458/43/1,3:144.235/5/33,4:173.081/35/13
+strata-poly: draft-policy round=105 offered=3 match=14 q=0.949034 chosen=2 lookup=1 accepted=1 setup=0 elapsed_ms=74.480 counted_ms=74.480 costs=1:63.719/15/10,2:88.458/43/2,3:142.692/6/1,4:173.081/35/14
+strata-poly: draft-policy round=106 offered=3 match=16 q=0.951170 chosen=2 lookup=1 accepted=1 setup=0 elapsed_ms=79.245 counted_ms=79.245 costs=1:63.719/15/11,2:87.060/44/1,3:142.692/6/2,4:173.081/35/15
+strata-poly: draft-policy round=107 offered=3 match=18 q=0.953163 chosen=2 lookup=1 accepted=1 setup=0 elapsed_ms=82.822 counted_ms=82.822 costs=1:63.719/15/12,2:86.279/45/1,3:142.692/6/3,4:173.081/35/16
+strata-poly: draft-policy round=108 offered=3 match=20 q=0.955025 chosen=2 lookup=1 accepted=0 setup=0 elapsed_ms=75.895 counted_ms=75.895 costs=1:63.719/15/13,2:85.933/46/1,3:142.692/6/4,4:173.081/35/17
+strata-poly: draft-policy round=109 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=92.344 counted_ms=92.344 costs=1:63.719/15/14,2:84.929/47/1,3:142.692/6/5,4:173.081/35/18
+strata-poly: draft-policy round=110 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=97.081 counted_ms=97.081 costs=1:63.719/15/15,2:85.671/48/1,3:142.692/6/6,4:173.081/35/19
+strata-poly: draft-policy round=111 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=87.670 counted_ms=87.670 costs=1:63.719/15/16,2:86.812/49/1,3:142.692/6/7,4:173.081/35/20
+strata-poly: draft-policy round=112 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=84.551 counted_ms=84.551 costs=1:63.719/15/17,2:86.898/50/1,3:142.692/6/8,4:173.081/35/21
+strata-poly: draft-policy round=113 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=98.226 counted_ms=98.226 costs=1:63.719/15/18,2:86.663/51/1,3:142.692/6/9,4:173.081/35/22
+strata-poly: draft-policy round=114 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=82.387 counted_ms=82.387 costs=1:63.719/15/19,2:87.819/52/1,3:142.692/6/10,4:173.081/35/23
+strata-poly: draft-policy round=115 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=48.169 counted_ms=48.169 costs=1:63.719/15/20,2:87.276/53/1,3:142.692/6/11,4:173.081/35/24
+strata-poly: draft-policy round=116 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=103.602 counted_ms=103.602 costs=1:62.164/16/1,2:87.276/53/2,3:142.692/6/12,4:173.081/35/25
+strata-poly: draft-policy round=117 offered=3 match=5 q=0.802247 chosen=3 lookup=0 accepted=1 setup=0 elapsed_ms=139.704 counted_ms=139.704 costs=1:62.164/16/2,2:88.909/54/1,3:142.692/6/13,4:173.081/35/26
+strata-poly: draft-policy round=118 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=99.009 counted_ms=99.009 costs=1:62.164/16/3,2:88.909/54/2,3:142.394/7/1,4:173.081/35/27
+strata-poly: draft-policy round=119 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=116.697 counted_ms=116.697 costs=1:62.164/16/4,2:88.909/54/3,3:138.055/8/1,4:173.081/35/28
+strata-poly: draft-policy round=120 offered=3 match=3 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=141.102 counted_ms=141.102 costs=1:62.164/16/5,2:88.909/54/4,3:135.919/9/1,4:173.081/35/29
+strata-poly: draft-policy round=121 offered=3 match=6 q=0.855521 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=127.840 counted_ms=127.840 costs=1:62.164/16/6,2:88.909/54/5,3:136.437/10/1,4:173.081/35/30
+strata-poly: draft-policy round=122 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=81.997 counted_ms=81.997 costs=1:62.164/16/7,2:88.909/54/6,3:135.578/11/1,4:173.081/35/31
+strata-poly: draft-policy round=123 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=117.976 counted_ms=117.976 costs=1:62.164/16/8,2:88.217/55/1,3:135.578/11/2,4:173.081/35/32
+strata-poly: draft-policy round=124 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=155.234 counted_ms=155.234 costs=1:62.164/16/9,2:88.217/55/2,3:133.818/12/1,4:173.081/35/33
+strata-poly: draft-policy round=125 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=0 setup=0 elapsed_ms=158.030 counted_ms=158.030 costs=1:62.164/16/10,2:88.217/55/3,3:133.818/12/2,4:171.296/36/1
+strata-poly: draft-policy round=126 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=136.615 counted_ms=136.615 costs=1:62.164/16/11,2:88.217/55/4,3:133.818/12/3,4:169.969/37/1
+strata-poly: draft-policy round=127 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=162.144 counted_ms=162.144 costs=1:62.164/16/12,2:88.217/55/5,3:133.818/12/4,4:166.634/38/1
+strata-poly: draft-policy round=128 offered=3 match=3 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=140.892 counted_ms=140.892 costs=1:62.164/16/13,2:88.217/55/6,3:133.818/12/5,4:166.185/39/1
+strata-poly: draft-policy round=129 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=85.115 counted_ms=85.115 costs=1:62.164/16/14,2:88.217/55/7,3:133.818/12/6,4:163.656/40/1
+strata-poly: draft-policy round=130 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=154.840 counted_ms=154.840 costs=1:62.164/16/15,2:87.907/56/1,3:133.818/12/7,4:163.656/40/2
+strata-poly: draft-policy round=131 offered=3 match=4 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=163.195 counted_ms=163.195 costs=1:62.164/16/16,2:87.907/56/2,3:133.818/12/8,4:162.774/41/1
+strata-poly: draft-policy round=132 offered=3 match=8 q=0.855521 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=172.552 counted_ms=172.552 costs=1:62.164/16/17,2:87.907/56/3,3:133.818/12/9,4:162.816/42/1
+strata-poly: draft-policy round=133 offered=3 match=12 q=0.915211 chosen=2 lookup=1 accepted=1 setup=0 elapsed_ms=98.849 counted_ms=98.849 costs=1:62.164/16/18,2:87.907/56/4,3:133.818/12/10,4:163.790/43/1
+strata-poly: draft-policy round=134 offered=3 match=14 q=0.918750 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=159.535 counted_ms=159.535 costs=1:62.164/16/19,2:89.001/57/1,3:133.818/12/11,4:163.790/43/2
+strata-poly: draft-policy round=135 offered=3 match=20 q=0.927880 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=138.987 counted_ms=138.987 costs=1:62.164/16/20,2:89.001/57/2,3:133.818/12/12,4:163.364/44/1
+strata-poly: draft-policy round=136 offered=3 match=24 q=0.955402 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=177.094 counted_ms=177.094 costs=1:62.164/16/21,2:89.001/57/3,3:133.818/12/13,4:160.926/45/1
+strata-poly: draft-policy round=137 offered=3 match=28 q=0.960366 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=137.673 counted_ms=137.673 costs=1:62.164/16/22,2:89.001/57/4,3:133.818/12/14,4:162.543/46/1
+strata-poly: draft-policy round=138 offered=3 match=32 q=0.964412 chosen=4 lookup=1 accepted=0 setup=0 elapsed_ms=150.998 counted_ms=150.998 costs=1:62.164/16/23,2:89.001/57/5,3:133.818/12/15,4:160.056/47/1
+strata-poly: draft-policy round=139 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=155.715 counted_ms=155.715 costs=1:62.164/16/24,2:89.001/57/6,3:133.818/12/16,4:159.150/48/1
+strata-poly: draft-policy round=140 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=93.329 counted_ms=93.329 costs=1:62.164/16/25,2:89.001/57/7,3:133.818/12/17,4:158.807/49/1
+strata-poly: draft-policy round=141 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=84.901 counted_ms=84.901 costs=1:62.164/16/26,2:89.434/58/1,3:133.818/12/18,4:158.807/49/2
+strata-poly: draft-policy round=142 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=88.184 counted_ms=88.184 costs=1:62.164/16/27,2:88.981/59/1,3:133.818/12/19,4:158.807/49/3
+strata-poly: draft-policy round=143 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=161.833 counted_ms=161.833 costs=1:62.164/16/28,2:88.901/60/1,3:133.818/12/20,4:158.807/49/4
+strata-poly: draft-policy round=144 offered=3 match=4 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=156.064 counted_ms=156.064 costs=1:62.164/16/29,2:88.901/60/2,3:133.818/12/21,4:159.109/50/1
+strata-poly: draft-policy round=145 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=80.255 counted_ms=80.255 costs=1:62.164/16/30,2:88.901/60/3,3:133.818/12/22,4:158.805/51/1
+strata-poly: draft-policy round=146 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=152.522 counted_ms=152.522 costs=1:62.164/16/31,2:88.037/61/1,3:133.818/12/23,4:158.805/51/2
+strata-poly: draft-policy round=147 offered=3 match=4 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=89.950 counted_ms=89.950 costs=1:62.164/16/32,2:88.037/61/2,3:133.818/12/24,4:158.176/52/1
+strata-poly: draft-policy round=148 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=162.471 counted_ms=162.471 costs=1:62.164/16/33,2:88.228/62/1,3:133.818/12/25,4:158.176/52/2
+strata-poly: draft-policy round=149 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=151.037 counted_ms=151.037 costs=1:62.164/16/34,2:88.228/62/2,3:133.818/12/26,4:158.606/53/1
+strata-poly: draft-policy round=150 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=160.294 counted_ms=160.294 costs=1:62.164/16/35,2:88.228/62/3,3:133.818/12/27,4:157.849/54/1
+strata-poly: draft-policy round=151 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=140.623 counted_ms=140.623 costs=1:62.164/16/36,2:88.228/62/4,3:133.818/12/28,4:158.093/55/1
+strata-poly: draft-policy round=152 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=167.978 counted_ms=167.978 costs=1:62.164/16/37,2:88.228/62/5,3:134.498/13/1,4:158.093/55/2
+strata-poly: draft-policy round=153 offered=3 match=5 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=199.304 counted_ms=199.304 costs=1:62.164/16/38,2:88.228/62/6,3:134.498/13/2,4:159.082/56/1
+strata-poly: draft-policy round=154 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=184.402 counted_ms=184.402 costs=1:62.164/16/39,2:88.228/62/7,3:134.498/13/3,4:163.104/57/1
+strata-poly: draft-policy round=155 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=122.376 counted_ms=122.376 costs=1:62.164/16/40,2:88.228/62/8,3:134.498/13/4,4:165.234/58/1
+strata-poly: draft-policy round=156 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=160.155 counted_ms=160.155 costs=1:62.164/16/41,2:88.228/62/9,3:133.286/14/1,4:165.234/58/2
+strata-poly: draft-policy round=157 offered=3 match=5 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=152.703 counted_ms=152.703 costs=1:62.164/16/42,2:88.228/62/10,3:133.286/14/2,4:164.726/59/1
+strata-poly: draft-policy round=158 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=93.892 counted_ms=93.892 costs=1:62.164/16/43,2:88.228/62/11,3:135.228/15/1,4:164.726/59/2
+strata-poly: draft-policy round=159 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=174.171 counted_ms=174.171 costs=1:62.164/16/44,2:88.794/63/1,3:135.228/15/2,4:164.726/59/3
+strata-poly: draft-policy round=160 offered=3 match=5 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=160.833 counted_ms=160.833 costs=1:62.164/16/45,2:88.794/63/2,3:135.228/15/3,4:165.670/60/1
+strata-poly: draft-policy round=161 offered=3 match=9 q=0.855521 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=181.282 counted_ms=181.282 costs=1:62.164/16/46,2:88.794/63/3,3:135.228/15/4,4:165.187/61/1
+strata-poly: draft-policy round=162 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=194.827 counted_ms=194.827 costs=1:62.164/16/47,2:88.794/63/4,3:135.228/15/5,4:166.796/62/1
+strata-poly: draft-policy round=163 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=88.792 counted_ms=88.792 costs=1:62.164/16/48,2:88.794/63/5,3:135.228/15/6,4:169.599/63/1
+strata-poly: draft-policy round=164 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=172.082 counted_ms=172.082 costs=1:62.164/16/49,2:88.794/64/1,3:135.228/15/7,4:169.599/63/2
+strata-poly: draft-policy round=165 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=106.722 counted_ms=106.722 costs=1:62.164/16/50,2:88.794/64/2,3:135.228/15/8,4:169.848/64/1
+strata-poly: draft-policy round=166 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=182.035 counted_ms=182.035 costs=1:62.164/16/51,2:90.587/65/1,3:135.228/15/9,4:169.848/64/2
+strata-poly: draft-policy round=167 offered=3 match=6 q=0.855521 chosen=3 lookup=0 accepted=1 setup=0 elapsed_ms=129.736 counted_ms=129.736 costs=1:62.164/16/52,2:90.587/65/2,3:135.228/15/10,4:171.066/65/1
+strata-poly: draft-policy round=168 offered=3 match=8 q=0.855521 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=131.168 counted_ms=131.168 costs=1:62.164/16/53,2:90.587/65/3,3:134.678/16/1,4:171.066/65/2
+strata-poly: draft-policy round=169 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=109.170 counted_ms=109.170 costs=1:62.164/16/54,2:90.587/65/4,3:134.327/17/1,4:171.066/65/3
+strata-poly: draft-policy round=170 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=154.043 counted_ms=154.043 costs=1:62.164/16/55,2:92.445/66/1,3:134.327/17/2,4:171.066/65/4
+strata-poly: draft-policy round=171 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=108.451 counted_ms=108.451 costs=1:62.164/16/56,2:92.445/66/2,3:136.299/18/1,4:171.066/65/5
+strata-poly: draft-policy round=172 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=186.638 counted_ms=186.638 costs=1:62.164/16/57,2:94.046/67/1,3:136.299/18/2,4:171.066/65/6
+strata-poly: draft-policy round=173 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=126.712 counted_ms=126.712 costs=1:62.164/16/58,2:94.046/67/2,3:136.299/18/3,4:172.624/66/1
+strata-poly: draft-policy round=174 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=171.198 counted_ms=171.198 costs=1:62.164/16/59,2:94.046/67/3,3:135.340/19/1,4:172.624/66/2
+strata-poly: draft-policy round=175 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=174.784 counted_ms=174.784 costs=1:62.164/16/60,2:94.046/67/4,3:135.340/19/2,4:172.481/67/1
+strata-poly: draft-policy round=176 offered=3 match=5 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=174.700 counted_ms=174.700 costs=1:62.164/16/61,2:94.046/67/5,3:135.340/19/3,4:172.711/68/1
+strata-poly: draft-policy round=177 offered=3 match=3 q=0.802247 chosen=3 lookup=0 accepted=1 setup=0 elapsed_ms=152.288 counted_ms=152.288 costs=1:62.164/16/62,2:94.046/67/6,3:135.340/19/4,4:172.910/69/1
+strata-poly: draft-policy round=178 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=123.725 counted_ms=123.725 costs=1:62.164/16/63,2:94.046/67/7,3:137.035/20/1,4:172.910/69/2
+strata-poly: draft-policy round=179 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=212.864 counted_ms=212.864 costs=1:62.164/16/64,2:97.014/68/1,3:137.035/20/2,4:172.910/69/3
+strata-poly: draft-policy round=180 offered=3 match=4 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=128.082 counted_ms=128.082 costs=1:62.164/16/65,2:97.014/68/2,3:137.035/20/3,4:176.906/70/1
+strata-poly: draft-policy round=181 offered=3 match=4 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=137.147 counted_ms=137.147 costs=1:62.164/16/66,2:97.014/68/3,3:136.140/21/1,4:176.906/70/2
+strata-poly: draft-policy round=182 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=130.212 counted_ms=130.212 costs=1:62.164/16/67,2:97.014/68/4,3:136.240/22/1,4:176.906/70/3
+strata-poly: draft-policy round=183 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=128.315 counted_ms=128.315 costs=1:62.164/16/68,2:97.014/68/5,3:135.638/23/1,4:176.906/70/4
+strata-poly: draft-policy round=184 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=118.981 counted_ms=118.981 costs=1:62.164/16/69,2:97.014/68/6,3:134.905/24/1,4:176.906/70/5
+strata-poly: draft-policy round=185 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=1 setup=0 elapsed_ms=122.844 counted_ms=122.844 costs=1:62.164/16/70,2:97.014/68/7,3:133.313/25/1,4:176.906/70/6
+strata-poly: draft-policy round=186 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=109.932 counted_ms=109.932 costs=1:62.164/16/71,2:97.014/68/8,3:132.266/26/1,4:176.906/70/7
+strata-poly: draft-policy round=187 offered=3 match=3 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=121.857 counted_ms=121.857 costs=1:62.164/16/72,2:97.014/68/9,3:130.033/27/1,4:176.906/70/8
+strata-poly: draft-policy round=188 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=127.423 counted_ms=127.423 costs=1:62.164/16/73,2:97.014/68/10,3:129.215/28/1,4:176.906/70/9
+strata-poly: draft-policy round=189 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=57.098 counted_ms=57.098 costs=1:62.164/16/74,2:97.014/68/11,3:129.036/29/1,4:176.906/70/10
+strata-poly: draft-policy round=190 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=118.569 counted_ms=118.569 costs=1:61.658/17/1,2:97.014/68/12,3:129.036/29/2,4:176.906/70/11
+strata-poly: draft-policy round=191 offered=3 match=3 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=123.128 counted_ms=123.128 costs=1:61.658/17/2,2:97.014/68/13,3:127.989/30/1,4:176.906/70/12
+strata-poly: draft-policy round=192 offered=3 match=6 q=0.855521 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=99.131 counted_ms=99.131 costs=1:61.658/17/3,2:97.014/68/14,3:127.503/31/1,4:176.906/70/13
+strata-poly: draft-policy round=193 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=134.331 counted_ms=134.331 costs=1:61.658/17/4,2:97.225/69/1,3:127.503/31/2,4:176.906/70/14
+strata-poly: draft-policy round=194 offered=3 match=4 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=123.180 counted_ms=123.180 costs=1:61.658/17/5,2:97.225/69/2,3:128.186/32/1,4:176.906/70/15
+strata-poly: draft-policy round=195 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=87.990 counted_ms=87.990 costs=1:61.658/17/6,2:97.225/69/3,3:127.685/33/1,4:176.906/70/16
+strata-poly: draft-policy end
+strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=24725.454 cpu_expert_ms=22405.490 route_wait_ms=1150.006 uploads=400 drafts_offered=358 drafts_accepted=315 gpu_experts=51140 cpu_experts=137412
+strata-poly: expert-cache answer: generated=512 GPU=51140 CPU=137412 hit=27.12% uploads=400; prompt work excluded
+strata-poly: memory[request] card=0 context=200000 sequences=1: KV=2636.72 MiB VRAM (full-context=2636.72 MiB), rows=0.00 MiB VRAM (chunk=8192, batch=1024), h_res_=256.00 MiB RAM (max=512.00 MiB)
+strata-poly: memory[request] card=0 VRAM allocations total=21441.89 MiB: dense=5622.06, experts=8750.11, KV=2636.72, staging=2048.00, rows=0.00, other=2385.00; reserve=1024 MiB
+strata-poly: memory[request] expert placement: permanent=1105, staging_cache=151/151 slots (2038.54 MiB used inside existing staging); uploads=400
+strata-poly: memory[request] card=0 RAM weights+buffers total=96973.27 MiB: resident_weights=96617.06, pinned_buffers=356.21 (includes h_res_); CUDA/HIP-registered window=7.88 MiB (part of resident_weights, peak=2048.00 MiB); whole process RSS=97812.02 MiB, system RAM free=18212.61 MiB
+strata-poly: memory[request] card=0 whole device used=23294.42 / 24563.50 MiB, free=1269.08 MiB (includes CUDA libraries and other processes)
+strata-poly: buffers[request] card=0: device=21441.89 MiB (plain=18793.12, sequence=12.05, attention caches=2636.72), pinned=356.21 MiB, scratch slices=1669.46 MiB in 1669.46 MiB
+strata-poly: buffers[request] no-disk permanent experts          device              1 x  8750.106 MiB =   8750.106 MiB
+strata-poly: buffers[request] the dense weights                  device              1 x  5622.063 MiB =   5622.063 MiB
+strata-poly: buffers[request] the attention cache (KV)           attention cache    24 x    24.414 MiB =   2636.719 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[request] the expert staging buffer          device              1 x  2048.000 MiB =   2048.000 MiB
+strata-poly: buffers[request] scratch_ (arch scratch arena)      device              1 x  1669.463 MiB =   1669.463 MiB
+strata-poly: buffers[request] snap_ (window states)              device              1 x   436.688 MiB =    436.688 MiB
+strata-poly: buffers[request] pinned memory                      pinned              9 x     0.000 MiB =    356.080 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[request] the recurrent state                device              1 x   161.578 MiB =    161.578 MiB
+strata-poly: buffers[request] mq_ (MMQ rows of x)                device              1 x    36.018 MiB =     36.018 MiB
+strata-poly: buffers[request] mq2_ (MMQ rows of the expert output) device              1 x    18.018 MiB =     18.018 MiB
+strata-poly: buffers[request] mqx_ (MMQ rows of q8_tile)         device              1 x    18.018 MiB =     18.018 MiB
+strata-poly: buffers[request] q8_ (quantized weights)            device              1 x    18.000 MiB =     18.000 MiB
+strata-poly: buffers[request] the indexer cache                  sequence            1 x    12.047 MiB =     12.047 MiB
+strata-poly: buffers[request] scratch                            device              1 x     8.016 MiB =      8.016 MiB
+strata-poly: buffers[request] xq_ (quantized activations)        device              1 x     4.500 MiB =      4.500 MiB
+strata-poly: buffers[request] wlogits_ (window()/step() logits)  device              1 x     2.363 MiB =      2.363 MiB
+strata-poly: buffers[request] tab_ (MoE tile tables)             device              1 x     0.100 MiB =      0.100 MiB
+strata-poly: buffers[request] h_tab_ (MoE tile tables)           pinned              1 x     0.100 MiB =      0.100 MiB
+strata-poly: buffers[request] d_slots_ (expert slots)            device              1 x     0.099 MiB =      0.099 MiB
+strata-poly: buffers[request] d_ids_ (row -> expert)             device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[request] d_wts_ (row -> weight)             device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[request] h_ids_ (row -> expert)             pinned              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[request] iota_ (row indices)                device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[request] at_ (recorded positions)           device              1 x     0.000 MiB =      0.000 MiB
+strata-poly: buffers[request] scratch r_ (layer input rows)          offset=        0 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2277
+strata-poly: buffers[request] scratch cur_                           offset=134217728 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2279
+strata-poly: buffers[request] scratch xn_ (normed input)             offset=150994944 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2280
+strata-poly: buffers[request] scratch ao_ (attention output)         offset=167772160 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2281
+strata-poly: buffers[request] scratch fo_ (layer output)             offset=184549376 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2282
+strata-poly: buffers[request] scratch g_ (expert gate rows)          offset=201326592 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2283
+strata-poly: buffers[request] scratch u_ (expert up rows)            offset=251658240 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2284
+strata-poly: buffers[request] scratch h_ (expert hidden rows)        offset=301989888 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2285
+strata-poly: buffers[request] scratch d_ (MoE sums in progress)      offset=352321536 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2286
+strata-poly: buffers[request] scratch rl_ (router logits)            offset=352845824 bytes=   1179648 (  1.125 MiB) count=294912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2287
+strata-poly: buffers[request] scratch logits_                        offset=354025472 bytes=    619520 (  0.591 MiB) count=154880 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2288
+strata-poly: buffers[request] scratch wf_ (BF16 matrix as floats)    offset=354644992 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2289
+strata-poly: buffers[request] scratch gu_ (expert gate/up rows)      offset=388199424 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2293
+strata-poly: buffers[request] scratch hx_ (expert activation rows)   offset=522417152 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2294
+strata-poly: buffers[request] scratch dx_ (expert down rows)         offset=589526016 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2295
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=723743744 bytes=    102400 (  0.098 MiB) count=25600 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:249
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=723846144 bytes=     81920 (  0.078 MiB) count=20480 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:250
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=723928064 bytes= 100663296 ( 96.000 MiB) count=25165824 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:252
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=824591360 bytes= 100663296 ( 96.000 MiB) count=25165824 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:253
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=925254656 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:254
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=925778944 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:255
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=926303232 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:256
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=959857664 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:257
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=993412096 bytes=    262144 (  0.250 MiB) count=65536 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:258
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=993674240 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:259
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1027228672 bytes=   6291456 (  6.000 MiB) count=1572864 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:261
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1033520128 bytes=   6291456 (  6.000 MiB) count=1572864 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:262
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1039811584 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:263
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1106920448 bytes=   2097152 (  2.000 MiB) count=524288 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:264
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1109017600 bytes=   2097152 (  2.000 MiB) count=524288 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:265
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1111114752 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:266
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1245332480 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:267
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1379550208 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:268
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1446659072 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:269
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1447183360 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:270
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1447707648 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:271
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1448231936 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:272
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1465009152 bytes=    131072 (  0.125 MiB) count=32768 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:273
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1465140224 bytes= 134202880 (127.986 MiB) count=33550671 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:274
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1599343104 bytes= 134414336 (128.188 MiB) count=33603584 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:277
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1733757440 bytes=  16801792 ( 16.023 MiB) count=4200448 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:278
+strata-poly: buffers[request] check: scratch slices 1669.46 of 1669.46 MiB (0.00 alignment and tail), unnamed slices 26; allocator records device=21441.89, pinned=356.21 MiB; mapped KV (VMM, not in device_sizes_)=0.00 of the 2636.72 requested; arena mapped=0.00 MiB
+strata-poly: buffers[request] graphs[pos=2561 room_key=2 window=4 batch=0]: execs=1071 (live owners); layer slots=1284 live=1070; passes=0 live=0; tail=1
+strata-poly: device-memory[request] global_free=1330724864 global_total=25756696576 bytes
+strata-poly: expert-cache decode: tokens=128 interval=128 GPU=11408 CPU=36056 hit=24.04% uploads=11 speed=20.09 tok/s
+strata-poly: expert-cache decode: tokens=256 interval=128 GPU=12498 CPU=35358 hit=26.12% uploads=38 speed=21.45 tok/s
+strata-poly: expert-cache decode: tokens=384 interval=128 GPU=15018 CPU=31478 hit=32.30% uploads=25 speed=21.23 tok/s
+strata-poly: draft-policy begin produced=512 rounds=191 decode_ms=24554.503
+strata-poly: draft-policy round=0 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=124.856 counted_ms=124.856 costs=1:61.658/17/7,2:96.302/70/1,3:127.685/33/2,4:176.906/70/17
+strata-poly: draft-policy round=1 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=78.029 counted_ms=78.029 costs=1:61.658/17/8,2:99.157/71/1,3:127.685/33/3,4:176.906/70/18
+strata-poly: draft-policy round=2 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=84.109 counted_ms=84.109 costs=1:63.295/18/1,2:99.157/71/2,3:127.685/33/4,4:176.906/70/19
+strata-poly: draft-policy round=3 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=61.908 counted_ms=61.908 costs=1:65.376/19/1,2:99.157/71/3,3:127.685/33/5,4:176.906/70/20
+strata-poly: draft-policy round=4 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=60.950 counted_ms=60.950 costs=1:65.029/20/1,2:99.157/71/4,3:127.685/33/6,4:176.906/70/21
+strata-poly: draft-policy round=5 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=153.712 counted_ms=153.712 costs=1:64.621/21/1,2:99.157/71/5,3:127.685/33/7,4:176.906/70/22
+strata-poly: draft-policy round=6 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=53.547 counted_ms=53.547 costs=1:64.621/21/2,2:99.157/71/6,3:130.288/34/1,4:176.906/70/23
+strata-poly: draft-policy round=7 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=62.167 counted_ms=62.167 costs=1:63.514/22/1,2:99.157/71/7,3:130.288/34/2,4:176.906/70/24
+strata-poly: draft-policy round=8 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=63.473 counted_ms=63.473 costs=1:63.379/23/1,2:99.157/71/8,3:130.288/34/3,4:176.906/70/25
+strata-poly: draft-policy round=9 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=92.591 counted_ms=92.591 costs=1:63.389/24/1,2:99.157/71/9,3:130.288/34/4,4:176.906/70/26
+strata-poly: draft-policy round=10 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=98.520 counted_ms=98.520 costs=1:63.389/24/2,2:98.501/72/1,3:130.288/34/5,4:176.906/70/27
+strata-poly: draft-policy round=11 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=121.372 counted_ms=121.372 costs=1:63.389/24/3,2:98.503/73/1,3:130.288/34/6,4:176.906/70/28
+strata-poly: draft-policy round=12 offered=3 match=3 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=140.656 counted_ms=140.656 costs=1:63.389/24/4,2:98.503/73/2,3:129.396/35/1,4:176.906/70/29
+strata-poly: draft-policy round=13 offered=3 match=6 q=0.855521 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=148.533 counted_ms=148.533 costs=1:63.389/24/5,2:98.503/73/3,3:130.522/36/1,4:176.906/70/30
+strata-poly: draft-policy round=14 offered=3 match=9 q=0.855521 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=164.900 counted_ms=164.900 costs=1:63.389/24/6,2:98.503/73/4,3:132.323/37/1,4:176.906/70/31
+strata-poly: draft-policy round=15 offered=3 match=12 q=0.935308 chosen=3 lookup=1 accepted=0 setup=0 elapsed_ms=127.821 counted_ms=127.821 costs=1:63.389/24/7,2:98.503/73/5,3:135.581/38/1,4:176.906/70/32
+strata-poly: draft-policy round=16 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=165.306 counted_ms=165.306 costs=1:63.389/24/8,2:98.503/73/6,3:134.805/39/1,4:176.906/70/33
+strata-poly: draft-policy round=17 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=150.777 counted_ms=150.777 costs=1:63.389/24/9,2:98.503/73/7,3:134.805/39/2,4:175.746/71/1
+strata-poly: draft-policy round=18 offered=3 match=5 q=0.802247 chosen=3 lookup=0 accepted=1 setup=0 elapsed_ms=143.045 counted_ms=143.045 costs=1:63.389/24/10,2:98.503/73/8,3:134.805/39/3,4:173.249/72/1
+strata-poly: draft-policy round=19 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=125.984 counted_ms=125.984 costs=1:63.389/24/11,2:98.503/73/9,3:135.629/40/1,4:173.249/72/2
+strata-poly: draft-policy round=20 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=69.762 counted_ms=69.762 costs=1:63.389/24/12,2:98.503/73/10,3:134.665/41/1,4:173.249/72/3
+strata-poly: draft-policy round=21 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=172.180 counted_ms=172.180 costs=1:64.026/25/1,2:98.503/73/11,3:134.665/41/2,4:173.249/72/4
+strata-poly: draft-policy round=22 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=66.154 counted_ms=66.154 costs=1:64.026/25/2,2:98.503/73/12,3:134.665/41/3,4:173.142/73/1
+strata-poly: draft-policy round=23 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=188.368 counted_ms=188.368 costs=1:64.239/26/1,2:98.503/73/13,3:134.665/41/4,4:173.142/73/2
+strata-poly: draft-policy round=24 offered=3 match=6 q=0.855521 chosen=3 lookup=1 accepted=0 setup=0 elapsed_ms=148.391 counted_ms=148.391 costs=1:64.239/26/2,2:98.503/73/14,3:134.665/41/5,4:174.664/74/1
+strata-poly: draft-policy round=25 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=168.549 counted_ms=168.549 costs=1:64.239/26/3,2:98.503/73/15,3:136.037/42/1,4:174.664/74/2
+strata-poly: draft-policy round=26 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=93.388 counted_ms=93.388 costs=1:64.239/26/4,2:98.503/73/16,3:136.037/42/2,4:174.053/75/1
+strata-poly: draft-policy round=27 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=95.434 counted_ms=95.434 costs=1:64.239/26/5,2:97.991/74/1,3:136.037/42/3,4:174.053/75/2
+strata-poly: draft-policy round=28 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=98.885 counted_ms=98.885 costs=1:64.239/26/6,2:97.735/75/1,3:136.037/42/4,4:174.053/75/3
+strata-poly: draft-policy round=29 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=168.714 counted_ms=168.714 costs=1:64.239/26/7,2:97.850/76/1,3:136.037/42/5,4:174.053/75/4
+strata-poly: draft-policy round=30 offered=3 match=5 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=180.714 counted_ms=180.714 costs=1:64.239/26/8,2:97.850/76/2,3:136.037/42/6,4:173.519/76/1
+strata-poly: draft-policy round=31 offered=3 match=9 q=0.804838 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=170.178 counted_ms=170.178 costs=1:64.239/26/9,2:97.850/76/3,3:136.037/42/7,4:174.238/77/1
+strata-poly: draft-policy round=32 offered=3 match=13 q=0.903480 chosen=3 lookup=1 accepted=1 setup=0 elapsed_ms=118.015 counted_ms=118.015 costs=1:64.239/26/10,2:97.850/76/4,3:136.037/42/8,4:173.832/78/1
+strata-poly: draft-policy round=33 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=94.998 counted_ms=94.998 costs=1:64.239/26/11,2:97.850/76/5,3:134.235/43/1,4:173.832/78/2
+strata-poly: draft-policy round=34 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=166.231 counted_ms=166.231 costs=1:64.239/26/12,2:97.565/77/1,3:134.235/43/2,4:173.832/78/3
+strata-poly: draft-policy round=35 offered=3 match=5 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=152.627 counted_ms=152.627 costs=1:64.239/26/13,2:97.565/77/2,3:134.235/43/3,4:173.072/79/1
+strata-poly: draft-policy round=36 offered=3 match=9 q=0.804838 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=168.554 counted_ms=168.554 costs=1:64.239/26/14,2:97.565/77/3,3:134.235/43/4,4:171.028/80/1
+strata-poly: draft-policy round=37 offered=3 match=13 q=0.877251 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=167.678 counted_ms=167.678 costs=1:64.239/26/15,2:97.565/77/4,3:134.235/43/5,4:170.780/81/1
+strata-poly: draft-policy round=38 offered=3 match=17 q=0.877251 chosen=4 lookup=0 accepted=1 setup=0 elapsed_ms=165.863 counted_ms=165.863 costs=1:64.239/26/16,2:97.565/77/5,3:134.235/43/6,4:170.470/82/1
+strata-poly: draft-policy round=39 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=179.213 counted_ms=179.213 costs=1:64.239/26/17,2:97.565/77/6,3:134.235/43/7,4:170.009/83/1
+strata-poly: draft-policy round=40 offered=3 match=4 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=173.796 counted_ms=173.796 costs=1:64.239/26/18,2:97.565/77/7,3:134.235/43/8,4:170.930/84/1
+strata-poly: draft-policy round=41 offered=3 match=8 q=0.804838 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=114.820 counted_ms=114.820 costs=1:64.239/26/19,2:97.565/77/8,3:134.235/43/9,4:171.216/85/1
+strata-poly: draft-policy round=42 offered=3 match=10 q=0.804838 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=199.794 counted_ms=199.794 costs=1:64.239/26/20,2:99.291/78/1,3:134.235/43/10,4:171.216/85/2
+strata-poly: draft-policy round=43 offered=3 match=14 q=0.877251 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=149.568 counted_ms=149.568 costs=1:64.239/26/21,2:99.291/78/2,3:134.235/43/11,4:174.074/86/1
+strata-poly: draft-policy round=44 offered=3 match=18 q=0.877251 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=170.610 counted_ms=170.610 costs=1:64.239/26/22,2:99.291/78/3,3:134.235/43/12,4:171.624/87/1
+strata-poly: draft-policy round=45 offered=3 match=22 q=0.877251 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=179.762 counted_ms=179.762 costs=1:64.239/26/23,2:99.291/78/4,3:134.235/43/13,4:171.522/88/1
+strata-poly: draft-policy round=46 offered=3 match=26 q=0.931825 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=153.539 counted_ms=153.539 costs=1:64.239/26/24,2:99.291/78/5,3:134.235/43/14,4:172.346/89/1
+strata-poly: draft-policy round=47 offered=3 match=30 q=0.938354 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=171.368 counted_ms=171.368 costs=1:64.239/26/25,2:99.291/78/6,3:134.235/43/15,4:170.465/90/1
+strata-poly: draft-policy round=48 offered=3 match=34 q=0.943869 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=164.809 counted_ms=164.809 costs=1:64.239/26/26,2:99.291/78/7,3:134.235/43/16,4:170.556/91/1
+strata-poly: draft-policy round=49 offered=3 match=38 q=0.948586 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=172.245 counted_ms=172.245 costs=1:64.239/26/27,2:99.291/78/8,3:134.235/43/17,4:169.981/92/1
+strata-poly: draft-policy round=50 offered=3 match=42 q=0.952666 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=172.959 counted_ms=172.959 costs=1:64.239/26/28,2:99.291/78/9,3:134.235/43/18,4:170.207/93/1
+strata-poly: draft-policy round=51 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=98.477 counted_ms=98.477 costs=1:64.239/26/29,2:99.291/78/10,3:134.235/43/19,4:170.483/94/1
+strata-poly: draft-policy round=52 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=141.355 counted_ms=141.355 costs=1:64.239/26/30,2:99.209/79/1,3:134.235/43/20,4:170.483/94/2
+strata-poly: draft-policy round=53 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=100.765 counted_ms=100.765 costs=1:64.239/26/31,2:99.209/79/2,3:134.947/44/1,4:170.483/94/3
+strata-poly: draft-policy round=54 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=102.722 counted_ms=102.722 costs=1:64.239/26/32,2:99.365/80/1,3:134.947/44/2,4:170.483/94/4
+strata-poly: draft-policy round=55 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=100.134 counted_ms=100.134 costs=1:64.239/26/33,2:99.701/81/1,3:134.947/44/3,4:170.483/94/5
+strata-poly: draft-policy round=56 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=145.851 counted_ms=145.851 costs=1:64.239/26/34,2:99.744/82/1,3:134.947/44/4,4:170.483/94/6
+strata-poly: draft-policy round=57 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=182.685 counted_ms=182.685 costs=1:64.239/26/35,2:99.744/82/2,3:136.037/45/1,4:170.483/94/7
+strata-poly: draft-policy round=58 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=1 setup=0 elapsed_ms=161.413 counted_ms=161.413 costs=1:64.239/26/36,2:99.744/82/3,3:136.037/45/2,4:171.703/95/1
+strata-poly: draft-policy round=59 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=110.054 counted_ms=110.054 costs=1:64.239/26/37,2:99.744/82/4,3:138.575/46/1,4:171.703/95/2
+strata-poly: draft-policy round=60 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=170.173 counted_ms=170.173 costs=1:64.239/26/38,2:100.775/83/1,3:138.575/46/2,4:171.703/95/3
+strata-poly: draft-policy round=61 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=64.504 counted_ms=64.504 costs=1:64.239/26/39,2:100.775/83/2,3:138.575/46/3,4:171.550/96/1
+strata-poly: draft-policy round=62 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=94.584 counted_ms=94.584 costs=1:64.265/27/1,2:100.775/83/3,3:138.575/46/4,4:171.550/96/2
+strata-poly: draft-policy round=63 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=160.770 counted_ms=160.770 costs=1:64.265/27/2,2:100.156/84/1,3:138.575/46/5,4:171.550/96/3
+strata-poly: draft-policy round=64 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=146.169 counted_ms=146.169 costs=1:64.265/27/3,2:100.156/84/2,3:138.575/46/6,4:170.472/97/1
+strata-poly: draft-policy round=65 offered=3 match=3 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=161.605 counted_ms=161.605 costs=1:64.265/27/4,2:100.156/84/3,3:138.575/46/7,4:168.042/98/1
+strata-poly: draft-policy round=66 offered=3 match=7 q=0.804838 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=162.411 counted_ms=162.411 costs=1:64.265/27/5,2:100.156/84/4,3:138.575/46/8,4:167.398/99/1
+strata-poly: draft-policy round=67 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=164.542 counted_ms=164.542 costs=1:64.265/27/6,2:100.156/84/5,3:138.575/46/9,4:166.899/100/1
+strata-poly: draft-policy round=68 offered=3 match=3 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=163.801 counted_ms=163.801 costs=1:64.265/27/7,2:100.156/84/6,3:138.575/46/10,4:166.664/101/1
+strata-poly: draft-policy round=69 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=150.504 counted_ms=150.504 costs=1:64.265/27/8,2:100.156/84/7,3:138.575/46/11,4:166.377/102/1
+strata-poly: draft-policy round=70 offered=3 match=4 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=166.201 counted_ms=166.201 costs=1:64.265/27/9,2:100.156/84/8,3:138.575/46/12,4:164.790/103/1
+strata-poly: draft-policy round=71 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=169.231 counted_ms=169.231 costs=1:64.265/27/10,2:100.156/84/9,3:138.575/46/13,4:164.931/104/1
+strata-poly: draft-policy round=72 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=57.650 counted_ms=57.650 costs=1:64.265/27/11,2:100.156/84/10,3:138.575/46/14,4:165.361/105/1
+strata-poly: draft-policy round=73 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=1 setup=0 elapsed_ms=155.354 counted_ms=155.354 costs=1:63.604/28/1,2:100.156/84/11,3:138.575/46/15,4:165.361/105/2
+strata-poly: draft-policy round=74 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=172.185 counted_ms=172.185 costs=1:63.604/28/2,2:100.156/84/12,3:138.575/46/16,4:164.360/106/1
+strata-poly: draft-policy round=75 offered=3 match=4 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=201.379 counted_ms=201.379 costs=1:63.604/28/3,2:100.156/84/13,3:138.575/46/17,4:165.143/107/1
+strata-poly: draft-policy round=76 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=98.635 counted_ms=98.635 costs=1:63.604/28/4,2:100.156/84/14,3:138.575/46/18,4:168.767/108/1
+strata-poly: draft-policy round=77 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=121.593 counted_ms=121.593 costs=1:63.604/28/5,2:100.004/85/1,3:138.575/46/19,4:168.767/108/2
+strata-poly: draft-policy round=78 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=168.466 counted_ms=168.466 costs=1:63.604/28/6,2:102.163/86/1,3:138.575/46/20,4:168.767/108/3
+strata-poly: draft-policy round=79 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=159.451 counted_ms=159.451 costs=1:63.604/28/7,2:102.163/86/2,3:138.575/46/21,4:168.736/109/1
+strata-poly: draft-policy round=80 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=79.815 counted_ms=79.815 costs=1:63.604/28/8,2:102.163/86/3,3:138.575/46/22,4:167.808/110/1
+strata-poly: draft-policy round=81 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=141.133 counted_ms=141.133 costs=1:63.604/28/9,2:99.928/87/1,3:138.575/46/23,4:167.808/110/2
+strata-poly: draft-policy round=82 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=58.146 counted_ms=58.146 costs=1:63.604/28/10,2:99.928/87/2,3:138.575/46/24,4:165.140/111/1
+strata-poly: draft-policy round=83 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=162.219 counted_ms=162.219 costs=1:63.058/29/1,2:99.928/87/3,3:138.575/46/25,4:165.140/111/2
+strata-poly: draft-policy round=84 offered=3 match=5 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=139.684 counted_ms=139.684 costs=1:63.058/29/2,2:99.928/87/4,3:138.575/46/26,4:164.848/112/1
+strata-poly: draft-policy round=85 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=83.939 counted_ms=83.939 costs=1:63.058/29/3,2:99.928/87/5,3:138.575/46/27,4:162.332/113/1
+strata-poly: draft-policy round=86 offered=3 match=5 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=153.797 counted_ms=153.797 costs=1:63.058/29/4,2:98.329/88/1,3:138.575/46/28,4:162.332/113/2
+strata-poly: draft-policy round=87 offered=3 match=9 q=0.804838 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=144.341 counted_ms=144.341 costs=1:63.058/29/5,2:98.329/88/2,3:138.575/46/29,4:161.478/114/1
+strata-poly: draft-policy round=88 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=130.909 counted_ms=130.909 costs=1:63.058/29/6,2:98.329/88/3,3:138.575/46/30,4:159.765/115/1
+strata-poly: draft-policy round=89 offered=3 match=5 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=149.880 counted_ms=149.880 costs=1:63.058/29/7,2:98.329/88/4,3:138.575/46/31,4:156.879/116/1
+strata-poly: draft-policy round=90 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=162.217 counted_ms=162.217 costs=1:63.058/29/8,2:98.329/88/5,3:138.575/46/32,4:156.179/117/1
+strata-poly: draft-policy round=91 offered=3 match=3 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=128.188 counted_ms=128.188 costs=1:63.058/29/9,2:98.329/88/6,3:138.575/46/33,4:156.783/118/1
+strata-poly: draft-policy round=92 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=127.117 counted_ms=127.117 costs=1:63.058/29/10,2:98.329/88/7,3:137.536/47/1,4:156.783/118/2
+strata-poly: draft-policy round=93 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=140.240 counted_ms=140.240 costs=1:63.058/29/11,2:98.329/88/8,3:136.494/48/1,4:156.783/118/3
+strata-poly: draft-policy round=94 offered=3 match=4 q=0.802247 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=156.926 counted_ms=156.926 costs=1:63.058/29/12,2:98.329/88/9,3:136.494/48/2,4:155.129/119/1
+strata-poly: draft-policy round=95 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=172.745 counted_ms=172.745 costs=1:63.058/29/13,2:98.329/88/10,3:136.494/48/3,4:155.308/120/1
+strata-poly: draft-policy round=96 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=135.007 counted_ms=135.007 costs=1:63.058/29/14,2:98.329/88/11,3:136.494/48/4,4:157.052/121/1
+strata-poly: draft-policy round=97 offered=3 match=5 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=145.780 counted_ms=145.780 costs=1:63.058/29/15,2:98.329/88/12,3:136.494/48/5,4:154.848/122/1
+strata-poly: draft-policy round=98 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=142.807 counted_ms=142.807 costs=1:63.058/29/16,2:98.329/88/13,3:136.494/48/6,4:153.941/123/1
+strata-poly: draft-policy round=99 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=151.085 counted_ms=151.085 costs=1:63.058/29/17,2:98.329/88/14,3:136.494/48/7,4:152.827/124/1
+strata-poly: draft-policy round=100 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=0 setup=0 elapsed_ms=141.013 counted_ms=141.013 costs=1:63.058/29/18,2:98.329/88/15,3:136.494/48/8,4:152.653/125/1
+strata-poly: draft-policy round=101 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=144.056 counted_ms=144.056 costs=1:63.058/29/19,2:98.329/88/16,3:136.494/48/9,4:151.489/126/1
+strata-poly: draft-policy round=102 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=173.997 counted_ms=173.997 costs=1:63.058/29/20,2:98.329/88/17,3:136.494/48/10,4:150.746/127/1
+strata-poly: draft-policy round=103 offered=3 match=3 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=169.065 counted_ms=169.065 costs=1:63.058/29/21,2:98.329/88/18,3:136.494/48/11,4:153.071/128/1
+strata-poly: draft-policy round=104 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=56.313 counted_ms=56.313 costs=1:63.058/29/22,2:98.329/88/19,3:136.494/48/12,4:154.670/129/1
+strata-poly: draft-policy round=105 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=166.790 counted_ms=166.790 costs=1:62.383/30/1,2:98.329/88/20,3:136.494/48/13,4:154.670/129/2
+strata-poly: draft-policy round=106 offered=3 match=3 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=163.080 counted_ms=163.080 costs=1:62.383/30/2,2:98.329/88/21,3:136.494/48/14,4:155.882/130/1
+strata-poly: draft-policy round=107 offered=3 match=7 q=0.804838 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=163.406 counted_ms=163.406 costs=1:62.383/30/3,2:98.329/88/22,3:136.494/48/15,4:156.602/131/1
+strata-poly: draft-policy round=108 offered=3 match=11 q=0.804838 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=164.591 counted_ms=164.591 costs=1:62.383/30/4,2:98.329/88/23,3:136.494/48/16,4:157.282/132/1
+strata-poly: draft-policy round=109 offered=3 match=15 q=0.877251 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=144.148 counted_ms=144.148 costs=1:62.383/30/5,2:98.329/88/24,3:136.494/48/17,4:158.013/133/1
+strata-poly: draft-policy round=110 offered=3 match=21 q=0.877251 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=148.485 counted_ms=148.485 costs=1:62.383/30/6,2:98.329/88/25,3:136.494/48/18,4:156.627/134/1
+strata-poly: draft-policy round=111 offered=3 match=25 q=0.956227 chosen=4 lookup=1 accepted=0 setup=0 elapsed_ms=141.794 counted_ms=141.794 costs=1:62.383/30/7,2:98.329/88/26,3:136.494/48/19,4:155.813/135/1
+strata-poly: draft-policy round=112 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=165.920 counted_ms=165.920 costs=1:62.383/30/8,2:98.329/88/27,3:136.494/48/20,4:154.411/136/1
+strata-poly: draft-policy round=113 offered=3 match=4 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=116.330 counted_ms=116.330 costs=1:62.383/30/9,2:98.329/88/28,3:136.494/48/21,4:155.562/137/1
+strata-poly: draft-policy round=114 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=150.186 counted_ms=150.186 costs=1:62.383/30/10,2:98.329/88/29,3:134.478/49/1,4:155.562/137/2
+strata-poly: draft-policy round=115 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=1 setup=0 elapsed_ms=124.205 counted_ms=124.205 costs=1:62.383/30/11,2:98.329/88/30,3:134.478/49/2,4:155.024/138/1
+strata-poly: draft-policy round=116 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=83.828 counted_ms=83.828 costs=1:62.383/30/12,2:98.329/88/31,3:133.450/50/1,4:155.024/138/2
+strata-poly: draft-policy round=117 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=59.104 counted_ms=59.104 costs=1:62.383/30/13,2:96.879/89/1,3:133.450/50/2,4:155.024/138/3
+strata-poly: draft-policy round=118 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=193.025 counted_ms=193.025 costs=1:62.055/31/1,2:96.879/89/2,3:133.450/50/3,4:155.024/138/4
+strata-poly: draft-policy round=119 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=158.020 counted_ms=158.020 costs=1:62.055/31/2,2:96.879/89/3,3:133.450/50/4,4:158.824/139/1
+strata-poly: draft-policy round=120 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=328.317 counted_ms=317.632 costs=1:62.055/31/3,2:96.879/89/4,3:135.907/51/1,4:158.824/139/2
+strata-poly: draft-policy round=121 offered=3 match=5 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=260.111 counted_ms=259.548 costs=1:62.055/31/4,2:96.879/89/5,3:135.907/51/2,4:174.705/140/1
+strata-poly: draft-policy round=122 offered=3 match=8 q=0.804838 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=110.955 counted_ms=110.955 costs=1:62.055/31/5,2:96.879/89/6,3:148.271/52/1,4:174.705/140/2
+strata-poly: draft-policy round=123 offered=3 match=10 q=0.804838 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=106.630 counted_ms=106.630 costs=1:62.055/31/6,2:98.286/90/1,3:148.271/52/2,4:174.705/140/3
+strata-poly: draft-policy round=124 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=194.346 counted_ms=194.346 costs=1:62.055/31/7,2:99.121/91/1,3:148.271/52/3,4:174.705/140/4
+strata-poly: draft-policy round=125 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=82.966 counted_ms=82.966 costs=1:62.055/31/8,2:99.121/91/2,3:148.271/52/4,4:176.669/141/1
+strata-poly: draft-policy round=126 offered=3 match=3 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=177.857 counted_ms=177.857 costs=1:64.147/32/1,2:99.121/91/3,3:148.271/52/5,4:176.669/141/2
+strata-poly: draft-policy round=127 offered=3 match=6 q=0.804838 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=97.917 counted_ms=97.917 costs=1:64.147/32/2,2:99.121/91/4,3:151.230/53/1,4:176.669/141/3
+strata-poly: draft-policy round=128 offered=3 match=8 q=0.804838 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=90.673 counted_ms=90.673 costs=1:64.147/32/3,2:99.000/92/1,3:151.230/53/2,4:176.669/141/4
+strata-poly: draft-policy round=129 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=88.990 counted_ms=88.990 costs=1:64.147/32/4,2:98.168/93/1,3:151.230/53/3,4:176.669/141/5
+strata-poly: draft-policy round=130 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=87.484 counted_ms=87.484 costs=1:64.147/32/5,2:97.250/94/1,3:151.230/53/4,4:176.669/141/6
+strata-poly: draft-policy round=131 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=95.325 counted_ms=95.325 costs=1:64.147/32/6,2:96.273/95/1,3:151.230/53/5,4:176.669/141/7
+strata-poly: draft-policy round=132 offered=3 match=5 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=88.199 counted_ms=88.199 costs=1:64.147/32/7,2:96.178/96/1,3:151.230/53/6,4:176.669/141/8
+strata-poly: draft-policy round=133 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=92.148 counted_ms=92.148 costs=1:64.147/32/8,2:95.381/97/1,3:151.230/53/7,4:176.669/141/9
+strata-poly: draft-policy round=134 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=90.115 counted_ms=90.115 costs=1:64.147/32/9,2:95.057/98/1,3:151.230/53/8,4:176.669/141/10
+strata-poly: draft-policy round=135 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=90.724 counted_ms=90.724 costs=1:64.147/32/10,2:94.563/99/1,3:151.230/53/9,4:176.669/141/11
+strata-poly: draft-policy round=136 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=90.004 counted_ms=90.004 costs=1:64.147/32/11,2:94.179/100/1,3:151.230/53/10,4:176.669/141/12
+strata-poly: draft-policy round=137 offered=3 match=5 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=100.581 counted_ms=100.581 costs=1:64.147/32/12,2:93.762/101/1,3:151.230/53/11,4:176.669/141/13
+strata-poly: draft-policy round=138 offered=3 match=7 q=0.804838 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=84.619 counted_ms=84.619 costs=1:64.147/32/13,2:94.444/102/1,3:151.230/53/12,4:176.669/141/14
+strata-poly: draft-policy round=139 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=92.495 counted_ms=92.495 costs=1:64.147/32/14,2:93.461/103/1,3:151.230/53/13,4:176.669/141/15
+strata-poly: draft-policy round=140 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=81.366 counted_ms=81.366 costs=1:64.147/32/15,2:93.364/104/1,3:151.230/53/14,4:176.669/141/16
+strata-poly: draft-policy round=141 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=83.887 counted_ms=83.887 costs=1:64.147/32/16,2:92.165/105/1,3:151.230/53/15,4:176.669/141/17
+strata-poly: draft-policy round=142 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=84.065 counted_ms=84.065 costs=1:64.147/32/17,2:91.337/106/1,3:151.230/53/16,4:176.669/141/18
+strata-poly: draft-policy round=143 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=91.600 counted_ms=91.600 costs=1:64.147/32/18,2:90.610/107/1,3:151.230/53/17,4:176.669/141/19
+strata-poly: draft-policy round=144 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=87.965 counted_ms=87.965 costs=1:64.147/32/19,2:90.709/108/1,3:151.230/53/18,4:176.669/141/20
+strata-poly: draft-policy round=145 offered=3 match=4 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=84.505 counted_ms=84.505 costs=1:64.147/32/20,2:90.434/109/1,3:151.230/53/19,4:176.669/141/21
+strata-poly: draft-policy round=146 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=92.652 counted_ms=92.652 costs=1:64.147/32/21,2:89.841/110/1,3:151.230/53/20,4:176.669/141/22
+strata-poly: draft-policy round=147 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=86.626 counted_ms=86.626 costs=1:64.147/32/22,2:90.122/111/1,3:151.230/53/21,4:176.669/141/23
+strata-poly: draft-policy round=148 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=93.630 counted_ms=93.630 costs=1:64.147/32/23,2:89.773/112/1,3:151.230/53/22,4:176.669/141/24
+strata-poly: draft-policy round=149 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=106.529 counted_ms=106.529 costs=1:64.147/32/24,2:90.158/113/1,3:151.230/53/23,4:176.669/141/25
+strata-poly: draft-policy round=150 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=96.233 counted_ms=96.233 costs=1:64.147/32/25,2:91.796/114/1,3:151.230/53/24,4:176.669/141/26
+strata-poly: draft-policy round=151 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=90.268 counted_ms=90.268 costs=1:64.147/32/26,2:92.239/115/1,3:151.230/53/25,4:176.669/141/27
+strata-poly: draft-policy round=152 offered=3 match=5 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=102.407 counted_ms=102.407 costs=1:64.147/32/27,2:92.042/116/1,3:151.230/53/26,4:176.669/141/28
+strata-poly: draft-policy round=153 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=114.896 counted_ms=114.896 costs=1:64.147/32/28,2:93.079/117/1,3:151.230/53/27,4:176.669/141/29
+strata-poly: draft-policy round=154 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=115.230 counted_ms=115.230 costs=1:64.147/32/29,2:95.260/118/1,3:151.230/53/28,4:176.669/141/30
+strata-poly: draft-policy round=155 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=88.998 counted_ms=88.998 costs=1:64.147/32/30,2:97.257/119/1,3:151.230/53/29,4:176.669/141/31
+strata-poly: draft-policy round=156 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=88.026 counted_ms=88.026 costs=1:64.147/32/31,2:96.431/120/1,3:151.230/53/30,4:176.669/141/32
+strata-poly: draft-policy round=157 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=89.832 counted_ms=89.832 costs=1:64.147/32/32,2:95.591/121/1,3:151.230/53/31,4:176.669/141/33
+strata-poly: draft-policy round=158 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=87.791 counted_ms=87.791 costs=1:64.147/32/33,2:95.015/122/1,3:151.230/53/32,4:176.669/141/34
+strata-poly: draft-policy round=159 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=173.849 counted_ms=173.849 costs=1:64.147/32/34,2:94.293/123/1,3:151.230/53/33,4:176.669/141/35
+strata-poly: draft-policy round=160 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=133.990 counted_ms=133.990 costs=1:64.147/32/35,2:94.293/123/2,3:151.230/53/34,4:176.387/142/1
+strata-poly: draft-policy round=161 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=164.306 counted_ms=164.306 costs=1:64.147/32/36,2:94.293/123/3,3:149.506/54/1,4:176.387/142/2
+strata-poly: draft-policy round=162 offered=3 match=4 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=140.576 counted_ms=140.576 costs=1:64.147/32/37,2:94.293/123/4,3:149.506/54/2,4:175.179/143/1
+strata-poly: draft-policy round=163 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=0 setup=0 elapsed_ms=145.638 counted_ms=145.638 costs=1:64.147/32/38,2:94.293/123/5,3:148.613/55/1,4:175.179/143/2
+strata-poly: draft-policy round=164 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=133.876 counted_ms=133.876 costs=1:64.147/32/39,2:94.293/123/6,3:148.316/56/1,4:175.179/143/3
+strata-poly: draft-policy round=165 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=85.366 counted_ms=85.366 costs=1:64.147/32/40,2:94.293/123/7,3:146.872/57/1,4:175.179/143/4
+strata-poly: draft-policy round=166 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=86.925 counted_ms=86.925 costs=1:64.147/32/41,2:93.400/124/1,3:146.872/57/2,4:175.179/143/5
+strata-poly: draft-policy round=167 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=163.933 counted_ms=163.933 costs=1:64.147/32/42,2:92.752/125/1,3:146.872/57/3,4:175.179/143/6
+strata-poly: draft-policy round=168 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=79.044 counted_ms=79.044 costs=1:64.147/32/43,2:92.752/125/2,3:146.872/57/4,4:174.054/144/1
+strata-poly: draft-policy round=169 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=98.402 counted_ms=98.402 costs=1:64.147/32/44,2:91.382/126/1,3:146.872/57/5,4:174.054/144/2
+strata-poly: draft-policy round=170 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=84.834 counted_ms=84.834 costs=1:64.147/32/45,2:92.084/127/1,3:146.872/57/6,4:174.054/144/3
+strata-poly: draft-policy round=171 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=87.817 counted_ms=87.817 costs=1:64.147/32/46,2:91.359/128/1,3:146.872/57/7,4:174.054/144/4
+strata-poly: draft-policy round=172 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=110.425 counted_ms=110.425 costs=1:64.147/32/47,2:91.005/129/1,3:146.872/57/8,4:174.054/144/5
+strata-poly: draft-policy round=173 offered=3 match=4 q=0.802247 chosen=4 lookup=0 accepted=1 setup=0 elapsed_ms=203.196 counted_ms=203.196 costs=1:64.147/32/48,2:92.947/130/1,3:146.872/57/9,4:174.054/144/6
+strata-poly: draft-policy round=174 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=99.821 counted_ms=99.821 costs=1:64.147/32/49,2:92.947/130/2,3:146.872/57/10,4:176.969/145/1
+strata-poly: draft-policy round=175 offered=3 match=3 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=190.957 counted_ms=190.957 costs=1:64.147/32/50,2:93.634/131/1,3:146.872/57/11,4:176.969/145/2
+strata-poly: draft-policy round=176 offered=3 match=7 q=0.804838 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=195.726 counted_ms=195.726 costs=1:64.147/32/51,2:93.634/131/2,3:146.872/57/12,4:178.367/146/1
+strata-poly: draft-policy round=177 offered=3 match=11 q=0.804838 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=92.123 counted_ms=92.123 costs=1:64.147/32/52,2:93.634/131/3,3:146.872/57/13,4:180.103/147/1
+strata-poly: draft-policy round=178 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=82.332 counted_ms=82.332 costs=1:64.147/32/53,2:93.483/132/1,3:146.872/57/14,4:180.103/147/2
+strata-poly: draft-policy round=179 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=85.794 counted_ms=85.794 costs=1:64.147/32/54,2:92.368/133/1,3:146.872/57/15,4:180.103/147/3
+strata-poly: draft-policy round=180 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=101.794 counted_ms=101.794 costs=1:64.147/32/55,2:91.710/134/1,3:146.872/57/16,4:180.103/147/4
+strata-poly: draft-policy round=181 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=161.477 counted_ms=161.477 costs=1:64.147/32/56,2:92.719/135/1,3:146.872/57/17,4:180.103/147/5
+strata-poly: draft-policy round=182 offered=3 match=3 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=99.791 counted_ms=99.791 costs=1:64.147/32/57,2:92.719/135/2,3:148.332/58/1,4:180.103/147/6
+strata-poly: draft-policy round=183 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=100.103 counted_ms=100.103 costs=1:64.147/32/58,2:93.426/136/1,3:148.332/58/2,4:180.103/147/7
+strata-poly: draft-policy round=184 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=96.781 counted_ms=96.781 costs=1:64.147/32/59,2:94.094/137/1,3:148.332/58/3,4:180.103/147/8
+strata-poly: draft-policy round=185 offered=3 match=4 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=87.902 counted_ms=87.902 costs=1:64.147/32/60,2:94.362/138/1,3:148.332/58/4,4:180.103/147/9
+strata-poly: draft-policy round=186 offered=3 match=6 q=0.804838 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=99.092 counted_ms=99.092 costs=1:64.147/32/61,2:93.716/139/1,3:148.332/58/5,4:180.103/147/10
+strata-poly: draft-policy round=187 offered=3 match=8 q=0.804838 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=148.749 counted_ms=148.749 costs=1:64.147/32/62,2:94.254/140/1,3:148.332/58/6,4:180.103/147/11
+strata-poly: draft-policy round=188 offered=3 match=11 q=0.804838 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=102.375 counted_ms=102.375 costs=1:64.147/32/63,2:94.254/140/2,3:148.374/59/1,4:180.103/147/12
+strata-poly: draft-policy round=189 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=149.993 counted_ms=149.993 costs=1:64.147/32/64,2:95.066/141/1,3:148.374/59/2,4:180.103/147/13
+strata-poly: draft-policy round=190 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=82.463 counted_ms=82.463 costs=1:64.147/32/65,2:95.066/141/2,3:148.374/59/3,4:177.092/148/1
+strata-poly: draft-policy end
+strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=24554.503 cpu_expert_ms=22652.543 route_wait_ms=903.555 uploads=102 drafts_offered=358 drafts_accepted=320 gpu_experts=51319 cpu_experts=136193
+strata-poly: expert-cache answer: generated=512 GPU=51319 CPU=136193 hit=27.37% uploads=102; prompt work excluded
+strata-poly: memory[request] card=0 context=200000 sequences=1: KV=2636.72 MiB VRAM (full-context=2636.72 MiB), rows=0.00 MiB VRAM (chunk=8192, batch=1024), h_res_=256.00 MiB RAM (max=512.00 MiB)
+strata-poly: memory[request] card=0 VRAM allocations total=21441.89 MiB: dense=5622.06, experts=8750.11, KV=2636.72, staging=2048.00, rows=0.00, other=2385.00; reserve=1024 MiB
+strata-poly: memory[request] expert placement: permanent=1105, staging_cache=150/151 slots (2025.04 MiB used inside existing staging); uploads=502
+strata-poly: memory[request] card=0 RAM weights+buffers total=96973.27 MiB: resident_weights=96617.06, pinned_buffers=356.21 (includes h_res_); CUDA/HIP-registered window=7.88 MiB (part of resident_weights, peak=2048.00 MiB); whole process RSS=97812.06 MiB, system RAM free=18202.38 MiB
+strata-poly: memory[request] card=0 whole device used=23294.48 / 24563.50 MiB, free=1269.02 MiB (includes CUDA libraries and other processes)
+strata-poly: buffers[request] card=0: device=21441.89 MiB (plain=18793.12, sequence=12.05, attention caches=2636.72), pinned=356.21 MiB, scratch slices=1669.46 MiB in 1669.46 MiB
+strata-poly: buffers[request] no-disk permanent experts          device              1 x  8750.106 MiB =   8750.106 MiB
+strata-poly: buffers[request] the dense weights                  device              1 x  5622.063 MiB =   5622.063 MiB
+strata-poly: buffers[request] the attention cache (KV)           attention cache    24 x    24.414 MiB =   2636.719 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[request] the expert staging buffer          device              1 x  2048.000 MiB =   2048.000 MiB
+strata-poly: buffers[request] scratch_ (arch scratch arena)      device              1 x  1669.463 MiB =   1669.463 MiB
+strata-poly: buffers[request] snap_ (window states)              device              1 x   436.688 MiB =    436.688 MiB
+strata-poly: buffers[request] pinned memory                      pinned              9 x     0.000 MiB =    356.080 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[request] the recurrent state                device              1 x   161.578 MiB =    161.578 MiB
+strata-poly: buffers[request] mq_ (MMQ rows of x)                device              1 x    36.018 MiB =     36.018 MiB
+strata-poly: buffers[request] mq2_ (MMQ rows of the expert output) device              1 x    18.018 MiB =     18.018 MiB
+strata-poly: buffers[request] mqx_ (MMQ rows of q8_tile)         device              1 x    18.018 MiB =     18.018 MiB
+strata-poly: buffers[request] q8_ (quantized weights)            device              1 x    18.000 MiB =     18.000 MiB
+strata-poly: buffers[request] the indexer cache                  sequence            1 x    12.047 MiB =     12.047 MiB
+strata-poly: buffers[request] scratch                            device              1 x     8.016 MiB =      8.016 MiB
+strata-poly: buffers[request] xq_ (quantized activations)        device              1 x     4.500 MiB =      4.500 MiB
+strata-poly: buffers[request] wlogits_ (window()/step() logits)  device              1 x     2.363 MiB =      2.363 MiB
+strata-poly: buffers[request] tab_ (MoE tile tables)             device              1 x     0.100 MiB =      0.100 MiB
+strata-poly: buffers[request] h_tab_ (MoE tile tables)           pinned              1 x     0.100 MiB =      0.100 MiB
+strata-poly: buffers[request] d_slots_ (expert slots)            device              1 x     0.099 MiB =      0.099 MiB
+strata-poly: buffers[request] d_ids_ (row -> expert)             device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[request] d_wts_ (row -> weight)             device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[request] h_ids_ (row -> expert)             pinned              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[request] iota_ (row indices)                device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[request] at_ (recorded positions)           device              1 x     0.000 MiB =      0.000 MiB
+strata-poly: buffers[request] scratch r_ (layer input rows)          offset=        0 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2277
+strata-poly: buffers[request] scratch cur_                           offset=134217728 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2279
+strata-poly: buffers[request] scratch xn_ (normed input)             offset=150994944 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2280
+strata-poly: buffers[request] scratch ao_ (attention output)         offset=167772160 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2281
+strata-poly: buffers[request] scratch fo_ (layer output)             offset=184549376 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2282
+strata-poly: buffers[request] scratch g_ (expert gate rows)          offset=201326592 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2283
+strata-poly: buffers[request] scratch u_ (expert up rows)            offset=251658240 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2284
+strata-poly: buffers[request] scratch h_ (expert hidden rows)        offset=301989888 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2285
+strata-poly: buffers[request] scratch d_ (MoE sums in progress)      offset=352321536 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2286
+strata-poly: buffers[request] scratch rl_ (router logits)            offset=352845824 bytes=   1179648 (  1.125 MiB) count=294912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2287
+strata-poly: buffers[request] scratch logits_                        offset=354025472 bytes=    619520 (  0.591 MiB) count=154880 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2288
+strata-poly: buffers[request] scratch wf_ (BF16 matrix as floats)    offset=354644992 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2289
+strata-poly: buffers[request] scratch gu_ (expert gate/up rows)      offset=388199424 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2293
+strata-poly: buffers[request] scratch hx_ (expert activation rows)   offset=522417152 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2294
+strata-poly: buffers[request] scratch dx_ (expert down rows)         offset=589526016 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2295
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=723743744 bytes=    102400 (  0.098 MiB) count=25600 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:249
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=723846144 bytes=     81920 (  0.078 MiB) count=20480 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:250
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=723928064 bytes= 100663296 ( 96.000 MiB) count=25165824 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:252
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=824591360 bytes= 100663296 ( 96.000 MiB) count=25165824 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:253
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=925254656 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:254
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=925778944 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:255
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=926303232 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:256
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=959857664 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:257
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=993412096 bytes=    262144 (  0.250 MiB) count=65536 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:258
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=993674240 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:259
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1027228672 bytes=   6291456 (  6.000 MiB) count=1572864 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:261
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1033520128 bytes=   6291456 (  6.000 MiB) count=1572864 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:262
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1039811584 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:263
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1106920448 bytes=   2097152 (  2.000 MiB) count=524288 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:264
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1109017600 bytes=   2097152 (  2.000 MiB) count=524288 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:265
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1111114752 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:266
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1245332480 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:267
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1379550208 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:268
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1446659072 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:269
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1447183360 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:270
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1447707648 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:271
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1448231936 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:272
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1465009152 bytes=    131072 (  0.125 MiB) count=32768 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:273
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1465140224 bytes= 134202880 (127.986 MiB) count=33550671 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:274
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1599343104 bytes= 134414336 (128.188 MiB) count=33603584 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:277
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1733757440 bytes=  16801792 ( 16.023 MiB) count=4200448 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:278
+strata-poly: buffers[request] check: scratch slices 1669.46 of 1669.46 MiB (0.00 alignment and tail), unnamed slices 26; allocator records device=21441.89, pinned=356.21 MiB; mapped KV (VMM, not in device_sizes_)=0.00 of the 2636.72 requested; arena mapped=0.00 MiB
+strata-poly: buffers[request] graphs[pos=2561 room_key=2 window=4 batch=0]: execs=1071 (live owners); layer slots=1284 live=1070; passes=0 live=0; tail=1
+strata-poly: device-memory[request] global_free=1330659328 global_total=25756696576 bytes
+strata-poly: expert-cache decode: tokens=128 interval=128 GPU=11418 CPU=35926 hit=24.12% uploads=16 speed=19.41 tok/s
+strata-poly: expert-cache decode: tokens=256 interval=128 GPU=12652 CPU=35956 hit=26.03% uploads=50 speed=18.74 tok/s
+strata-poly: expert-cache decode: tokens=384 interval=128 GPU=13995 CPU=36213 hit=27.87% uploads=37 speed=18.22 tok/s
+strata-poly: draft-policy begin produced=512 rounds=228 decode_ms=27719.086
+strata-poly: draft-policy round=0 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=119.767 counted_ms=119.767 costs=1:64.147/32/66,2:93.806/142/1,3:148.374/59/4,4:177.092/148/2
+strata-poly: draft-policy round=1 offered=0 match=0 q=0.802247 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=81.102 counted_ms=81.102 costs=1:64.147/32/67,2:96.402/143/1,3:148.374/59/5,4:177.092/148/3
+strata-poly: draft-policy round=2 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=102.984 counted_ms=102.984 costs=1:65.842/33/1,2:96.402/143/2,3:148.374/59/6,4:177.092/148/4
+strata-poly: draft-policy round=3 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=132.113 counted_ms=132.113 costs=1:65.842/33/2,2:97.060/144/1,3:148.374/59/7,4:177.092/148/5
+strata-poly: draft-policy round=4 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=191.271 counted_ms=191.271 costs=1:65.842/33/3,2:100.565/145/1,3:148.374/59/8,4:177.092/148/6
+strata-poly: draft-policy round=5 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=115.213 counted_ms=115.213 costs=1:65.842/33/4,2:100.565/145/2,3:152.664/60/1,4:177.092/148/7
+strata-poly: draft-policy round=6 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=99.497 counted_ms=99.497 costs=1:65.842/33/5,2:102.030/146/1,3:152.664/60/2,4:177.092/148/8
+strata-poly: draft-policy round=7 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=112.654 counted_ms=112.654 costs=1:65.842/33/6,2:101.777/147/1,3:152.664/60/3,4:177.092/148/9
+strata-poly: draft-policy round=8 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=89.105 counted_ms=89.105 costs=1:65.842/33/7,2:102.865/148/1,3:152.664/60/4,4:177.092/148/10
+strata-poly: draft-policy round=9 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=190.131 counted_ms=190.131 costs=1:65.842/33/8,2:101.489/149/1,3:152.664/60/5,4:177.092/148/11
+strata-poly: draft-policy round=10 offered=3 match=4 q=0.802247 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=164.809 counted_ms=164.809 costs=1:65.842/33/9,2:101.489/149/2,3:152.664/60/6,4:178.396/149/1
+strata-poly: draft-policy round=11 offered=3 match=7 q=0.804838 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=188.298 counted_ms=188.298 costs=1:65.842/33/10,2:101.489/149/3,3:152.664/60/7,4:177.037/150/1
+strata-poly: draft-policy round=12 offered=3 match=4 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=216.675 counted_ms=216.675 costs=1:65.842/33/11,2:101.489/149/4,3:152.664/60/8,4:178.163/151/1
+strata-poly: draft-policy round=13 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=127.955 counted_ms=127.955 costs=1:65.842/33/12,2:101.489/149/5,3:152.664/60/9,4:182.015/152/1
+strata-poly: draft-policy round=14 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=186.788 counted_ms=186.788 costs=1:65.842/33/13,2:104.135/150/1,3:152.664/60/10,4:182.015/152/2
+strata-poly: draft-policy round=15 offered=3 match=5 q=0.802247 chosen=3 lookup=0 accepted=1 setup=0 elapsed_ms=148.200 counted_ms=148.200 costs=1:65.842/33/14,2:104.135/150/2,3:152.664/60/11,4:182.492/153/1
+strata-poly: draft-policy round=16 offered=0 match=0 q=0.802247 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=153.348 counted_ms=153.348 costs=1:65.842/33/15,2:104.135/150/3,3:152.217/61/1,4:182.492/153/2
+strata-poly: draft-policy round=17 offered=0 match=0 q=0.802247 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=106.261 counted_ms=106.261 costs=1:65.842/33/16,2:104.135/150/4,3:152.330/62/1,4:182.492/153/3
+strata-poly: draft-policy round=18 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=215.608 counted_ms=215.608 costs=1:65.842/33/17,2:104.348/151/1,3:152.330/62/2,4:182.492/153/4
+strata-poly: draft-policy round=19 offered=0 match=0 q=0.802247 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=202.926 counted_ms=202.926 costs=1:65.842/33/18,2:104.348/151/2,3:152.330/62/3,4:185.804/154/1
+strata-poly: draft-policy round=20 offered=3 match=5 q=0.802247 chosen=2 lookup=1 accepted=1 setup=0 elapsed_ms=95.580 counted_ms=95.580 costs=1:65.842/33/19,2:104.348/151/3,3:152.330/62/4,4:187.516/155/1
+strata-poly: draft-policy round=21 offered=0 match=0 q=0.814453 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=174.407 counted_ms=174.407 costs=1:65.842/33/20,2:103.471/152/1,3:152.330/62/5,4:187.516/155/2
+strata-poly: draft-policy round=22 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=111.219 counted_ms=111.219 costs=1:65.842/33/21,2:103.471/152/2,3:152.330/62/6,4:186.205/156/1
+strata-poly: draft-policy round=23 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=103.702 counted_ms=103.702 costs=1:65.842/33/22,2:104.246/153/1,3:152.330/62/7,4:186.205/156/2
+strata-poly: draft-policy round=24 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=107.071 counted_ms=107.071 costs=1:65.842/33/23,2:104.191/154/1,3:152.330/62/8,4:186.205/156/3
+strata-poly: draft-policy round=25 offered=0 match=0 q=0.814453 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=175.168 counted_ms=175.168 costs=1:65.842/33/24,2:104.479/155/1,3:152.330/62/9,4:186.205/156/4
+strata-poly: draft-policy round=26 offered=3 match=5 q=0.814453 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=186.172 counted_ms=186.172 costs=1:65.842/33/25,2:104.479/155/2,3:152.330/62/10,4:185.101/157/1
+strata-poly: draft-policy round=27 offered=3 match=9 q=0.804838 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=159.587 counted_ms=159.587 costs=1:65.842/33/26,2:104.479/155/3,3:152.330/62/11,4:185.208/158/1
+strata-poly: draft-policy round=28 offered=3 match=13 q=0.877251 chosen=4 lookup=0 accepted=1 setup=0 elapsed_ms=169.922 counted_ms=169.922 costs=1:65.842/33/27,2:104.479/155/4,3:152.330/62/12,4:182.646/159/1
+strata-poly: draft-policy round=29 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=85.344 counted_ms=85.344 costs=1:65.842/33/28,2:104.479/155/5,3:152.330/62/13,4:181.374/160/1
+strata-poly: draft-policy round=30 offered=0 match=0 q=0.814453 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=56.608 counted_ms=56.608 costs=1:65.842/33/29,2:102.566/156/1,3:152.330/62/14,4:181.374/160/2
+strata-poly: draft-policy round=31 offered=0 match=0 q=0.814453 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=157.646 counted_ms=157.646 costs=1:64.919/34/1,2:102.566/156/2,3:152.330/62/15,4:181.374/160/3
+strata-poly: draft-policy round=32 offered=3 match=6 q=0.804838 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=150.781 counted_ms=150.781 costs=1:64.919/34/2,2:102.566/156/3,3:152.330/62/16,4:179.001/161/1
+strata-poly: draft-policy round=33 offered=3 match=10 q=0.804838 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=149.233 counted_ms=149.233 costs=1:64.919/34/3,2:102.566/156/4,3:152.330/62/17,4:176.179/162/1
+strata-poly: draft-policy round=34 offered=3 match=14 q=0.877251 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=171.792 counted_ms=171.792 costs=1:64.919/34/4,2:102.566/156/5,3:152.330/62/18,4:173.484/163/1
+strata-poly: draft-policy round=35 offered=3 match=18 q=0.877251 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=207.041 counted_ms=207.041 costs=1:64.919/34/5,2:102.566/156/6,3:152.330/62/19,4:173.315/164/1
+strata-poly: draft-policy round=36 offered=3 match=22 q=0.877251 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=210.970 counted_ms=210.970 costs=1:64.919/34/6,2:102.566/156/7,3:152.330/62/20,4:176.688/165/1
+strata-poly: draft-policy round=37 offered=3 match=26 q=0.932354 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=190.000 counted_ms=190.000 costs=1:64.919/34/7,2:102.566/156/8,3:152.330/62/21,4:180.116/166/1
+strata-poly: draft-policy round=38 offered=3 match=30 q=0.937270 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=157.940 counted_ms=157.940 costs=1:64.919/34/8,2:102.566/156/9,3:152.330/62/22,4:181.104/167/1
+strata-poly: draft-policy round=39 offered=3 match=34 q=0.941628 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=151.933 counted_ms=151.933 costs=1:64.919/34/9,2:102.566/156/10,3:152.330/62/23,4:178.788/168/1
+strata-poly: draft-policy round=40 offered=3 match=38 q=0.945514 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=165.627 counted_ms=165.627 costs=1:64.919/34/10,2:102.566/156/11,3:152.330/62/24,4:176.102/169/1
+strata-poly: draft-policy round=41 offered=3 match=42 q=0.949001 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=173.819 counted_ms=173.819 costs=1:64.919/34/11,2:102.566/156/12,3:152.330/62/25,4:175.055/170/1
+strata-poly: draft-policy round=42 offered=3 match=46 q=0.952146 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=176.233 counted_ms=176.233 costs=1:64.919/34/12,2:102.566/156/13,3:152.330/62/26,4:174.931/171/1
+strata-poly: draft-policy round=43 offered=3 match=50 q=0.954995 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=162.921 counted_ms=162.921 costs=1:64.919/34/13,2:102.566/156/14,3:152.330/62/27,4:175.061/172/1
+strata-poly: draft-policy round=44 offered=3 match=54 q=0.957587 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=163.333 counted_ms=163.333 costs=1:64.919/34/14,2:102.566/156/15,3:152.330/62/28,4:173.847/173/1
+strata-poly: draft-policy round=45 offered=3 match=58 q=0.959955 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=165.810 counted_ms=165.810 costs=1:64.919/34/15,2:102.566/156/16,3:152.330/62/29,4:172.796/174/1
+strata-poly: draft-policy round=46 offered=3 match=62 q=0.962124 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=174.592 counted_ms=174.592 costs=1:64.919/34/16,2:102.566/156/17,3:152.330/62/30,4:172.097/175/1
+strata-poly: draft-policy round=47 offered=3 match=64 q=0.964119 chosen=4 lookup=1 accepted=3 setup=0 elapsed_ms=161.598 counted_ms=161.598 costs=1:64.919/34/17,2:102.566/156/18,3:152.330/62/31,4:172.347/176/1
+strata-poly: draft-policy round=48 offered=3 match=64 q=0.965959 chosen=4 lookup=1 accepted=0 setup=0 elapsed_ms=178.520 counted_ms=178.520 costs=1:64.919/34/18,2:102.566/156/19,3:152.330/62/32,4:171.272/177/1
+strata-poly: draft-policy round=49 offered=0 match=0 q=0.814453 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=186.388 counted_ms=186.388 costs=1:64.919/34/19,2:102.566/156/20,3:152.330/62/33,4:171.997/178/1
+strata-poly: draft-policy round=50 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=117.056 counted_ms=117.056 costs=1:64.919/34/20,2:102.566/156/21,3:155.736/63/1,4:171.997/178/2
+strata-poly: draft-policy round=51 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=97.998 counted_ms=97.998 costs=1:64.919/34/21,2:104.015/157/1,3:155.736/63/2,4:171.997/178/3
+strata-poly: draft-policy round=52 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=94.707 counted_ms=94.707 costs=1:64.919/34/22,2:103.413/158/1,3:155.736/63/3,4:171.997/178/4
+strata-poly: draft-policy round=53 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=86.678 counted_ms=86.678 costs=1:64.919/34/23,2:102.542/159/1,3:155.736/63/4,4:171.997/178/5
+strata-poly: draft-policy round=54 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=83.835 counted_ms=83.835 costs=1:64.919/34/24,2:100.956/160/1,3:155.736/63/5,4:171.997/178/6
+strata-poly: draft-policy round=55 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=93.084 counted_ms=93.084 costs=1:64.919/34/25,2:99.244/161/1,3:155.736/63/6,4:171.997/178/7
+strata-poly: draft-policy round=56 offered=0 match=0 q=0.814453 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=65.756 counted_ms=65.756 costs=1:64.919/34/26,2:98.628/162/1,3:155.736/63/7,4:171.997/178/8
+strata-poly: draft-policy round=57 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=93.859 counted_ms=93.859 costs=1:65.002/35/1,2:98.628/162/2,3:155.736/63/8,4:171.997/178/9
+strata-poly: draft-policy round=58 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=83.832 counted_ms=83.832 costs=1:65.002/35/2,2:98.151/163/1,3:155.736/63/9,4:171.997/178/10
+strata-poly: draft-policy round=59 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=89.563 counted_ms=89.563 costs=1:65.002/35/3,2:96.719/164/1,3:155.736/63/10,4:171.997/178/11
+strata-poly: draft-policy round=60 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=85.875 counted_ms=85.875 costs=1:65.002/35/4,2:96.004/165/1,3:155.736/63/11,4:171.997/178/12
+strata-poly: draft-policy round=61 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=88.887 counted_ms=88.887 costs=1:65.002/35/5,2:94.991/166/1,3:155.736/63/12,4:171.997/178/13
+strata-poly: draft-policy round=62 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=85.129 counted_ms=85.129 costs=1:65.002/35/6,2:94.380/167/1,3:155.736/63/13,4:171.997/178/14
+strata-poly: draft-policy round=63 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=89.992 counted_ms=89.992 costs=1:65.002/35/7,2:93.455/168/1,3:155.736/63/14,4:171.997/178/15
+strata-poly: draft-policy round=64 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=90.055 counted_ms=90.055 costs=1:65.002/35/8,2:93.109/169/1,3:155.736/63/15,4:171.997/178/16
+strata-poly: draft-policy round=65 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=97.760 counted_ms=97.760 costs=1:65.002/35/9,2:92.803/170/1,3:155.736/63/16,4:171.997/178/17
+strata-poly: draft-policy round=66 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=88.274 counted_ms=88.274 costs=1:65.002/35/10,2:93.299/171/1,3:155.736/63/17,4:171.997/178/18
+strata-poly: draft-policy round=67 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=88.174 counted_ms=88.174 costs=1:65.002/35/11,2:92.797/172/1,3:155.736/63/18,4:171.997/178/19
+strata-poly: draft-policy round=68 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=87.730 counted_ms=87.730 costs=1:65.002/35/12,2:92.334/173/1,3:155.736/63/19,4:171.997/178/20
+strata-poly: draft-policy round=69 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=87.862 counted_ms=87.862 costs=1:65.002/35/13,2:91.874/174/1,3:155.736/63/20,4:171.997/178/21
+strata-poly: draft-policy round=70 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=81.199 counted_ms=81.199 costs=1:65.002/35/14,2:91.473/175/1,3:155.736/63/21,4:171.997/178/22
+strata-poly: draft-policy round=71 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=78.342 counted_ms=78.342 costs=1:65.002/35/15,2:90.445/176/1,3:155.736/63/22,4:171.997/178/23
+strata-poly: draft-policy round=72 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=98.883 counted_ms=98.883 costs=1:65.002/35/16,2:89.235/177/1,3:155.736/63/23,4:171.997/178/24
+strata-poly: draft-policy round=73 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=114.346 counted_ms=114.346 costs=1:65.002/35/17,2:90.200/178/1,3:155.736/63/24,4:171.997/178/25
+strata-poly: draft-policy round=74 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=125.889 counted_ms=125.889 costs=1:65.002/35/18,2:92.614/179/1,3:155.736/63/25,4:171.997/178/26
+strata-poly: draft-policy round=75 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=125.951 counted_ms=125.951 costs=1:65.002/35/19,2:95.942/180/1,3:155.736/63/26,4:171.997/178/27
+strata-poly: draft-policy round=76 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=117.523 counted_ms=117.523 costs=1:65.002/35/20,2:98.943/181/1,3:155.736/63/27,4:171.997/178/28
+strata-poly: draft-policy round=77 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=126.252 counted_ms=126.252 costs=1:65.002/35/21,2:100.801/182/1,3:155.736/63/28,4:171.997/178/29
+strata-poly: draft-policy round=78 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=111.564 counted_ms=111.564 costs=1:65.002/35/22,2:103.346/183/1,3:155.736/63/29,4:171.997/178/30
+strata-poly: draft-policy round=79 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=102.300 counted_ms=102.300 costs=1:65.002/35/23,2:104.168/184/1,3:155.736/63/30,4:171.997/178/31
+strata-poly: draft-policy round=80 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=125.132 counted_ms=125.132 costs=1:65.002/35/24,2:103.981/185/1,3:155.736/63/31,4:171.997/178/32
+strata-poly: draft-policy round=81 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=161.755 counted_ms=161.755 costs=1:65.002/35/25,2:106.096/186/1,3:155.736/63/32,4:171.997/178/33
+strata-poly: draft-policy round=82 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=98.467 counted_ms=98.467 costs=1:65.002/35/26,2:111.662/187/1,3:155.736/63/33,4:171.997/178/34
+strata-poly: draft-policy round=83 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=85.284 counted_ms=85.284 costs=1:65.002/35/27,2:110.342/188/1,3:155.736/63/34,4:171.997/178/35
+strata-poly: draft-policy round=84 offered=0 match=0 q=0.814453 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=163.751 counted_ms=163.751 costs=1:65.002/35/28,2:107.837/189/1,3:155.736/63/35,4:171.997/178/36
+strata-poly: draft-policy round=85 offered=0 match=0 q=0.814453 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=173.928 counted_ms=173.928 costs=1:65.002/35/29,2:107.837/189/2,3:155.736/63/36,4:171.172/179/1
+strata-poly: draft-policy round=86 offered=3 match=3 q=0.814453 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=158.680 counted_ms=158.680 costs=1:65.002/35/30,2:107.837/189/3,3:155.736/63/37,4:171.448/180/1
+strata-poly: draft-policy round=87 offered=0 match=0 q=0.814453 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=154.739 counted_ms=154.739 costs=1:65.002/35/31,2:107.837/189/4,3:156.031/64/1,4:171.448/180/2
+strata-poly: draft-policy round=88 offered=0 match=0 q=0.814453 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=181.806 counted_ms=181.806 costs=1:65.002/35/32,2:107.837/189/5,3:156.031/64/2,4:169.777/181/1
+strata-poly: draft-policy round=89 offered=0 match=0 q=0.814453 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=168.223 counted_ms=168.223 costs=1:65.002/35/33,2:107.837/189/6,3:156.031/64/3,4:170.980/182/1
+strata-poly: draft-policy round=90 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=92.023 counted_ms=92.023 costs=1:65.002/35/34,2:107.837/189/7,3:156.031/64/4,4:170.704/183/1
+strata-poly: draft-policy round=91 offered=0 match=0 q=0.814453 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=118.065 counted_ms=118.065 costs=1:65.002/35/35,2:106.255/190/1,3:156.031/64/5,4:170.704/183/2
+strata-poly: draft-policy round=92 offered=3 match=3 q=0.814453 chosen=4 lookup=1 accepted=1 setup=0 elapsed_ms=176.265 counted_ms=176.265 costs=1:65.002/35/36,2:107.436/191/1,3:156.031/64/6,4:170.704/183/3
+strata-poly: draft-policy round=93 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=91.433 counted_ms=91.433 costs=1:65.002/35/37,2:107.436/191/2,3:156.031/64/7,4:171.260/184/1
+strata-poly: draft-policy round=94 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=92.436 counted_ms=92.436 costs=1:65.002/35/38,2:105.836/192/1,3:156.031/64/8,4:171.260/184/2
+strata-poly: draft-policy round=95 offered=3 match=4 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=101.298 counted_ms=101.298 costs=1:65.002/35/39,2:104.496/193/1,3:156.031/64/9,4:171.260/184/3
+strata-poly: draft-policy round=96 offered=3 match=6 q=0.804838 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=79.285 counted_ms=79.285 costs=1:65.002/35/40,2:104.176/194/1,3:156.031/64/10,4:171.260/184/4
+strata-poly: draft-policy round=97 offered=3 match=8 q=0.804838 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=112.721 counted_ms=112.721 costs=1:65.002/35/41,2:101.687/195/1,3:156.031/64/11,4:171.260/184/5
+strata-poly: draft-policy round=98 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=93.377 counted_ms=93.377 costs=1:65.002/35/42,2:102.790/196/1,3:156.031/64/12,4:171.260/184/6
+strata-poly: draft-policy round=99 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=83.382 counted_ms=83.382 costs=1:65.002/35/43,2:101.849/197/1,3:156.031/64/13,4:171.260/184/7
+strata-poly: draft-policy round=100 offered=3 match=4 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=94.692 counted_ms=94.692 costs=1:65.002/35/44,2:100.002/198/1,3:156.031/64/14,4:171.260/184/8
+strata-poly: draft-policy round=101 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=110.166 counted_ms=110.166 costs=1:65.002/35/45,2:99.471/199/1,3:156.031/64/15,4:171.260/184/9
+strata-poly: draft-policy round=102 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=111.611 counted_ms=111.611 costs=1:65.002/35/46,2:100.541/200/1,3:156.031/64/16,4:171.260/184/10
+strata-poly: draft-policy round=103 offered=3 match=3 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=90.853 counted_ms=90.853 costs=1:65.002/35/47,2:101.648/201/1,3:156.031/64/17,4:171.260/184/11
+strata-poly: draft-policy round=104 offered=3 match=5 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=80.146 counted_ms=80.146 costs=1:65.002/35/48,2:100.568/202/1,3:156.031/64/18,4:171.260/184/12
+strata-poly: draft-policy round=105 offered=3 match=7 q=0.804838 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=81.684 counted_ms=81.684 costs=1:65.002/35/49,2:98.526/203/1,3:156.031/64/19,4:171.260/184/13
+strata-poly: draft-policy round=106 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=90.985 counted_ms=90.985 costs=1:65.002/35/50,2:96.842/204/1,3:156.031/64/20,4:171.260/184/14
+strata-poly: draft-policy round=107 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=88.843 counted_ms=88.843 costs=1:65.002/35/51,2:96.256/205/1,3:156.031/64/21,4:171.260/184/15
+strata-poly: draft-policy round=108 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=88.133 counted_ms=88.133 costs=1:65.002/35/52,2:95.515/206/1,3:156.031/64/22,4:171.260/184/16
+strata-poly: draft-policy round=109 offered=3 match=3 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=84.670 counted_ms=84.670 costs=1:65.002/35/53,2:94.777/207/1,3:156.031/64/23,4:171.260/184/17
+strata-poly: draft-policy round=110 offered=3 match=5 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=101.674 counted_ms=101.674 costs=1:65.002/35/54,2:93.766/208/1,3:156.031/64/24,4:171.260/184/18
+strata-poly: draft-policy round=111 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=92.276 counted_ms=92.276 costs=1:65.002/35/55,2:94.557/209/1,3:156.031/64/25,4:171.260/184/19
+strata-poly: draft-policy round=112 offered=3 match=3 q=0.777733 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=87.013 counted_ms=87.013 costs=1:65.002/35/56,2:94.329/210/1,3:156.031/64/26,4:171.260/184/20
+strata-poly: draft-policy round=113 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=83.282 counted_ms=83.282 costs=1:65.002/35/57,2:93.597/211/1,3:156.031/64/27,4:171.260/184/21
+strata-poly: draft-policy round=114 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=89.921 counted_ms=89.921 costs=1:65.002/35/58,2:92.566/212/1,3:156.031/64/28,4:171.260/184/22
+strata-poly: draft-policy round=115 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=102.269 counted_ms=102.269 costs=1:65.002/35/59,2:92.301/213/1,3:156.031/64/29,4:171.260/184/23
+strata-poly: draft-policy round=116 offered=3 match=4 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=80.868 counted_ms=80.868 costs=1:65.002/35/60,2:93.298/214/1,3:156.031/64/30,4:171.260/184/24
+strata-poly: draft-policy round=117 offered=0 match=0 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=86.199 counted_ms=86.199 costs=1:65.002/35/61,2:92.055/215/1,3:156.031/64/31,4:171.260/184/25
+strata-poly: draft-policy round=118 offered=3 match=3 q=0.777733 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=74.494 counted_ms=74.494 costs=1:65.002/35/62,2:91.469/216/1,3:156.031/64/32,4:171.260/184/26
+strata-poly: draft-policy round=119 offered=3 match=5 q=0.777733 chosen=2 lookup=1 accepted=0 setup=0 elapsed_ms=79.184 counted_ms=79.184 costs=1:65.002/35/63,2:89.772/217/1,3:156.031/64/33,4:171.260/184/27
+strata-poly: draft-policy round=120 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=128.991 counted_ms=128.991 costs=1:65.002/35/64,2:88.713/218/1,3:156.031/64/34,4:171.260/184/28
+strata-poly: draft-policy round=121 offered=3 match=4 q=0.734189 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=82.580 counted_ms=82.580 costs=1:65.002/35/65,2:88.713/218/2,3:153.327/65/1,4:171.260/184/29
+strata-poly: draft-policy round=122 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=82.503 counted_ms=82.503 costs=1:65.002/35/66,2:88.100/219/1,3:153.327/65/2,4:171.260/184/30
+strata-poly: draft-policy round=123 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=99.917 counted_ms=99.917 costs=1:65.002/35/67,2:87.540/220/1,3:153.327/65/3,4:171.260/184/31
+strata-poly: draft-policy round=124 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=84.068 counted_ms=84.068 costs=1:65.002/35/68,2:88.778/221/1,3:153.327/65/4,4:171.260/184/32
+strata-poly: draft-policy round=125 offered=0 match=0 q=0.734189 chosen=4 lookup=0 accepted=2 setup=0 elapsed_ms=177.306 counted_ms=177.306 costs=1:65.002/35/69,2:88.307/222/1,3:153.327/65/5,4:171.260/184/33
+strata-poly: draft-policy round=126 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=129.254 counted_ms=129.254 costs=1:65.002/35/70,2:88.307/222/2,3:153.327/65/6,4:171.865/185/1
+strata-poly: draft-policy round=127 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=126.468 counted_ms=126.468 costs=1:65.002/35/71,2:92.402/223/1,3:153.327/65/7,4:171.865/185/2
+strata-poly: draft-policy round=128 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=120.070 counted_ms=120.070 costs=1:65.002/35/72,2:92.402/223/2,3:150.641/66/1,4:171.865/185/3
+strata-poly: draft-policy round=129 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=127.829 counted_ms=127.829 costs=1:65.002/35/73,2:92.402/223/3,3:147.584/67/1,4:171.865/185/4
+strata-poly: draft-policy round=130 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=95.591 counted_ms=95.591 costs=1:65.002/35/74,2:92.402/223/4,3:145.608/68/1,4:171.865/185/5
+strata-poly: draft-policy round=131 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=92.687 counted_ms=92.687 costs=1:65.002/35/75,2:92.720/224/1,3:145.608/68/2,4:171.865/185/6
+strata-poly: draft-policy round=132 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=99.733 counted_ms=99.733 costs=1:65.002/35/76,2:92.717/225/1,3:145.608/68/3,4:171.865/185/7
+strata-poly: draft-policy round=133 offered=3 match=3 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=160.717 counted_ms=160.717 costs=1:65.002/35/77,2:93.419/226/1,3:145.608/68/4,4:171.865/185/8
+strata-poly: draft-policy round=134 offered=3 match=6 q=0.804838 chosen=2 lookup=1 accepted=1 setup=0 elapsed_ms=128.622 counted_ms=128.622 costs=1:65.002/35/78,2:93.419/226/2,3:147.119/69/1,4:171.865/185/9
+strata-poly: draft-policy round=135 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=187.216 counted_ms=187.216 costs=1:65.002/35/79,2:96.939/227/1,3:147.119/69/2,4:171.865/185/10
+strata-poly: draft-policy round=136 offered=3 match=3 q=0.734189 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=197.180 counted_ms=197.180 costs=1:65.002/35/80,2:96.939/227/2,3:151.129/70/1,4:171.865/185/11
+strata-poly: draft-policy round=137 offered=3 match=7 q=0.816547 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=140.633 counted_ms=140.633 costs=1:65.002/35/81,2:96.939/227/3,3:151.129/70/2,4:174.396/186/1
+strata-poly: draft-policy round=138 offered=0 match=0 q=0.734189 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=67.244 counted_ms=67.244 costs=1:65.002/35/82,2:96.939/227/4,3:150.079/71/1,4:174.396/186/2
+strata-poly: draft-policy round=139 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=107.280 counted_ms=107.280 costs=1:65.227/36/1,2:96.939/227/5,3:150.079/71/2,4:174.396/186/3
+strata-poly: draft-policy round=140 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=132.556 counted_ms=132.556 costs=1:65.227/36/2,2:97.973/228/1,3:150.079/71/3,4:174.396/186/4
+strata-poly: draft-policy round=141 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=97.956 counted_ms=97.956 costs=1:65.227/36/3,2:97.973/228/2,3:148.327/72/1,4:174.396/186/5
+strata-poly: draft-policy round=142 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=134.307 counted_ms=134.307 costs=1:65.227/36/4,2:97.971/229/1,3:148.327/72/2,4:174.396/186/6
+strata-poly: draft-policy round=143 offered=0 match=0 q=0.734189 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=59.990 counted_ms=59.990 costs=1:65.227/36/5,2:97.971/229/2,3:146.925/73/1,4:174.396/186/7
+strata-poly: draft-policy round=144 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=121.263 counted_ms=121.263 costs=1:64.703/37/1,2:97.971/229/3,3:146.925/73/2,4:174.396/186/8
+strata-poly: draft-policy round=145 offered=0 match=0 q=0.734189 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=66.619 counted_ms=66.619 costs=1:64.703/37/2,2:97.971/229/4,3:144.359/74/1,4:174.396/186/9
+strata-poly: draft-policy round=146 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=90.193 counted_ms=90.193 costs=1:64.895/38/1,2:97.971/229/5,3:144.359/74/2,4:174.396/186/10
+strata-poly: draft-policy round=147 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=116.142 counted_ms=116.142 costs=1:64.895/38/2,2:97.194/230/1,3:144.359/74/3,4:174.396/186/11
+strata-poly: draft-policy round=148 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=135.232 counted_ms=135.232 costs=1:64.895/38/3,2:97.194/230/2,3:141.537/75/1,4:174.396/186/12
+strata-poly: draft-policy round=149 offered=3 match=5 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=151.367 counted_ms=151.367 costs=1:64.895/38/4,2:97.194/230/3,3:140.906/76/1,4:174.396/186/13
+strata-poly: draft-policy round=150 offered=3 match=8 q=0.816547 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=161.405 counted_ms=161.405 costs=1:64.895/38/5,2:97.194/230/4,3:141.953/77/1,4:174.396/186/14
+strata-poly: draft-policy round=151 offered=3 match=11 q=0.816547 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=144.331 counted_ms=144.331 costs=1:64.895/38/6,2:97.194/230/5,3:143.898/78/1,4:174.396/186/15
+strata-poly: draft-policy round=152 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=102.359 counted_ms=102.359 costs=1:64.895/38/7,2:97.194/230/6,3:143.941/79/1,4:174.396/186/16
+strata-poly: draft-policy round=153 offered=0 match=0 q=0.734189 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=67.494 counted_ms=67.494 costs=1:64.895/38/8,2:97.710/231/1,3:143.941/79/2,4:174.396/186/17
+strata-poly: draft-policy round=154 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=109.445 counted_ms=109.445 costs=1:65.154/39/1,2:97.710/231/2,3:143.941/79/3,4:174.396/186/18
+strata-poly: draft-policy round=155 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=119.408 counted_ms=119.408 costs=1:65.154/39/2,2:98.884/232/1,3:143.941/79/4,4:174.396/186/19
+strata-poly: draft-policy round=156 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=138.571 counted_ms=138.571 costs=1:65.154/39/3,2:100.936/233/1,3:143.941/79/5,4:174.396/186/20
+strata-poly: draft-policy round=157 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=100.291 counted_ms=100.291 costs=1:65.154/39/4,2:104.700/234/1,3:143.941/79/6,4:174.396/186/21
+strata-poly: draft-policy round=158 offered=3 match=3 q=0.734189 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=102.153 counted_ms=102.153 costs=1:65.154/39/5,2:104.259/235/1,3:143.941/79/7,4:174.396/186/22
+strata-poly: draft-policy round=159 offered=0 match=0 q=0.734189 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=97.855 counted_ms=97.855 costs=1:65.154/39/6,2:104.048/236/1,3:143.941/79/8,4:174.396/186/23
+strata-poly: draft-policy round=160 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=136.146 counted_ms=136.146 costs=1:65.154/39/7,2:103.429/237/1,3:143.941/79/9,4:174.396/186/24
+strata-poly: draft-policy round=161 offered=0 match=0 q=0.734189 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=67.191 counted_ms=67.191 costs=1:65.154/39/8,2:103.429/237/2,3:143.162/80/1,4:174.396/186/25
+strata-poly: draft-policy round=162 offered=0 match=0 q=0.734189 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=53.231 counted_ms=53.231 costs=1:65.358/40/1,2:103.429/237/3,3:143.162/80/2,4:174.396/186/26
+strata-poly: draft-policy round=163 offered=0 match=0 q=0.734189 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=61.757 counted_ms=61.757 costs=1:64.145/41/1,2:103.429/237/4,3:143.162/80/3,4:174.396/186/27
+strata-poly: draft-policy round=164 offered=0 match=0 q=0.734189 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=63.538 counted_ms=63.538 costs=1:63.907/42/1,2:103.429/237/5,3:143.162/80/4,4:174.396/186/28
+strata-poly: draft-policy round=165 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=0 setup=0 elapsed_ms=126.774 counted_ms=126.774 costs=1:63.870/43/1,2:103.429/237/6,3:143.162/80/5,4:174.396/186/29
+strata-poly: draft-policy round=166 offered=0 match=0 q=0.734189 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=115.625 counted_ms=115.625 costs=1:63.870/43/2,2:103.429/237/7,3:141.523/81/1,4:174.396/186/30
+strata-poly: draft-policy round=167 offered=0 match=0 q=0.734189 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=68.262 counted_ms=68.262 costs=1:63.870/43/3,2:103.429/237/8,3:138.933/82/1,4:174.396/186/31
+strata-poly: draft-policy round=168 offered=3 match=3 q=0.734189 chosen=2 lookup=1 accepted=0 setup=0 elapsed_ms=90.239 counted_ms=90.239 costs=1:64.309/44/1,2:103.429/237/9,3:138.933/82/2,4:174.396/186/32
+strata-poly: draft-policy round=169 offered=0 match=0 q=0.694647 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=165.054 counted_ms=165.054 costs=1:64.309/44/2,2:102.110/238/1,3:138.933/82/3,4:174.396/186/33
+strata-poly: draft-policy round=170 offered=0 match=0 q=0.694647 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=106.447 counted_ms=106.447 costs=1:64.309/44/3,2:102.110/238/2,3:138.933/82/4,4:173.462/187/1
+strata-poly: draft-policy round=171 offered=0 match=0 q=0.694647 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=120.663 counted_ms=120.663 costs=1:64.309/44/4,2:102.544/239/1,3:138.933/82/5,4:173.462/187/2
+strata-poly: draft-policy round=172 offered=0 match=0 q=0.694647 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=85.582 counted_ms=85.582 costs=1:64.309/44/5,2:102.544/239/2,3:137.106/83/1,4:173.462/187/3
+strata-poly: draft-policy round=173 offered=0 match=0 q=0.694647 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=139.065 counted_ms=139.065 costs=1:64.309/44/6,2:100.847/240/1,3:137.106/83/2,4:173.462/187/4
+strata-poly: draft-policy round=174 offered=0 match=0 q=0.694647 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=115.185 counted_ms=115.185 costs=1:64.309/44/7,2:100.847/240/2,3:137.302/84/1,4:173.462/187/5
+strata-poly: draft-policy round=175 offered=3 match=5 q=0.694647 chosen=2 lookup=1 accepted=0 setup=0 elapsed_ms=96.512 counted_ms=96.512 costs=1:64.309/44/8,2:100.847/240/3,3:135.090/85/1,4:173.462/187/6
+strata-poly: draft-policy round=176 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=95.284 counted_ms=95.284 costs=1:64.309/44/9,2:100.414/241/1,3:135.090/85/2,4:173.462/187/7
+strata-poly: draft-policy round=177 offered=0 match=0 q=0.658595 chosen=4 lookup=0 accepted=0 setup=0 elapsed_ms=189.134 counted_ms=189.134 costs=1:64.309/44/10,2:99.901/242/1,3:135.090/85/3,4:173.462/187/8
+strata-poly: draft-policy round=178 offered=0 match=0 q=0.658595 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=250.609 counted_ms=250.609 costs=1:64.309/44/11,2:99.901/242/2,3:135.090/85/4,4:175.029/188/1
+strata-poly: draft-policy round=179 offered=3 match=5 q=0.658595 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=193.222 counted_ms=193.222 costs=1:64.309/44/12,2:99.901/242/3,3:135.090/85/5,4:182.587/189/1
+strata-poly: draft-policy round=180 offered=3 match=8 q=0.816547 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=193.158 counted_ms=193.158 costs=1:64.309/44/13,2:99.901/242/4,3:140.903/86/1,4:182.587/189/2
+strata-poly: draft-policy round=181 offered=3 match=12 q=0.877251 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=194.843 counted_ms=194.843 costs=1:64.309/44/14,2:99.901/242/5,3:140.903/86/2,4:183.644/190/1
+strata-poly: draft-policy round=182 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=93.300 counted_ms=93.300 costs=1:64.309/44/15,2:99.901/242/6,3:140.903/86/3,4:184.764/191/1
+strata-poly: draft-policy round=183 offered=0 match=0 q=0.658595 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=123.006 counted_ms=123.006 costs=1:64.309/44/16,2:99.241/243/1,3:140.903/86/4,4:184.764/191/2
+strata-poly: draft-policy round=184 offered=0 match=0 q=0.658595 chosen=3 lookup=0 accepted=1 setup=0 elapsed_ms=121.533 counted_ms=121.533 costs=1:64.309/44/17,2:99.241/243/2,3:139.114/87/1,4:184.764/191/3
+strata-poly: draft-policy round=185 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=90.143 counted_ms=90.143 costs=1:64.309/44/18,2:99.241/243/3,3:137.356/88/1,4:184.764/191/4
+strata-poly: draft-policy round=186 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=84.130 counted_ms=84.130 costs=1:64.309/44/19,2:98.331/244/1,3:137.356/88/2,4:184.764/191/5
+strata-poly: draft-policy round=187 offered=0 match=0 q=0.658595 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=56.233 counted_ms=56.233 costs=1:64.309/44/20,2:96.911/245/1,3:137.356/88/3,4:184.764/191/6
+strata-poly: draft-policy round=188 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=85.217 counted_ms=85.217 costs=1:63.501/45/1,2:96.911/245/2,3:137.356/88/4,4:184.764/191/7
+strata-poly: draft-policy round=189 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=99.925 counted_ms=99.925 costs=1:63.501/45/2,2:95.742/246/1,3:137.356/88/5,4:184.764/191/8
+strata-poly: draft-policy round=190 offered=0 match=0 q=0.658595 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=57.499 counted_ms=57.499 costs=1:63.501/45/3,2:96.160/247/1,3:137.356/88/6,4:184.764/191/9
+strata-poly: draft-policy round=191 offered=0 match=0 q=0.658595 chosen=3 lookup=0 accepted=0 setup=0 elapsed_ms=141.195 counted_ms=141.195 costs=1:62.901/46/1,2:96.160/247/2,3:137.356/88/7,4:184.764/191/10
+strata-poly: draft-policy round=192 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=96.583 counted_ms=96.583 costs=1:62.901/46/2,2:96.160/247/3,3:137.739/89/1,4:184.764/191/11
+strata-poly: draft-policy round=193 offered=0 match=0 q=0.658595 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=137.977 counted_ms=137.977 costs=1:62.901/46/3,2:96.202/248/1,3:137.739/89/2,4:184.764/191/12
+strata-poly: draft-policy round=194 offered=3 match=5 q=0.658595 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=130.812 counted_ms=130.812 costs=1:62.901/46/4,2:96.202/248/2,3:137.763/90/1,4:184.764/191/13
+strata-poly: draft-policy round=195 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=88.130 counted_ms=88.130 costs=1:62.901/46/5,2:96.202/248/3,3:137.068/91/1,4:184.764/191/14
+strata-poly: draft-policy round=196 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=161.663 counted_ms=161.663 costs=1:62.901/46/6,2:95.395/249/1,3:137.068/91/2,4:184.764/191/15
+strata-poly: draft-policy round=197 offered=0 match=0 q=0.658595 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=92.835 counted_ms=92.835 costs=1:62.901/46/7,2:102.022/250/1,3:137.068/91/3,4:184.764/191/16
+strata-poly: draft-policy round=198 offered=0 match=0 q=0.658595 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=67.527 counted_ms=67.527 costs=1:65.895/47/1,2:102.022/250/2,3:137.068/91/4,4:184.764/191/17
+strata-poly: draft-policy round=199 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=0 setup=0 elapsed_ms=136.801 counted_ms=136.801 costs=1:66.058/48/1,2:102.022/250/3,3:137.068/91/5,4:184.764/191/18
+strata-poly: draft-policy round=200 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=112.106 counted_ms=112.106 costs=1:66.058/48/2,2:105.500/251/1,3:137.068/91/6,4:184.764/191/19
+strata-poly: draft-policy round=201 offered=0 match=0 q=0.658595 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=78.886 counted_ms=78.886 costs=1:66.058/48/3,2:106.160/252/1,3:137.068/91/7,4:184.764/191/20
+strata-poly: draft-policy round=202 offered=0 match=0 q=0.658595 chosen=3 lookup=0 accepted=1 setup=0 elapsed_ms=212.137 counted_ms=212.137 costs=1:67.341/49/1,2:106.160/252/2,3:137.068/91/8,4:184.764/191/21
+strata-poly: draft-policy round=203 offered=0 match=0 q=0.658595 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=227.574 counted_ms=227.574 costs=1:67.341/49/2,2:106.160/252/3,3:144.575/92/1,4:184.764/191/22
+strata-poly: draft-policy round=204 offered=0 match=0 q=0.658595 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=271.336 counted_ms=271.336 costs=1:67.341/49/3,2:106.160/252/4,3:144.575/92/2,4:189.045/192/1
+strata-poly: draft-policy round=205 offered=3 match=4 q=0.658595 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=203.614 counted_ms=203.614 costs=1:67.341/49/4,2:106.160/252/5,3:144.575/92/3,4:197.274/193/1
+strata-poly: draft-policy round=206 offered=0 match=0 q=0.658595 chosen=4 lookup=0 accepted=3 setup=0 elapsed_ms=242.228 counted_ms=242.228 costs=1:67.341/49/5,2:106.160/252/6,3:150.479/93/1,4:197.274/193/2
+strata-poly: draft-policy round=207 offered=3 match=6 q=0.816547 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=160.691 counted_ms=160.691 costs=1:67.341/49/6,2:106.160/252/7,3:150.479/93/2,4:201.770/194/1
+strata-poly: draft-policy round=208 offered=3 match=9 q=0.816547 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=139.333 counted_ms=139.333 costs=1:67.341/49/7,2:106.160/252/8,3:151.500/94/1,4:201.770/194/2
+strata-poly: draft-policy round=209 offered=3 match=12 q=0.877251 chosen=2 lookup=1 accepted=0 setup=0 elapsed_ms=96.240 counted_ms=96.240 costs=1:67.341/49/8,2:106.160/252/9,3:150.283/95/1,4:201.770/194/3
+strata-poly: draft-policy round=210 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=111.023 counted_ms=111.023 costs=1:67.341/49/9,2:105.168/253/1,3:150.283/95/2,4:201.770/194/4
+strata-poly: draft-policy round=211 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=100.678 counted_ms=100.678 costs=1:67.341/49/10,2:105.754/254/1,3:150.283/95/3,4:201.770/194/5
+strata-poly: draft-policy round=212 offered=0 match=0 q=0.658595 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=59.971 counted_ms=59.971 costs=1:67.341/49/11,2:105.246/255/1,3:150.283/95/4,4:201.770/194/6
+strata-poly: draft-policy round=213 offered=0 match=0 q=0.658595 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=126.580 counted_ms=126.580 costs=1:66.604/50/1,2:105.246/255/2,3:150.283/95/5,4:201.770/194/7
+strata-poly: draft-policy round=214 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=97.091 counted_ms=97.091 costs=1:66.604/50/2,2:105.246/255/3,3:147.913/96/1,4:201.770/194/8
+strata-poly: draft-policy round=215 offered=0 match=0 q=0.658595 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=122.820 counted_ms=122.820 costs=1:66.604/50/3,2:104.431/256/1,3:147.913/96/2,4:201.770/194/9
+strata-poly: draft-policy round=216 offered=0 match=0 q=0.658595 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=66.639 counted_ms=66.639 costs=1:66.604/50/4,2:104.431/256/2,3:145.404/97/1,4:201.770/194/10
+strata-poly: draft-policy round=217 offered=0 match=0 q=0.658595 chosen=3 lookup=0 accepted=2 setup=0 elapsed_ms=149.026 counted_ms=149.026 costs=1:66.607/51/1,2:104.431/256/3,3:145.404/97/2,4:201.770/194/11
+strata-poly: draft-policy round=218 offered=0 match=0 q=0.658595 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=61.141 counted_ms=61.141 costs=1:66.607/51/2,2:104.431/256/4,3:145.766/98/1,4:201.770/194/12
+strata-poly: draft-policy round=219 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=100.366 counted_ms=100.366 costs=1:66.061/52/1,2:104.431/256/5,3:145.766/98/2,4:201.770/194/13
+strata-poly: draft-policy round=220 offered=0 match=0 q=0.658595 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=57.959 counted_ms=57.959 costs=1:66.061/52/2,2:104.024/257/1,3:145.766/98/3,4:201.770/194/14
+strata-poly: draft-policy round=221 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=94.981 counted_ms=94.981 costs=1:65.251/53/1,2:104.024/257/2,3:145.766/98/4,4:201.770/194/15
+strata-poly: draft-policy round=222 offered=0 match=0 q=0.658595 chosen=3 lookup=0 accepted=0 setup=0 elapsed_ms=124.611 counted_ms=124.611 costs=1:65.251/53/2,2:103.120/258/1,3:145.766/98/5,4:201.770/194/16
+strata-poly: draft-policy round=223 offered=0 match=0 q=0.658595 chosen=2 lookup=0 accepted=1 setup=0 elapsed_ms=148.051 counted_ms=148.051 costs=1:65.251/53/3,2:103.120/258/2,3:143.650/99/1,4:201.770/194/17
+strata-poly: draft-policy round=224 offered=0 match=0 q=0.658595 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=89.248 counted_ms=89.248 costs=1:65.251/53/4,2:107.613/259/1,3:143.650/99/2,4:201.770/194/18
+strata-poly: draft-policy round=225 offered=0 match=0 q=0.658595 chosen=3 lookup=0 accepted=1 setup=0 elapsed_ms=177.664 counted_ms=177.664 costs=1:67.650/54/1,2:107.613/259/2,3:143.650/99/3,4:201.770/194/19
+strata-poly: draft-policy round=226 offered=0 match=0 q=0.658595 chosen=1 lookup=0 accepted=0 setup=0 elapsed_ms=63.414 counted_ms=63.414 costs=1:67.650/54/2,2:107.613/259/3,3:147.052/100/1,4:201.770/194/20
+strata-poly: draft-policy round=227 offered=0 match=0 q=0.658595 chosen=3 lookup=0 accepted=1 setup=0 elapsed_ms=128.370 counted_ms=128.370 costs=1:67.227/55/1,2:107.613/259/4,3:147.052/100/2,4:201.770/194/21
+strata-poly: draft-policy end
+strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=27719.086 cpu_expert_ms=25547.801 route_wait_ms=1049.165 uploads=135 drafts_offered=339 drafts_accepted=284 gpu_experts=49550 cpu_experts=143858
+strata-poly: expert-cache answer: generated=512 GPU=49550 CPU=143858 hit=25.62% uploads=135; prompt work excluded
+strata-poly: memory[request] card=0 context=200000 sequences=1: KV=2636.72 MiB VRAM (full-context=2636.72 MiB), rows=0.00 MiB VRAM (chunk=8192, batch=1024), h_res_=256.00 MiB RAM (max=512.00 MiB)
+strata-poly: memory[request] card=0 VRAM allocations total=21441.89 MiB: dense=5622.06, experts=8750.11, KV=2636.72, staging=2048.00, rows=0.00, other=2385.00; reserve=1024 MiB
+strata-poly: memory[request] expert placement: permanent=1105, staging_cache=151/151 slots (2038.54 MiB used inside existing staging); uploads=638
+strata-poly: memory[request] card=0 RAM weights+buffers total=96973.27 MiB: resident_weights=96617.06, pinned_buffers=356.21 (includes h_res_); CUDA/HIP-registered window=7.88 MiB (part of resident_weights, peak=2048.00 MiB); whole process RSS=97812.06 MiB, system RAM free=18572.51 MiB
+strata-poly: memory[request] card=0 whole device used=23295.61 / 24563.50 MiB, free=1267.89 MiB (includes CUDA libraries and other processes)
+strata-poly: buffers[request] card=0: device=21441.89 MiB (plain=18793.12, sequence=12.05, attention caches=2636.72), pinned=356.21 MiB, scratch slices=1669.46 MiB in 1669.46 MiB
+strata-poly: buffers[request] no-disk permanent experts          device              1 x  8750.106 MiB =   8750.106 MiB
+strata-poly: buffers[request] the dense weights                  device              1 x  5622.063 MiB =   5622.063 MiB
+strata-poly: buffers[request] the attention cache (KV)           attention cache    24 x    24.414 MiB =   2636.719 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[request] the expert staging buffer          device              1 x  2048.000 MiB =   2048.000 MiB
+strata-poly: buffers[request] scratch_ (arch scratch arena)      device              1 x  1669.463 MiB =   1669.463 MiB
+strata-poly: buffers[request] snap_ (window states)              device              1 x   436.688 MiB =    436.688 MiB
+strata-poly: buffers[request] pinned memory                      pinned              9 x     0.000 MiB =    356.080 MiB  (the entry sizes differ with the layer)
+strata-poly: buffers[request] the recurrent state                device              1 x   161.578 MiB =    161.578 MiB
+strata-poly: buffers[request] mq_ (MMQ rows of x)                device              1 x    36.018 MiB =     36.018 MiB
+strata-poly: buffers[request] mq2_ (MMQ rows of the expert output) device              1 x    18.018 MiB =     18.018 MiB
+strata-poly: buffers[request] mqx_ (MMQ rows of q8_tile)         device              1 x    18.018 MiB =     18.018 MiB
+strata-poly: buffers[request] q8_ (quantized weights)            device              1 x    18.000 MiB =     18.000 MiB
+strata-poly: buffers[request] the indexer cache                  sequence            1 x    12.047 MiB =     12.047 MiB
+strata-poly: buffers[request] scratch                            device              1 x     8.016 MiB =      8.016 MiB
+strata-poly: buffers[request] xq_ (quantized activations)        device              1 x     4.500 MiB =      4.500 MiB
+strata-poly: buffers[request] wlogits_ (window()/step() logits)  device              1 x     2.363 MiB =      2.363 MiB
+strata-poly: buffers[request] tab_ (MoE tile tables)             device              1 x     0.100 MiB =      0.100 MiB
+strata-poly: buffers[request] h_tab_ (MoE tile tables)           pinned              1 x     0.100 MiB =      0.100 MiB
+strata-poly: buffers[request] d_slots_ (expert slots)            device              1 x     0.099 MiB =      0.099 MiB
+strata-poly: buffers[request] d_ids_ (row -> expert)             device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[request] d_wts_ (row -> weight)             device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[request] h_ids_ (row -> expert)             pinned              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[request] iota_ (row indices)                device              1 x     0.031 MiB =      0.031 MiB
+strata-poly: buffers[request] at_ (recorded positions)           device              1 x     0.000 MiB =      0.000 MiB
+strata-poly: buffers[request] scratch r_ (layer input rows)          offset=        0 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2277
+strata-poly: buffers[request] scratch cur_                           offset=134217728 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2279
+strata-poly: buffers[request] scratch xn_ (normed input)             offset=150994944 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2280
+strata-poly: buffers[request] scratch ao_ (attention output)         offset=167772160 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2281
+strata-poly: buffers[request] scratch fo_ (layer output)             offset=184549376 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2282
+strata-poly: buffers[request] scratch g_ (expert gate rows)          offset=201326592 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2283
+strata-poly: buffers[request] scratch u_ (expert up rows)            offset=251658240 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2284
+strata-poly: buffers[request] scratch h_ (expert hidden rows)        offset=301989888 bytes=  50331648 ( 48.000 MiB) count=12582912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2285
+strata-poly: buffers[request] scratch d_ (MoE sums in progress)      offset=352321536 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2286
+strata-poly: buffers[request] scratch rl_ (router logits)            offset=352845824 bytes=   1179648 (  1.125 MiB) count=294912 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2287
+strata-poly: buffers[request] scratch logits_                        offset=354025472 bytes=    619520 (  0.591 MiB) count=154880 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2288
+strata-poly: buffers[request] scratch wf_ (BF16 matrix as floats)    offset=354644992 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2289
+strata-poly: buffers[request] scratch gu_ (expert gate/up rows)      offset=388199424 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2293
+strata-poly: buffers[request] scratch hx_ (expert activation rows)   offset=522417152 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2294
+strata-poly: buffers[request] scratch dx_ (expert down rows)         offset=589526016 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\engine.cpp:2295
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=723743744 bytes=    102400 (  0.098 MiB) count=25600 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:249
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=723846144 bytes=     81920 (  0.078 MiB) count=20480 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:250
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=723928064 bytes= 100663296 ( 96.000 MiB) count=25165824 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:252
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=824591360 bytes= 100663296 ( 96.000 MiB) count=25165824 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:253
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=925254656 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:254
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=925778944 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:255
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=926303232 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:256
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=959857664 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:257
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=993412096 bytes=    262144 (  0.250 MiB) count=65536 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:258
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=993674240 bytes=  33554432 ( 32.000 MiB) count=8388608 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:259
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1027228672 bytes=   6291456 (  6.000 MiB) count=1572864 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:261
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1033520128 bytes=   6291456 (  6.000 MiB) count=1572864 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:262
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1039811584 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:263
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1106920448 bytes=   2097152 (  2.000 MiB) count=524288 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:264
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1109017600 bytes=   2097152 (  2.000 MiB) count=524288 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:265
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1111114752 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:266
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1245332480 bytes= 134217728 (128.000 MiB) count=33554432 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:267
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1379550208 bytes=  67108864 ( 64.000 MiB) count=16777216 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:268
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1446659072 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:269
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1447183360 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:270
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1447707648 bytes=    524288 (  0.500 MiB) count=131072 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:271
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1448231936 bytes=  16777216 ( 16.000 MiB) count=4194304 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:272
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1465009152 bytes=    131072 (  0.125 MiB) count=32768 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:273
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1465140224 bytes= 134202880 (127.986 MiB) count=33550671 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:274
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1599343104 bytes= 134414336 (128.188 MiB) count=33603584 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:277
+strata-poly: buffers[request] scratch (unnamed fbuf)                 offset=1733757440 bytes=  16801792 ( 16.023 MiB) count=4200448 L:\AI_pictures_generate\PolyStrata\src\poly\glm5next.cpp:278
+strata-poly: buffers[request] check: scratch slices 1669.46 of 1669.46 MiB (0.00 alignment and tail), unnamed slices 26; allocator records device=21441.89, pinned=356.21 MiB; mapped KV (VMM, not in device_sizes_)=0.00 of the 2636.72 requested; arena mapped=0.00 MiB
+strata-poly: buffers[request] graphs[pos=2561 room_key=2 window=4 batch=0]: execs=1071 (live owners); layer slots=1284 live=1070; passes=0 live=0; tail=1
+strata-poly: device-memory[request] global_free=1329479680 global_total=25756696576 bytes
+strata-poly: 4098 of 6150 prompt tokens were not read again (66.6%); 0 conversations parked in 0 MiB, 0 pushed out; 1267 MiB of VRAM free at the end

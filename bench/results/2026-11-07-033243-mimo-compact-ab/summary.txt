@@ -1,0 +1,3 @@
+
+=== ИТОГ: тёплые повторы (req 3+), медианы ===
+trace    VRAM: strata-poly: no-disk ready: 11008 experts total, 10796 in locked RAM, 212 direct in VRAM; locked=119297 MiB, read=135653146972 bytes, model files closed; VRAM free=707 MiB, host buffers=392 MiB

@@ -1,0 +1,29 @@
+glm-mmap load elapsed_s 1
+glm-mmap load elapsed_s 11
+glm-mmap load elapsed_s 21
+glm-mmap load elapsed_s 31
+glm-mmap READY 33.5
+glm-mmap request-1/prefill elapsed_s 42
+glm-mmap request-1 PP 267 2050 14815 18.0
+glm-mmap request-1/prefill elapsed_s 53
+glm-mmap request-1 PP 445 2050 27930 15.9
+glm-mmap request-1/prefill elapsed_s 64
+glm-mmap request-1/prefill elapsed_s 74
+glm-mmap request-1 PP 712 2050 41726 17.1
+glm-mmap request-1/prefill elapsed_s 85
+glm-mmap request-1 PP 890 2050 53319 16.7
+glm-mmap request-1/prefill elapsed_s 96
+glm-mmap request-1 PP 1113 2050 64035 17.4
+glm-mmap request-1/prefill elapsed_s 106
+glm-mmap request-1 PP 1291 2050 74713 17.3
+glm-mmap request-1/prefill elapsed_s 117
+glm-mmap request-1 PP 1559 2050 85324 18.3
+glm-mmap request-1/decode elapsed_s 128
+glm-mmap request-1 generated=12
+glm-mmap request-1 generated=260
+glm-mmap request-1 {"generated": 512, "prompt_ms": 89658.4, "decode_ms": 29454.7, "decode_tps": 17.34867440510343, "ttft_s": 89.67199999999139, "resume": 0, "drafts_accepted": 227, "drafts_offered": 247}
+glm-mmap request-2 generated=269
+glm-mmap request-2 {"generated": 512, "prompt_ms": 64.7, "decode_ms": 18300.7, "decode_tps": 27.922429196697394, "ttft_s": 0.0629999999946449, "resume": 2049, "drafts_accepted": 258, "drafts_offered": 292}
+glm-mmap request-3 generated=287
+glm-mmap request-3 {"generated": 512, "prompt_ms": 59.5, "decode_ms": 17098.6, "decode_tps": 29.885487700747433, "ttft_s": 0.0629999999946449, "resume": 2049, "drafts_accepted": 335, "drafts_offered": 373}
+FINISHED glm-mmap {"completed": true}

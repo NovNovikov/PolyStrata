@@ -1,0 +1,69 @@
+strata-poly: no-disk VRAM[before-plan]: free=7466.00 MiB (7828668416 bytes), reserve=1024 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=15546.24 MiB
+strata-poly: no-disk RAM: policy=allocate-and-lock, available_now=118312 MiB, held=834 MiB, future_rows=0 MiB, explicit_limit=0 MiB (0=none)
+strata-poly: no-disk plan: attempt=1, 11381 experts in RAM (108119 MiB), 651 permanent in VRAM (6184 MiB); expert budgets RAM=allocation/lock VRAM=6186 MiB; staging=2048 MiB
+strata-poly: no-disk VRAM[after-ram-arena]: free=7466.00 MiB (7828668416 bytes), reserve=1024 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=15546.24 MiB
+strata-poly: no-disk DMA verified: CUDA/HIP-registered source window=2048 MiB, limit=2050 MiB; original resident RAM, no host staging copy
+strata-poly: no-disk VRAM[after-registration]: free=7466.00 MiB (7828668416 bytes), reserve=1024 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+0.00 MiB, engine_allocated=15546.24 MiB
+strata-poly: no-disk VRAM[after-expert-allocation]: free=1280.00 MiB (1342177280 bytes), reserve=1024 MiB, load_margin=256 MiB, used_since_previous=+6186.00 MiB, used_since_plan=+6186.00 MiB, engine_allocated=21730.90 MiB
+strata-poly: no-disk VRAM[after-expert-zero]: free=1017.18 MiB (1066586112 bytes), reserve=1024 MiB, load_margin=256 MiB, used_since_previous=+262.82 MiB, used_since_plan=+6448.82 MiB, engine_allocated=21730.90 MiB
+strata-poly: no-disk loaded experts of layer 1
+strata-poly: no-disk loaded experts of layer 2
+strata-poly: no-disk loaded experts of layer 3
+strata-poly: no-disk loaded experts of layer 4
+strata-poly: no-disk loaded experts of layer 5
+strata-poly: no-disk loaded experts of layer 6
+strata-poly: no-disk loaded experts of layer 7
+strata-poly: no-disk loaded experts of layer 8
+strata-poly: no-disk loaded experts of layer 9
+strata-poly: no-disk loaded experts of layer 10
+strata-poly: no-disk loaded experts of layer 11
+strata-poly: no-disk loaded experts of layer 12
+strata-poly: no-disk loaded experts of layer 13
+strata-poly: no-disk loaded experts of layer 14
+strata-poly: no-disk loaded experts of layer 15
+strata-poly: no-disk loaded experts of layer 16
+strata-poly: no-disk loaded experts of layer 17
+strata-poly: no-disk loaded experts of layer 18
+strata-poly: no-disk loaded experts of layer 19
+strata-poly: no-disk loaded experts of layer 20
+strata-poly: no-disk loaded experts of layer 21
+strata-poly: no-disk loaded experts of layer 22
+strata-poly: no-disk loaded experts of layer 23
+strata-poly: no-disk loaded experts of layer 24
+strata-poly: no-disk loaded experts of layer 25
+strata-poly: no-disk loaded experts of layer 26
+strata-poly: no-disk loaded experts of layer 27
+strata-poly: no-disk loaded experts of layer 28
+strata-poly: no-disk loaded experts of layer 29
+strata-poly: no-disk loaded experts of layer 30
+strata-poly: no-disk loaded experts of layer 31
+strata-poly: no-disk loaded experts of layer 32
+strata-poly: no-disk loaded experts of layer 33
+strata-poly: no-disk loaded experts of layer 34
+strata-poly: no-disk loaded experts of layer 35
+strata-poly: no-disk loaded experts of layer 36
+strata-poly: no-disk loaded experts of layer 37
+strata-poly: no-disk loaded experts of layer 38
+strata-poly: no-disk loaded experts of layer 39
+strata-poly: no-disk loaded experts of layer 40
+strata-poly: no-disk loaded experts of layer 41
+strata-poly: no-disk loaded experts of layer 42
+strata-poly: no-disk loaded experts of layer 43
+strata-poly: no-disk loaded experts of layer 44
+strata-poly: no-disk loaded experts of layer 45
+strata-poly: no-disk loaded experts of layer 46
+strata-poly: no-disk loaded experts of layer 47
+strata-poly: no-disk VRAM[after-expert-copy]: free=1146.49 MiB (1202184192 bytes), reserve=1024 MiB, load_margin=256 MiB, used_since_previous=-129.32 MiB, used_since_plan=+6319.51 MiB, engine_allocated=21730.90 MiB
+strata-poly: no-disk VRAM[after-file-close]: free=1146.49 MiB (1202184192 bytes), reserve=1024 MiB, load_margin=256 MiB, used_since_previous=+0.00 MiB, used_since_plan=+6319.51 MiB, engine_allocated=21730.90 MiB
+strata-poly: no-disk ready: 12032 experts total, 11381 in locked RAM, 651 direct in VRAM; locked=108752 MiB, read=126915831296 bytes, model files closed; VRAM free=1146 MiB, host buffers=201 MiB
+strata-poly: expert exchange enabled: main_gpu=651, staging copies enabled (swap scratch keeps the first slot), temporary_bytes=9961728 inside staging, max=1 per eval, cooldown=0 evaluated rows, budget=10.0% of preceding eval; no extra weight arena
+strata-poly: exchange cache: 214 staging slots hold copies, the first stays the swap's scratch (slot=9961728 bytes, staging=2048 MiB)
+strata-poly: no-disk decode cache borrows staging: 215 slots of 9961728 bytes, 64 uploads in flight; no additional weight allocation; permanent slots protected
+strata-poly: no-disk RAM free after load: 10265 MiB
+strata-poly: memory[load] card=0 context=131072 sequences=1: KV=2880.00 MiB VRAM (full-context=2880.00 MiB), rows=512.00 MiB VRAM (chunk=32768, batch=4096), h_res_=0.00 MiB RAM (max=0.00 MiB)
+strata-poly: memory[load] card=0 VRAM allocations total=21730.90 MiB: dense=6099.21, experts=6184.66, KV=2880.00, staging=2048.00, rows=512.00, other=4007.03; reserve=1024 MiB
+strata-poly: memory[load] expert placement: adaptive_main=651, staging_cache=copies ready, none cached, temporary_capacity=9961728 bytes inside staging; exchanges=0 verified=0
+strata-poly: memory[load] card=0 RAM weights+buffers total=108954.49 MiB: resident_weights=108752.75, pinned_buffers=201.74 (includes h_res_); CUDA/HIP-registered window=2048.00 MiB (part of resident_weights, peak=2048.00 MiB); whole process RSS=109369.89 MiB, system RAM free=10265.75 MiB
+strata-poly: memory[load] card=0 whole device used=23417.01 / 24563.50 MiB, free=1146.49 MiB (includes CUDA libraries and other processes)
+strata-poly: loaded in 263.5 s; 651 of 12032 routed experts in VRAM (6.0 GiB), 12 CPU threads
+strata-poly: 0 of 50000 prompt tokens were not read again (0.0%); 0 conversations parked in 0 MiB, 0 pushed out; 1074 MiB of VRAM free at the end

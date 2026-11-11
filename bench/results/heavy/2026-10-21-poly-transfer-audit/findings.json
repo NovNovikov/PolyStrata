@@ -1,0 +1,443 @@
+{
+  "raw_model_exe_sha256": "0c3730702087998299a5dcecdb6b5ab3189b0996e77eab24364a29f8d3e8b5bb",
+  "final_exe_sha256": "00f11e063f25261486b04dac72649be5556a99c40c41162f92fa210c8949ab96",
+  "model_loads": 1,
+  "automatic_model_retries": 0,
+  "stage_dma": {
+    "1": {
+      "host-register": {
+        "calls": 86,
+        "bytes": 239896100864,
+        "host_ms": 963.0209999999998,
+        "gpu_ms": 0.0,
+        "gpu_samples": 0,
+        "busy_before": 0,
+        "busy_after": 0,
+        "busy_cleared": 0,
+        "host_busy_before_ms": 0.0
+      },
+      "host-unregister": {
+        "calls": 86,
+        "bytes": 240094412800,
+        "host_ms": 12517.619499999997,
+        "gpu_ms": 0.0,
+        "gpu_samples": 0,
+        "busy_before": 86,
+        "busy_after": 0,
+        "busy_cleared": 86,
+        "host_busy_before_ms": 12517.619499999997
+      },
+      "dma-prepare-total": {
+        "calls": 86,
+        "bytes": 0,
+        "host_ms": 13485.610599999995,
+        "gpu_ms": 0.0,
+        "gpu_samples": 0,
+        "busy_before": 0,
+        "busy_after": 0,
+        "busy_cleared": 0,
+        "host_busy_before_ms": 0.0
+      }
+    },
+    "2": {
+      "host-register": {
+        "calls": 86,
+        "bytes": 239896100864,
+        "host_ms": 939.4386000000002,
+        "gpu_ms": 0.0,
+        "gpu_samples": 0,
+        "busy_before": 0,
+        "busy_after": 0,
+        "busy_cleared": 0,
+        "host_busy_before_ms": 0.0
+      },
+      "host-unregister": {
+        "calls": 86,
+        "bytes": 237119733760,
+        "host_ms": 12644.760500000002,
+        "gpu_ms": 0.0,
+        "gpu_samples": 0,
+        "busy_before": 86,
+        "busy_after": 0,
+        "busy_cleared": 86,
+        "host_busy_before_ms": 12644.760500000002
+      },
+      "dma-prepare-total": {
+        "calls": 86,
+        "bytes": 0,
+        "host_ms": 13589.392499999996,
+        "gpu_ms": 0.0,
+        "gpu_samples": 0,
+        "busy_before": 0,
+        "busy_after": 0,
+        "busy_cleared": 0,
+        "host_busy_before_ms": 0.0
+      }
+    },
+    "4": {
+      "host-register": {
+        "calls": 1410,
+        "bytes": 22615162880,
+        "host_ms": 791.3992000000009,
+        "gpu_ms": 0.0,
+        "gpu_samples": 0,
+        "busy_before": 0,
+        "busy_after": 0,
+        "busy_cleared": 0,
+        "host_busy_before_ms": 0.0
+      },
+      "host-unregister": {
+        "calls": 1390,
+        "bytes": 22381854720,
+        "host_ms": 10349.023000000001,
+        "gpu_ms": 0.0,
+        "gpu_samples": 0,
+        "busy_before": 43,
+        "busy_after": 0,
+        "busy_cleared": 43,
+        "host_busy_before_ms": 931.1568000000001
+      },
+      "dma-prepare-total": {
+        "calls": 43,
+        "bytes": 0,
+        "host_ms": 11170.534900000004,
+        "gpu_ms": 0.0,
+        "gpu_samples": 0,
+        "busy_before": 0,
+        "busy_after": 0,
+        "busy_cleared": 0,
+        "host_busy_before_ms": 0.0
+      }
+    }
+  },
+  "short_candidate": {
+    "ranges": [
+      {
+        "layer": 0,
+        "first": 0,
+        "end": 2974679040,
+        "bytes": 2974679040
+      },
+      {
+        "layer": 1,
+        "first": 2974679040,
+        "end": 5926027264,
+        "bytes": 2951348224
+      },
+      {
+        "layer": 2,
+        "first": 5949358080,
+        "end": 8912371712,
+        "bytes": 2963013632
+      },
+      {
+        "layer": 3,
+        "first": 8935702528,
+        "end": 11747065856,
+        "bytes": 2811363328
+      },
+      {
+        "layer": 4,
+        "first": 11863719936,
+        "end": 14558429184,
+        "bytes": 2694709248
+      },
+      {
+        "layer": 5,
+        "first": 14628421632,
+        "end": 17323130880,
+        "bytes": 2694709248
+      },
+      {
+        "layer": 6,
+        "first": 17428119552,
+        "end": 20227817472,
+        "bytes": 2799697920
+      },
+      {
+        "layer": 7,
+        "first": 20309475328,
+        "end": 23062511616,
+        "bytes": 2753036288
+      },
+      {
+        "layer": 8,
+        "first": 23167500288,
+        "end": 25862209536,
+        "bytes": 2694709248
+      },
+      {
+        "layer": 9,
+        "first": 25920536576,
+        "end": 28696903680,
+        "bytes": 2776367104
+      },
+      {
+        "layer": 10,
+        "first": 28731899904,
+        "end": 31554928640,
+        "bytes": 2823028736
+      },
+      {
+        "layer": 11,
+        "first": 31601590272,
+        "end": 34401288192,
+        "bytes": 2799697920
+      },
+      {
+        "layer": 12,
+        "first": 34517942272,
+        "end": 37317640192,
+        "bytes": 2799697920
+      },
+      {
+        "layer": 13,
+        "first": 37445959680,
+        "end": 40070676480,
+        "bytes": 2624716800
+      },
+      {
+        "layer": 14,
+        "first": 40163999744,
+        "end": 42788716544,
+        "bytes": 2624716800
+      },
+      {
+        "layer": 15,
+        "first": 42928701440,
+        "end": 45716733952,
+        "bytes": 2788032512
+      },
+      {
+        "layer": 16,
+        "first": 45751730176,
+        "end": 48481435648,
+        "bytes": 2729705472
+      },
+      {
+        "layer": 17,
+        "first": 48551428096,
+        "end": 51157467136,
+        "bytes": 2606039040
+      },
+      {
+        "layer": 18,
+        "first": 51265601536,
+        "end": 53720252416,
+        "bytes": 2454650880
+      },
+      {
+        "layer": 19,
+        "first": 53839200256,
+        "end": 56283037696,
+        "bytes": 2443837440
+      },
+      {
+        "layer": 20,
+        "first": 56434425856,
+        "end": 58737688576,
+        "bytes": 2303262720
+      },
+      {
+        "layer": 21,
+        "first": 58964770816,
+        "end": 61451862016,
+        "bytes": 2487091200
+      },
+      {
+        "layer": 22,
+        "first": 61527556096,
+        "end": 64101154816,
+        "bytes": 2573598720
+      },
+      {
+        "layer": 23,
+        "first": 64111968256,
+        "end": 66718007296,
+        "bytes": 2606039040
+      },
+      {
+        "layer": 24,
+        "first": 66739634176,
+        "end": 69313232896,
+        "bytes": 2573598720
+      },
+      {
+        "layer": 25,
+        "first": 69388926976,
+        "end": 71919271936,
+        "bytes": 2530344960
+      },
+      {
+        "layer": 26,
+        "first": 72213200896,
+        "end": 74674601984,
+        "bytes": 2461401088
+      },
+      {
+        "layer": 27,
+        "first": 74931240960,
+        "end": 77614284800,
+        "bytes": 2683043840
+      },
+      {
+        "layer": 28,
+        "first": 77742604288,
+        "end": 80530636800,
+        "bytes": 2788032512
+      },
+      {
+        "layer": 29,
+        "first": 80623960064,
+        "end": 83435323392,
+        "bytes": 2811363328
+      },
+      {
+        "layer": 30,
+        "first": 83435323392,
+        "end": 86258352128,
+        "bytes": 2823028736
+      },
+      {
+        "layer": 31,
+        "first": 86293348352,
+        "end": 89069715456,
+        "bytes": 2776367104
+      },
+      {
+        "layer": 32,
+        "first": 89233031168,
+        "end": 91729428480,
+        "bytes": 2496397312
+      },
+      {
+        "layer": 33,
+        "first": 91927740416,
+        "end": 94715772928,
+        "bytes": 2788032512
+      },
+      {
+        "layer": 34,
+        "first": 94855757824,
+        "end": 97387151360,
+        "bytes": 2531393536
+      },
+      {
+        "layer": 35,
+        "first": 97527136256,
+        "end": 100233510912,
+        "bytes": 2706374656
+      },
+      {
+        "layer": 36,
+        "first": 100338499584,
+        "end": 102939885568,
+        "bytes": 2601385984
+      },
+      {
+        "layer": 37,
+        "first": 103301513216,
+        "end": 105809575936,
+        "bytes": 2508062720
+      },
+      {
+        "layer": 38,
+        "first": 106054549504,
+        "end": 108609273856,
+        "bytes": 2554724352
+      },
+      {
+        "layer": 39,
+        "first": 108854247424,
+        "end": 111548956672,
+        "bytes": 2694709248
+      },
+      {
+        "layer": 40,
+        "first": 111852257280,
+        "end": 114278662144,
+        "bytes": 2426404864
+      },
+      {
+        "layer": 41,
+        "first": 114570297344,
+        "end": 117136687104,
+        "bytes": 2566389760
+      },
+      {
+        "layer": 42,
+        "first": 117160017920,
+        "end": 119819730944,
+        "bytes": 2659713024
+      }
+    ],
+    "max_bytes": 2974679040,
+    "sum_bytes": 114758516736,
+    "limit_bytes": 2988441600,
+    "observed_registered_bytes": 22615162880,
+    "observed_registration_calls": 1410,
+    "source_span_fits_every_layer": true,
+    "is_implemented": false
+  },
+  "first_prompt": {
+    "expert_H2D_calls": 62646,
+    "expert_H2D_bytes": 239896100864,
+    "expert_H2D_API_host_ms": 385.0113,
+    "permute_att_q": {
+      "calls": 0,
+      "bytes": 0,
+      "host_ms": 0.0,
+      "gpu_ms": 884.5869440000005,
+      "gpu_samples": 559,
+      "busy_before": 0,
+      "busy_after": 0,
+      "busy_cleared": 0,
+      "host_busy_before_ms": 0.0
+    },
+    "permute_oa_ob": {
+      "calls": 0,
+      "bytes": 0,
+      "host_ms": 0.0,
+      "gpu_ms": 202.0066879999999,
+      "gpu_samples": 559,
+      "busy_before": 0,
+      "busy_after": 0,
+      "busy_cleared": 0,
+      "host_busy_before_ms": 0.0
+    },
+    "router_table_capacity_bytes": 168303720,
+    "router_table_active_lowerbound_bytes": 158244816
+  },
+  "scalar_probe_caveats": [
+    {
+      "request": 2,
+      "phase": "park",
+      "calls": 254291629,
+      "bytes": 2034333032,
+      "site": "session_file.hpp:819"
+    },
+    {
+      "request": 3,
+      "phase": "park",
+      "calls": 254291711,
+      "bytes": 2034333688,
+      "site": "session_file.hpp:819"
+    },
+    {
+      "request": 3,
+      "phase": "restore",
+      "calls": 1065784,
+      "bytes": 8526272,
+      "site": "session_file.hpp:592"
+    }
+  ],
+  "final_source_difference_from_model_trace": "Excluded a scalar word-load probe in Packer::zero_run; added requested/sent/cancelled cache labels and made the master flag enable legacy staging counters. No change to copy/registration policy or model computation; no model rerun.",
+  "validation": {
+    "gpu_audit_self_test": true,
+    "session_disk_checks": 80,
+    "CUDA": true,
+    "HIP": false,
+    "SYCL": false,
+    "coverage_failures": 0
+  }
+}

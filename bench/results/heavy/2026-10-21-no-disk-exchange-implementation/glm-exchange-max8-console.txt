@@ -1,0 +1,31 @@
+glm-exchange-max8 load elapsed_s 1
+glm-exchange-max8 load elapsed_s 11
+glm-exchange-max8 load elapsed_s 21
+glm-exchange-max8 load elapsed_s 31
+glm-exchange-max8 load elapsed_s 42
+glm-exchange-max8 load elapsed_s 52
+glm-exchange-max8 load elapsed_s 62
+glm-exchange-max8 load elapsed_s 72
+glm-exchange-max8 load elapsed_s 82
+glm-exchange-max8 load elapsed_s 92
+glm-exchange-max8 load elapsed_s 102
+glm-exchange-max8 load elapsed_s 112
+glm-exchange-max8 load elapsed_s 122
+glm-exchange-max8 load elapsed_s 132
+glm-exchange-max8 load elapsed_s 142
+glm-exchange-max8 load elapsed_s 152
+glm-exchange-max8 load elapsed_s 162
+glm-exchange-max8 load elapsed_s 172
+glm-exchange-max8 load elapsed_s 183
+glm-exchange-max8 READY 186.92
+glm-exchange-max8 request-1 PP 1425 2050 10273 138.7
+glm-exchange-max8 request-1 generated=112
+glm-exchange-max8 request-1 generated=323
+glm-exchange-max8 request-1 {"generated": 512, "prompt_ms": 13979.9, "decode_ms": 25220.3, "decode_tps": 20.261456049293624, "ttft_s": 13.985000000015134, "resume": 0, "drafts_accepted": 305, "drafts_offered": 355}
+glm-exchange-max8 request-2 generated=201
+glm-exchange-max8 request-2 generated=427
+glm-exchange-max8 request-2 {"generated": 512, "prompt_ms": 69.6, "decode_ms": 24238.3, "decode_tps": 21.08233663251961, "ttft_s": 0.07800000000861473, "resume": 2049, "drafts_accepted": 302, "drafts_offered": 352}
+glm-exchange-max8 request-3 generated=206
+glm-exchange-max8 request-3 generated=418
+glm-exchange-max8 request-3 {"generated": 512, "prompt_ms": 73.5, "decode_ms": 24807.9, "decode_tps": 20.598277161710584, "ttft_s": 0.062000000005355105, "resume": 2049, "drafts_accepted": 279, "drafts_offered": 329}
+FINISHED glm-exchange-max8 {"completed": true}

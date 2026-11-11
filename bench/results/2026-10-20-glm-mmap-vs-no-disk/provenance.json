@@ -1,0 +1,24 @@
+{
+  "binary_sha256": "838b6b707d723401c6436cd793984642cf614575fc673c21059ff17df0e17628",
+  "config_sha256": "20d4a167bfe2f82a32e3bb38290315dcd8908b742796654407c1f067d6a48924",
+  "bat_sha256": "329b9ba218f3cf9a4e3673d2b473a8244b3537a1c6a3220b15bcae3709fe10b2",
+  "seed_sha256": "6e04b283067b46606f9da13c6ad6975a31594722cd9eaa3b36d51bff69b28b99",
+  "mode_order": [
+    "mmap-control",
+    "bat-no-disk"
+  ],
+  "changed_only_mode_flag": true,
+  "common_isolation": [
+    "public profile copies",
+    "fresh session stores",
+    "direct engine protocol"
+  ],
+  "common_diagnostics": [
+    "--dump-buffers",
+    "STRATA_TRACE_DECODE_COSTS",
+    "STRATA_TRACE_DRAFT_POLICY"
+  ],
+  "logical_cpus": 12,
+  "physical_cpus": 6,
+  "private_data_read": false
+}

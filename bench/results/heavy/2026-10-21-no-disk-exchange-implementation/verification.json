@@ -1,0 +1,65 @@
+{
+  "checks": {
+    "all_valid_runs_exit_zero": true,
+    "all_41_requests_completed": true,
+    "control_and_2_4_8_identical_binary": true,
+    "performance_all_512": true,
+    "decode_counters_exclude_prefill": true,
+    "no_disk_performance_allocations_constant": true,
+    "glm-smoke-no-graphs_four_expected_faults": true,
+    "glm-smoke-no-graphs_two_verified_forced_exchanges": true,
+    "glm-smoke-no-graphs_full_31_32_33": true,
+    "glm-smoke-no-graphs_restore_after_new_prefill": true,
+    "glm-smoke-no-graphs_stable_arenas": true,
+    "deepseek-integration-smoke_four_expected_faults": true,
+    "deepseek-integration-smoke_two_verified_forced_exchanges": true,
+    "deepseek-integration-smoke_full_31_32_33": true,
+    "deepseek-integration-smoke_restore_after_new_prefill": true,
+    "deepseek-integration-smoke_stable_arenas": true,
+    "glm-smoke_weights_closed": true,
+    "glm-exchange_weights_closed": true,
+    "glm-control_weights_closed": true,
+    "glm-exchange-max2_weights_closed": true,
+    "glm-exchange-max4_weights_closed": true,
+    "glm-exchange-max8_weights_closed": true,
+    "glm-smoke-no-graphs_weights_closed": true,
+    "deepseek-integration-smoke_weights_closed": true,
+    "glm-exchange-final_weights_closed": true,
+    "final_models_and_mmap_use_current_binary": true,
+    "source_clean": true,
+    "no_engine_left_running": true
+  },
+  "current_binary_sha256": "49fb81a7ff12ec86608cdb8c6ef07d2ecdfb7a6a562c44ebbadd3cee435d1e3f",
+  "commits": [
+    "afe10915",
+    "975db9bf"
+  ],
+  "generated_requests": 41,
+  "output_prefix_against_control": {
+    "glm-exchange-final": [
+      40,
+      94,
+      167
+    ],
+    "glm-exchange-max2": [
+      94,
+      40,
+      173
+    ],
+    "glm-exchange-max4": [
+      94,
+      40,
+      150
+    ],
+    "glm-exchange-max8": [
+      145,
+      40,
+      173
+    ],
+    "glm-mmap": [
+      0,
+      0,
+      0
+    ]
+  }
+}

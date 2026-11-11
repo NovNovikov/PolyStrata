@@ -1,0 +1,80 @@
+{
+  "checks": [
+    {
+      "label": "A",
+      "tokens": 50000,
+      "server_cached_equals_full": true,
+      "bos": 0,
+      "user": 128803,
+      "assistant": 128804,
+      "first_ids": [
+        0,
+        128803,
+        77648,
+        11868,
+        7231,
+        334,
+        16,
+        5453,
+        566,
+        1528,
+        19067,
+        339
+      ],
+      "last_ids": [
+        16,
+        19825,
+        260,
+        10659,
+        10021,
+        3287,
+        418,
+        15360,
+        7165,
+        16,
+        128804,
+        128821
+      ],
+      "thinking": "server default"
+    },
+    {
+      "label": "B",
+      "tokens": 50000,
+      "server_cached_equals_full": true,
+      "bos": 0,
+      "user": 128803,
+      "assistant": 128804,
+      "first_ids": [
+        0,
+        128803,
+        77648,
+        11868,
+        7231,
+        406,
+        16,
+        5453,
+        566,
+        1528,
+        19067,
+        339
+      ],
+      "last_ids": [
+        16,
+        19825,
+        260,
+        10659,
+        10021,
+        3287,
+        418,
+        15360,
+        7165,
+        16,
+        128804,
+        128821
+      ],
+      "thinking": "server default"
+    }
+  ],
+  "loads_model": false,
+  "method": "Actual Service.encode_prompt including template BOS and protected literal control text"
+}

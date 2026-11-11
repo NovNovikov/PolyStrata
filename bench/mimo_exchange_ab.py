@@ -324,6 +324,19 @@ def main():
         summary = write_summary(out, results, say)
         with (out / "results.json").open("w", encoding="utf8") as f:
             json.dump({"results": results, "error": error}, f, indent=2, ensure_ascii=False)
+        # сессионные дампы - KV-состояние прочитанных промптов (сотни MiB на файл при 50K):
+        # результат прогона - числа, уже записанные в results.json, состояние за ними
+        # воспроизводится тем же промптом; без уборки день A/B кликов оставляет гигабайты.
+        dumps = [f for d in out.glob("work-*/sessions") for f in d.glob("*") if f.is_file()]
+        freed = sum(f.stat().st_size for f in dumps)
+        kept = 0
+        for f in dumps:
+            try:
+                f.unlink()
+            except OSError:
+                kept += 1
+        say(f"дампы сессий: удалено {len(dumps) - kept} из {len(dumps)}, {freed / 2**30:.1f} ГиБ"
+            + (f", {kept} не тронуто" if kept else ""))
         say("")
         say(f"всего {time.monotonic() - t_all:.0f} с; папка: {out}")
         runlog.close()

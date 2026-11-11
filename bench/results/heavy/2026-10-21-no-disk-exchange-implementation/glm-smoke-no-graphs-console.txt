@@ -1,0 +1,37 @@
+building failure-path hardening before smoke tests
+glm-smoke-no-graphs load elapsed_s 1
+glm-smoke-no-graphs load elapsed_s 11
+glm-smoke-no-graphs load elapsed_s 21
+glm-smoke-no-graphs load elapsed_s 31
+glm-smoke-no-graphs load elapsed_s 41
+glm-smoke-no-graphs load elapsed_s 52
+glm-smoke-no-graphs load elapsed_s 62
+glm-smoke-no-graphs load elapsed_s 72
+glm-smoke-no-graphs load elapsed_s 82
+glm-smoke-no-graphs load elapsed_s 92
+glm-smoke-no-graphs load elapsed_s 102
+glm-smoke-no-graphs load elapsed_s 112
+glm-smoke-no-graphs load elapsed_s 122
+glm-smoke-no-graphs load elapsed_s 132
+glm-smoke-no-graphs load elapsed_s 142
+glm-smoke-no-graphs load elapsed_s 152
+glm-smoke-no-graphs load elapsed_s 162
+glm-smoke-no-graphs load elapsed_s 172
+glm-smoke-no-graphs load elapsed_s 182
+glm-smoke-no-graphs READY 184.56
+EXCHANGE -1 ERR EXCHANGE: injected exchange failure before copy
+EXCHANGE 1 ERR EXCHANGE: expert exchange: injected exchange failure
+EXCHANGE 2 ERR EXCHANGE: expert exchange: injected exchange failure
+EXCHANGE 3 ERR EXCHANGE: expert exchange: injected exchange failure
+EXCHANGE EXCHANGED 1
+glm-smoke-no-graphs request-1 {"generated": 16, "prompt_ms": 2030.9, "decode_ms": 1034.5, "decode_tps": 14.499758337361044, "ttft_s": 2.0309999999881256, "resume": 0, "drafts_accepted": 0, "drafts_offered": 0}
+glm-smoke-no-graphs request-2 {"generated": 16, "prompt_ms": 1345.5, "decode_ms": 1066.5, "decode_tps": 14.064697609001406, "ttft_s": 1.3440000000118744, "resume": 0, "drafts_accepted": 0, "drafts_offered": 0}
+glm-smoke-no-graphs request-3 {"generated": 16, "prompt_ms": 1410.4, "decode_ms": 993.0, "decode_tps": 15.105740181268882, "ttft_s": 1.4059999999881256, "resume": 0, "drafts_accepted": 0, "drafts_offered": 0}
+glm-smoke-no-graphs request-4 PP 1593 2050 10472 152.1
+glm-smoke-no-graphs request-4 {"generated": 64, "prompt_ms": 13337.4, "decode_ms": 4111.1, "decode_tps": 15.32436574152903, "ttft_s": 13.328000000008615, "resume": 0, "drafts_accepted": 0, "drafts_offered": 0}
+EXCHANGE EXCHANGED 115
+glm-smoke-no-graphs request-5 {"generated": 32, "prompt_ms": 67.3, "decode_ms": 1956.6, "decode_tps": 15.843810692016765, "ttft_s": 0.062000000005355105, "resume": 2049, "drafts_accepted": 0, "drafts_offered": 0}
+glm-smoke-no-graphs request-6 PP 1548 2050 10179 152.1
+glm-smoke-no-graphs request-6 {"generated": 32, "prompt_ms": 13277.8, "decode_ms": 1946.1, "decode_tps": 15.929294486408716, "ttft_s": 13.280999999988126, "resume": 0, "drafts_accepted": 0, "drafts_offered": 0}
+glm-smoke-no-graphs request-7 {"generated": 32, "prompt_ms": 324.8, "decode_ms": 1863.6, "decode_tps": 16.634470916505688, "ttft_s": 0.32800000000861473, "resume": 2049, "drafts_accepted": 0, "drafts_offered": 0}
+FINISHED glm-smoke-no-graphs {"completed": true}

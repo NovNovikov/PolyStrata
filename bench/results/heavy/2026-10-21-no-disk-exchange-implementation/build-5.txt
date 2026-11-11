@@ -1,0 +1,19 @@
+-- Strata: CUDA enabled, arch 89
+-- strata: pack/full/experts.bin absent - the expert arena load test is NOT registered
+-- CMAKE_SYSTEM_PROCESSOR: AMD64
+-- CMAKE_GENERATOR_PLATFORM: 
+-- GGML_SYSTEM_ARCH: x86
+-- Including CPU backend
+-- x86 detected
+-- Adding CPU backend variant ggml-cpu: /arch:AVX2 GGML_AVX2;GGML_FMA;GGML_F16C
+-- ggml version: 0.24.0
+-- ggml commit:  b0797dfc
+-- Configuring done (3.2s)
+-- Generating done (0.2s)
+-- Build files have been written to: L:/AI_pictures_generate/PolyStrata/build-poly-cuda12
+[1/2] Building CXX object CMakeFiles\strata-poly.dir\src\poly\exchange.cpp.obj
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(47): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\cpu_experts.hpp(48): warning C4324: strata::poly::Workers: структура была дополнена нулями из-за описателя выравнивания
+L:\AI_pictures_generate\PolyStrata\src\poly\exchange.cpp(39): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+L:\AI_pictures_generate\PolyStrata\src\poly\exchange.cpp(83): warning C4996: 'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+[2/2] Linking CXX executable strata-poly.exe

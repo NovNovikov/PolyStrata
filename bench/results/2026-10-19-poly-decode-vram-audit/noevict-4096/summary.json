@@ -1,0 +1,14 @@
+{
+  "exe_sha256": "13fa8f5aa8c7e15b586acb8586b3f7788e154979b375ab4da161f5fbcba11354",
+  "config_sha256": "6eedad077c5e8e8e4047222cdec37ee2bec206087ab1ddb8c09a89f2ee25fc10",
+  "work": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\decode-vram-audit-20261019-noevict-4096",
+  "anchors": [
+    2048,
+    4096,
+    6144,
+    8192
+  ],
+  "stages": [
+    "initial"
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "exe_sha256": "25e7871680bcf518c5eafbd5ae14917201b783ac2882f61187d2548bc562add4",
+  "config_sha256": "ac8d380e9f6cf5df9d8ec4a19d83b1cee02f3c754c06021e7a2d9ed268a3e27e",
+  "work": "C:\\TEMP\\opencode\\poly-mergecheck-2",
+  "anchors": [
+    2048,
+    4096,
+    6144,
+    8192
+  ],
+  "stages": [
+    "initial",
+    "restart"
+  ],
+  "session_sha256": "a9c22278920fc0fdd02d3b0ac81559b60e3c28d584e111d6203a5370991a1e59",
+  "roundtrip_sha256": "a9c22278920fc0fdd02d3b0ac81559b60e3c28d584e111d6203a5370991a1e59",
+  "session_bytes": 603114484,
+  "cache": {
+    "initial": {
+      "max_used_slots": 255,
+      "capacity": 255,
+      "max_used_mib": 2837.7,
+      "verified_counts": [
+        254,
+        251,
+        255,
+        255,
+        254
+      ]
+    },
+    "restart": {
+      "max_used_slots": 255,
+      "capacity": 255,
+      "max_used_mib": 2837.7,
+      "verified_counts": [
+        255,
+        252
+      ]
+    }
+  },
+  "automatic_sessions": [
+    {
+      "name": "1467a28ecb2c32b2-9999.bin",
+      "bytes": 561322500
+    },
+    {
+      "name": "406d49a55a715589-10511.bin",
+      "bytes": 603114484
+    },
+    {
+      "name": "87781200800a520c-10575.bin",
+      "bytes": 606145812
+    }
+  ],
+  "success": true
+}

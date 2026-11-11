@@ -1,0 +1,8 @@
+{
+  "config": "L:\\AI_pictures_generate\\PolyStrata\\strata-dsv4-q3_k_m.json",
+  "before_sha256": "9e2d603a76458b7c0fbc42143f0af788f3ec6d104aac629ba985aa644066916c",
+  "after_sha256": "5c334f4d93cb4fc3a433fe61b3b1e1193fe0de9cdc8eb4c31e55aa12193be0a1",
+  "only_change": "--coalesce-expert-dma inserted after --no-disk",
+  "exe": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+  "no_model_restart": true
+}

@@ -1,0 +1,26 @@
+{
+  "checks": {
+    "all_11_nonempty_runs_exit_zero": true,
+    "all_44_requests_completed": true,
+    "all_no_disk_performance_requests_512": true,
+    "all_no_disk_performance_allocations_21441_89_mib": true,
+    "closing_control_uses_final_binary": true,
+    "final_integration_runs_use_final_binary": true,
+    "control_max2_max4_max8_identical_binary": true,
+    "user_configs_unchanged": true,
+    "implementation_tracked_files_clean": true,
+    "no_engine_left_running": true
+  },
+  "prior_detailed_verification": "verification.json",
+  "generated_requests": 44,
+  "valid_nonempty_runs": 11,
+  "excluded_empty_runner_failure": "deepseek-smoke",
+  "current_binary_sha256": "49fb81a7ff12ec86608cdb8c6ef07d2ecdfb7a6a562c44ebbadd3cee435d1e3f",
+  "commits": [
+    "afe10915",
+    "975db9bf"
+  ],
+  "warm_control_pooled_median_tps": 20.689804887754526,
+  "max4_warm_median_tps": 21.926872315889376,
+  "max4_change_percent": 5.979115969658189
+}

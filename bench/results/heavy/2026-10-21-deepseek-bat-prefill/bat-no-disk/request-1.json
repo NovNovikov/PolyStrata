@@ -1,0 +1,60 @@
+{
+  "number": 1,
+  "prompt_tokens": 50000,
+  "generated": 1,
+  "requested": 256,
+  "ids": [
+    1
+  ],
+  "resume": 0,
+  "prompt_ms": 85809.2,
+  "decode_ms": 2.0,
+  "finish": "stop",
+  "drafts_accepted": 0,
+  "drafts_offered": 0,
+  "raw_done_gpu": 0,
+  "raw_done_lookups": 0,
+  "read": 50000,
+  "elapsed_s": 85.83165149998968,
+  "ttft_s": 85.83123729997897,
+  "decode_tps": null,
+  "prompt_tps": 582.688103373531,
+  "token_times": [
+    0.0
+  ],
+  "stdin_bytes": 229148,
+  "io_before": {
+    "read_count": 1342396,
+    "write_count": 126,
+    "read_bytes": 135673670713,
+    "write_bytes": 15754,
+    "other_count": 1310,
+    "other_bytes": 10754522
+  },
+  "io_after": {
+    "read_count": 1342452,
+    "write_count": 285,
+    "read_bytes": 135673899861,
+    "write_bytes": 29397,
+    "other_count": 1316,
+    "other_bytes": 10754522
+  },
+  "cpu_before": {
+    "user": 5.796875,
+    "system": 59.921875,
+    "children_user": 0.0,
+    "children_system": 0.0
+  },
+  "cpu_after": {
+    "user": 87.9375,
+    "system": 61.4375,
+    "children_user": 0.0,
+    "children_system": 0.0
+  },
+  "process_gpu_after": {
+    "used": 24048369664,
+    "spilled": 3280863232,
+    "shared": 3280863232,
+    "asked": 27329232896
+  }
+}

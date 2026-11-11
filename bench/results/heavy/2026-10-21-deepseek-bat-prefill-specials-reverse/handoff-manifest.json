@@ -1,0 +1,25 @@
+{
+  "status": "prepared only; user declined additional Codex model runs",
+  "source_commit": "975db9bfb4db10847df75966ede21d377736304b",
+  "profile_seed_sha256": "1d1cb63f70f30e833063d97855a8f3c3a52d0dd125f858b2e0417a49c0c186e3",
+  "profile_source_path": "L:\\AI_pictures_generate\\PolyStrata-data\\packs\\dsv4-q3_k_m\\expert-profile.txt",
+  "profile_original_sha256": "1d1cb63f70f30e833063d97855a8f3c3a52d0dd125f858b2e0417a49c0c186e3",
+  "exe_path": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+  "exe_sha256": "49fb81a7ff12ec86608cdb8c6ef07d2ecdfb7a6a562c44ebbadd3cee435d1e3f",
+  "config_path": "L:\\AI_pictures_generate\\PolyStrata\\strata-dsv4-q3_k_m.json",
+  "config_sha256": "9e2d603a76458b7c0fbc42143f0af788f3ec6d104aac629ba985aa644066916c",
+  "bat_sha256": "69d635ff7b62565a100026b6b6329bde6b8cda0efba4c29d84678b4c9887304c",
+  "offline_validation_exit": 0,
+  "files": {
+    "HANDOFF_MINIMAX.md": "99256b6addb0299668feb85832b682d66a61d92cc50d12cd5a7dc0a13bca9b86",
+    "initial-expert-profile.txt": "1d1cb63f70f30e833063d97855a8f3c3a52d0dd125f858b2e0417a49c0c186e3",
+    "input-validation.json": "bd0da7930f033f04a015f17788854b8d5914a2599392fdacc800c1b6d655fe4c",
+    "offline-validation.txt": "46c92bc67bd5ec82b2db80039caaf2b06effd285141497a18db39efb9093afe3",
+    "public-inputs.json": "7f5bbf0c8ff198b7ceb15dd25824913b674fd389e5bb8f1696f4beb79ef56f53",
+    "README.md": "e09d1f1085769365d64f284b111463c1531c0e14ecfa717e064dc5aa24d4b6b5",
+    "run.py": "29983fd5993fd542a8ea058061ed9c22d1cbed731b727b00e7c28b45b62fdd2c",
+    "helpers\\analysis.py": "02db4f6528da0b0659838dacaf9b29a0be943287988f67c1ab5b5980b38d1284",
+    "helpers\\driver.py": "924ace5f9f15067863abbf6a86aec7afca0cb2c5b7a07ed3bdce70407c305424",
+    "helpers\\engine_runner.py": "3539e2cf747c4f8d4f31d13fa96bc7736359d4052dbd2b2f6c8732bba5fea142"
+  }
+}

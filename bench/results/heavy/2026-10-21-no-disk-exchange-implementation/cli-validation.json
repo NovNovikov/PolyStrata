@@ -1,0 +1,43 @@
+[
+  {
+    "args": [
+      "--no-disk-expert-exchange"
+    ],
+    "exit": 1,
+    "stderr": "strata-poly: --no-disk-expert-exchange requires --no-disk\r\n",
+    "stdout": "ERR --no-disk-expert-exchange requires --no-disk\r\n"
+  },
+  {
+    "args": [
+      "--no-disk",
+      "--no-disk-expert-exchange",
+      "--no-disk-exchange-max",
+      "0"
+    ],
+    "exit": 1,
+    "stderr": "strata-poly: exchange: max must be 1..64, cooldown nonnegative, budget 0..100 percent\r\n",
+    "stdout": "ERR exchange: max must be 1..64, cooldown nonnegative, budget 0..100 percent\r\n"
+  },
+  {
+    "args": [
+      "--no-disk",
+      "--no-disk-expert-exchange",
+      "--no-disk-exchange-cooldown",
+      "-1"
+    ],
+    "exit": 1,
+    "stderr": "strata-poly: exchange: max must be 1..64, cooldown nonnegative, budget 0..100 percent\r\n",
+    "stdout": "ERR exchange: max must be 1..64, cooldown nonnegative, budget 0..100 percent\r\n"
+  },
+  {
+    "args": [
+      "--no-disk",
+      "--no-disk-expert-exchange",
+      "--no-disk-exchange-budget-pct",
+      "0"
+    ],
+    "exit": 1,
+    "stderr": "strata-poly: exchange: max must be 1..64, cooldown nonnegative, budget 0..100 percent\r\n",
+    "stdout": "ERR exchange: max must be 1..64, cooldown nonnegative, budget 0..100 percent\r\n"
+  }
+]

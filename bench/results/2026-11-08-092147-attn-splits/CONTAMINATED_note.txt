@@ -1,0 +1,5 @@
+These numbers are garbage: measured while the card computed something else.
+Same unchanged code path (warps 4, splits 1, rows 2, depth 50000) measured 18.3 ms idle on 2026-11-08
+(run L:\Temp\opencodettn_warps_50k.txt) and 129.9 ms here - seven times, and rows 16 by sixty.
+nvidia-smi memory was quiet (3.3 GB used) so mimo_attn_sweep.py's memory-only guard did not fire.
+Do not compare these rows with anything. Kept because runs are never deleted.

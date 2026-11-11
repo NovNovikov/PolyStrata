@@ -1,0 +1,24 @@
+{
+  "load_s": 205.75544320000336,
+  "memory": {
+    "rss": 122044260352,
+    "vms": 146316537856,
+    "num_page_faults": 31588842,
+    "peak_wset": 122044260352,
+    "wset": 122044260352,
+    "peak_paged_pool": 1827304,
+    "paged_pool": 1827304,
+    "peak_nonpaged_pool": 90432,
+    "nonpaged_pool": 90304,
+    "pagefile": 146316537856,
+    "peak_pagefile": 146316546048,
+    "private": 146316537856
+  },
+  "process_gpu": {
+    "used": 23979540480,
+    "spilled": 3477078016,
+    "shared": 3477078016,
+    "asked": 27456618496
+  },
+  "model_or_draft_handles_open": []
+}

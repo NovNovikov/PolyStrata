@@ -1,0 +1,29 @@
+{
+  "source_commit": "7a2cf7774edc89434777c4211318990ef1569f5f",
+  "exe_sha256": "2472eedf402573a58a5145e9b77f65b058b0b2e187acc101d6699bd19669c733",
+  "model_loads": 1,
+  "model_retries": 0,
+  "baseline_rerun": false,
+  "CUDA_build_exit": 0,
+  "no_disk_test_checks": 2485,
+  "dma_probe": "16 MiB / 8 MiB window; payloads, two streams, rollback, covered subsets, merged gate/up, cleanup passed",
+  "audit_self_test": true,
+  "HIP_tested": false,
+  "SYCL_tested": false,
+  "model_exit": 0,
+  "diagnostic_failures": 0,
+  "same_input": true,
+  "same_initial_profile": true,
+  "same_short_input": true,
+  "source_hashes": {
+    "docs/POLY_COALESCED_DMA.md": "92af1764c4540031bdc026dc5b20dbd1b127c6181c2593f553eef33b785674d6",
+    "src/poly/dma_ranges.hpp": "f8f93f8395c8064dfbc2654338b8a42f209606a7e9156c9d133f0d70f1b2ef38",
+    "src/poly/engine.cpp": "a521e74f64aee0aab4c08d3e53a266dd9c6b36e81bbae1b4c7b682368aae89bf",
+    "src/poly/engine.hpp": "239e27b58b576d073151dd4323933daa28cc267b5a6a87af6a90b51a65edae91",
+    "src/poly/main.cpp": "5ab74486706c610a7d0d05a00920fd8d225276e8254d06f73a8519fbf9f0562c",
+    "src/poly/no_disk_test.cpp": "068f05dc46192cecb2c5584b61068cce61964b88d7bbbb0378934c5de4bf761a",
+    "src/poly/resident_dma.hpp": "659889955389d32b5da2b5f05fa4579b98aab44bf2669a4a5d6d31f3884c4404",
+    "src/poly/resident_dma_probe.cpp": "db593d94923ab1269010b4aa52ac87e8f7d54efd50b986ed1ab246ca3d205e45",
+    "tools/bench_poly_transfer_audit.py": "f59695ef4b5e1718d3098bf2cce4a06122a5b9e70be15b4c86a881444bb9c6d6"
+  }
+}

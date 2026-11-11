@@ -1,0 +1,7 @@
+START deepseek-integration-smoke
+END deepseek-integration-smoke {'exit': 0, 'completed': True}
+START glm-exchange-final
+END glm-exchange-final {'exit': 0, 'completed': True}
+START glm-mmap
+END glm-mmap {'exit': 0, 'completed': True}
+FINAL_SUITE_FINISHED

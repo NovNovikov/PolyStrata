@@ -1,0 +1,33 @@
+{
+  "checks": {
+    "same_binary_recorded": true,
+    "current_binary_matches": true,
+    "config_unchanged": true,
+    "bat_unchanged": true,
+    "public_seed_unchanged": true,
+    "args_differ_only_mode_and_isolation": true,
+    "no_disk_flag_only_in_bat": true,
+    "same_diagnostic_env": true,
+    "mmap-control_completed": true,
+    "mmap-control_all_512_and_decode_511": true,
+    "mmap-control_same_prompt_length": true,
+    "mmap-control_resume_correct": true,
+    "mmap-control_current_process_absent": true,
+    "bat-no-disk_completed": true,
+    "bat-no-disk_all_512_and_decode_511": true,
+    "bat-no-disk_same_prompt_length": true,
+    "bat-no-disk_resume_correct": true,
+    "bat-no-disk_current_process_absent": true,
+    "handle_counts_expected": true
+  },
+  "input_tokens": 2050,
+  "generated_per_request": 512,
+  "request_count": 6,
+  "output_common_prefix": [
+    0,
+    0,
+    0
+  ],
+  "source_sha256": "5e587dd4ec52b60a5fbb12db505574f7d257ab28393d64902bc82c5f97415bc3",
+  "binary_sha256": "838b6b707d723401c6436cd793984642cf614575fc673c21059ff17df0e17628"
+}

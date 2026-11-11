@@ -1,0 +1,8 @@
+strata generate: memory guard: limit 127.8 GiB (source: meminfo), current 11.5 GiB, reclaimable cache credited 0.0 GiB; available 116.4 GiB (MemAvailable 116.4 GiB), floor 512 MiB
+strata: K-quant prompt kernels from L:\AI_pictures_generate\PolyStrata\engine\strata_kq.dll (STRATA_MMQ_KQ=1)
+strata generate: PCIe probe: 24.1 GB/s host->device (best of 24.1 24.1 24.1 24.1) -> pcie_frac 0.55 (default 0.55)
+strata generate: this CPU has no AVX-512: the expert kernels run on AVX-2 (multi-token for the i-quant gate/up rows)
+strata generate: native pack: L:\AI_pictures_generate\PolyStrata-data\packs\unsloth-ud-q6_k_xl experts (largest blob 5.22 MB), token embedding Q8_0 in mapped host memory (644 MiB, 1.1 s)
+strata trace: 22730 MiB free after the CUDA context and the weight arena
+strata generate: 216 MiB of weights loaded from L:\AI_pictures_generate\PolyStrata-data\packs\unsloth-ud-q6_k_xl in 2.0 s (495 canonical tensors skipped: served natively)
+strata trace: 22730 MiB free after the pack weights

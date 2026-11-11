@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "load_s": 263.61274450001656,
+  "exit": 0,
+  "error": "RuntimeError('ERR the operation cannot be performed in the present state')"
+}

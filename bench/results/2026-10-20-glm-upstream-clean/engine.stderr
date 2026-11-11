@@ -1,0 +1,2 @@
+strata-poly: loaded in 34.7 s; 1496 of 12384 routed experts in VRAM (11.6 GiB), 12 CPU threads
+strata-poly: 4098 of 6150 prompt tokens were not read again (66.6%); 0 conversations parked in 0 MiB, 0 pushed out; 702 MiB of VRAM free at the end

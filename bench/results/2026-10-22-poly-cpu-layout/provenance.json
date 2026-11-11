@@ -1,0 +1,20 @@
+{
+  "command": [
+    "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\poly_cpu_layout_probe.exe",
+    "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+    "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-22-poly-cpu-layout\\data",
+    "8"
+  ],
+  "probe_sha256": "a467016fae676504a809afc290e3229cb532181228dc675742d107549b33599f",
+  "installed_engine_sha256": "65f3dcac37c4365329bfb27f10f6723780480c6933c655423a1836017bf6c849",
+  "installed_engine_unchanged": true,
+  "process_exit": 0,
+  "full_model_loads": 0,
+  "GPU_engine_runs": 0,
+  "weight_bytes": 1975779328,
+  "bitwise_callback_cases": 5504,
+  "rounds": 5,
+  "samples": 90,
+  "issues_search": "repository issues disabled; no matching open PR returned",
+  "source_commit_before_benchmark_commit": "371a8f61e69f27aaa4e6e9fd4cd3132b163bfd7e"
+}

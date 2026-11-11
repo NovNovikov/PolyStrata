@@ -1,0 +1,37 @@
+{
+  "command": [
+    "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+    "--serve",
+    "--no-disk",
+    "--model",
+    "L:\\AI_pictures_generate\\PolyStrata-data\\models\\glm-3.0BIT\\GLM-5.3-Flash-GSQ-RCO-3.0bit-q4kattn.gguf",
+    "--max-context",
+    "200000",
+    "--expert-profile",
+    "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-no-disk-exchange-implementation\\glm-smoke-work\\expert-profile.txt",
+    "--draft-model",
+    "L:\\AI_pictures_generate\\PolyStrata-data\\mtp\\glm-5.3-flash\\draft-block.gguf",
+    "--conversation-cache-mib",
+    "0",
+    "--conversation-cache-no-branch",
+    "--prompt-cache",
+    "6",
+    "--conversation-cache-min-free-mib",
+    "512",
+    "--session-min-free-mib",
+    "4096",
+    "--session-dir",
+    "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-no-disk-exchange-implementation\\glm-smoke-work\\sessions",
+    "--session-max-mib",
+    "16384",
+    "--no-disk-expert-exchange",
+    "--dump-buffers"
+  ],
+  "pid": 12156,
+  "exe_sha256": "72dc1f9dc51d6a29b1d339dd93e3a023570a4f5c32e97052755a9ccb78c9b57b",
+  "environment": {
+    "STRATA_TRACE_DECODE_COSTS": "1",
+    "STRATA_TRACE_DRAFT_POLICY": "1",
+    "STRATA_EXCHANGE_TEST_MODE": "1"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "exe": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+  "exe_sha256": "5f430e316299c4e53e7fcfd0ed82cae15d659e9660435c1acaf0f6aa5d7426c5",
+  "source_commit": "d3621a1fe90209273a490c1c4004b84998332afa",
+  "config": "strata-dsv4-q3_k_m.json",
+  "config_sha256": "21b2eb6c6696fa2bd1868de6f44df55ad47490efea46b0a64a4dddfb5691475d",
+  "gen_tokens": 256,
+  "repeats": 0,
+  "phases": {
+    "trace": [
+      "--trace-graphs"
+    ]
+  }
+}

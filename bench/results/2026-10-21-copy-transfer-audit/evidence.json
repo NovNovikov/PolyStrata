@@ -1,0 +1,1989 @@
+{
+  "method": "Numeric extraction from 18 completed requests; no new GPU measurements",
+  "sources": {
+    "2026-10-21-deepseek-bat-prefill-specials": {
+      "summary_sha256": "0c6c2cafbe49785444d80ec2fd1b3470bfc675559c91956d0d02f4e42104f292",
+      "input_sha256": "7f5bbf0c8ff198b7ceb15dd25824913b674fd389e5bb8f1696f4beb79ef56f53",
+      "seed_sha256": "1d1cb63f70f30e833063d97855a8f3c3a52d0dd125f858b2e0417a49c0c186e3"
+    },
+    "2026-10-21-deepseek-bat-prefill-specials-reverse": {
+      "summary_sha256": "44fb4f01be7d541adb34674916914ab91ae72897064cbdcd915d612bb36c747a",
+      "input_sha256": "7f5bbf0c8ff198b7ceb15dd25824913b674fd389e5bb8f1696f4beb79ef56f53",
+      "seed_sha256": "1d1cb63f70f30e833063d97855a8f3c3a52d0dd125f858b2e0417a49c0c186e3"
+    },
+    "2026-10-21-deepseek-cpu-share": {
+      "summary_sha256": "dd49fb87a0fff211da070f778da2660349ef747fdeb243b2ade502c61db16922",
+      "input_sha256": "7f5bbf0c8ff198b7ceb15dd25824913b674fd389e5bb8f1696f4beb79ef56f53",
+      "seed_sha256": "1d1cb63f70f30e833063d97855a8f3c3a52d0dd125f858b2e0417a49c0c186e3"
+    }
+  },
+  "runs": [
+    {
+      "source": "2026-10-21-deepseek-bat-prefill-specials",
+      "mode": "bat-no-disk",
+      "binary_sha256": "49fb81a7ff12ec86608cdb8c6ef07d2ecdfb7a6a562c44ebbadd3cee435d1e3f",
+      "exit": 0,
+      "load_s": 216.49868109999807,
+      "command": [
+        "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+        "--serve",
+        "--compact-scratch",
+        "--compact-graphs",
+        "--no-disk",
+        "--rows-vram",
+        "--read-chunk",
+        "32768",
+        "--prompt-batch",
+        "4096",
+        "--stage-mib",
+        "2848",
+        "--model",
+        "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+        "--max-context",
+        "131072",
+        "--expert-profile",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-bat-prefill-specials\\bat-no-disk-work\\expert-profile.txt",
+        "--conversation-cache-mib",
+        "0",
+        "--conversation-cache-no-branch",
+        "--prompt-cache",
+        "6",
+        "--conversation-cache-min-free-mib",
+        "512",
+        "--session-min-free-mib",
+        "4096",
+        "--session-dir",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-bat-prefill-specials\\bat-no-disk-work\\sessions",
+        "--session-max-mib",
+        "16384",
+        "--vram-reserve-mib",
+        "256",
+        "--no-disk-vram-margin-mib",
+        "256",
+        "--expert-swaps",
+        "64",
+        "--dump-buffers"
+      ],
+      "allocations": [
+        {
+          "phase": "load",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        }
+      ],
+      "requests": [
+        {
+          "number": 1,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 86117.1,
+          "decode_ms": 16569.2,
+          "decode_tps": 15.390000724235328,
+          "decode_hit_rate": 0.29698228128460685,
+          "drafts_accepted": 26,
+          "drafts_offered": 51,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 16569.221,
+            "cpu_expert_ms": 10435.692,
+            "route_wait_ms": 4683.946,
+            "uploads": 469.0,
+            "drafts_offered": 51.0,
+            "drafts_accepted": 26.0,
+            "gpu_experts": 21454.0,
+            "cpu_experts": 50786.0
+          },
+          "prefill": {
+            "samples": 153,
+            "system_disk_read_GiB": 0.29439640045166016,
+            "process_page_faults": 30424,
+            "RSS_median_GiB": 113.78484344482422,
+            "GPU_Local_median_GiB": 22.39678955078125,
+            "GPU_NonLocal_median_GiB": 3.088134765625,
+            "sampled_RX": {
+              "min": 0.046875,
+              "median": 56.6474609375,
+              "max": 44657.611328125,
+              "mean": 4345.613830167484
+            },
+            "sampled_TX": {
+              "min": 0.0947265625,
+              "median": 28.80078125,
+              "max": 4451.65625,
+              "mean": 515.1223447712418
+            }
+          },
+          "decode": {
+            "samples": 28,
+            "system_disk_read_GiB": 0.1679706573486328,
+            "process_page_faults": 9319,
+            "RSS_median_GiB": 113.83835983276367,
+            "GPU_Local_median_GiB": 22.391719818115234,
+            "GPU_NonLocal_median_GiB": 0.4698486328125,
+            "sampled_RX": {
+              "min": 28.228515625,
+              "median": 58.86474609375,
+              "max": 20964.3359375,
+              "mean": 1486.966831752232
+            },
+            "sampled_TX": {
+              "min": 23.412109375,
+              "median": 34.1171875,
+              "max": 200.6044921875,
+              "mean": 59.464564732142854
+            }
+          }
+        },
+        {
+          "number": 2,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 86334.2,
+          "decode_ms": 15234.5,
+          "decode_tps": 16.73832419836555,
+          "decode_hit_rate": 0.3318059998270943,
+          "drafts_accepted": 18,
+          "drafts_offered": 32,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 15234.452,
+            "cpu_expert_ms": 9200.439,
+            "route_wait_ms": 4766.405,
+            "uploads": 280.0,
+            "drafts_offered": 32.0,
+            "drafts_accepted": 18.0,
+            "gpu_experts": 23028.0,
+            "cpu_experts": 46374.0
+          },
+          "prefill": {
+            "samples": 155,
+            "system_disk_read_GiB": 0.00788736343383789,
+            "process_page_faults": 0,
+            "RSS_median_GiB": 113.8260612487793,
+            "GPU_Local_median_GiB": 22.39678955078125,
+            "GPU_NonLocal_median_GiB": 3.0772705078125,
+            "sampled_RX": {
+              "min": 0.142578125,
+              "median": 59.794921875,
+              "max": 32736.0625,
+              "mean": 3481.5085055443546
+            },
+            "sampled_TX": {
+              "min": 0.23828125,
+              "median": 33.2353515625,
+              "max": 2882.0029296875,
+              "mean": 392.3069808467742
+            }
+          },
+          "decode": {
+            "samples": 27,
+            "system_disk_read_GiB": 0.006914615631103516,
+            "process_page_faults": 5612,
+            "RSS_median_GiB": 113.86425399780273,
+            "GPU_Local_median_GiB": 22.391719818115234,
+            "GPU_NonLocal_median_GiB": 0.4698486328125,
+            "sampled_RX": {
+              "min": 31.56640625,
+              "median": 49.11328125,
+              "max": 18079.7099609375,
+              "mean": 767.4760199652778
+            },
+            "sampled_TX": {
+              "min": 22.2197265625,
+              "median": 48.732421875,
+              "max": 2379.607421875,
+              "mean": 137.3372757523148
+            }
+          }
+        }
+      ],
+      "exchanges": [],
+      "parking": [
+        "strata-poly: conversation cache: parked 49999 tokens in 849.1 ms; parked=1 bytes=0 evictions=0"
+      ]
+    },
+    {
+      "source": "2026-10-21-deepseek-bat-prefill-specials",
+      "mode": "bat-exchange",
+      "binary_sha256": "49fb81a7ff12ec86608cdb8c6ef07d2ecdfb7a6a562c44ebbadd3cee435d1e3f",
+      "exit": 0,
+      "load_s": 203.63459889998194,
+      "command": [
+        "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+        "--serve",
+        "--compact-scratch",
+        "--compact-graphs",
+        "--no-disk",
+        "--rows-vram",
+        "--read-chunk",
+        "32768",
+        "--prompt-batch",
+        "4096",
+        "--stage-mib",
+        "2848",
+        "--model",
+        "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+        "--max-context",
+        "131072",
+        "--expert-profile",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-bat-prefill-specials\\bat-exchange-work\\expert-profile.txt",
+        "--conversation-cache-mib",
+        "0",
+        "--conversation-cache-no-branch",
+        "--prompt-cache",
+        "6",
+        "--conversation-cache-min-free-mib",
+        "512",
+        "--session-min-free-mib",
+        "4096",
+        "--session-dir",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-bat-prefill-specials\\bat-exchange-work\\sessions",
+        "--session-max-mib",
+        "16384",
+        "--vram-reserve-mib",
+        "256",
+        "--no-disk-vram-margin-mib",
+        "256",
+        "--expert-swaps",
+        "64",
+        "--no-disk-expert-exchange",
+        "--dump-buffers"
+      ],
+      "allocations": [
+        {
+          "phase": "load",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        }
+      ],
+      "requests": [
+        {
+          "number": 1,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 85182.6,
+          "decode_ms": 17161.5,
+          "decode_tps": 14.85884101040119,
+          "decode_hit_rate": 0.22335091207746174,
+          "drafts_accepted": 20,
+          "drafts_offered": 34,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 17161.458,
+            "cpu_expert_ms": 10601.798,
+            "route_wait_ms": 4785.221,
+            "uploads": 233.0,
+            "drafts_offered": 34.0,
+            "drafts_accepted": 20.0,
+            "gpu_experts": 15501.0,
+            "cpu_experts": 53901.0
+          },
+          "prefill": {
+            "samples": 153,
+            "system_disk_read_GiB": 0.03904533386230469,
+            "process_page_faults": 35877,
+            "RSS_median_GiB": 113.784912109375,
+            "GPU_Local_median_GiB": 22.396808624267578,
+            "GPU_NonLocal_median_GiB": 3.0772705078125,
+            "sampled_RX": {
+              "min": 0.1904296875,
+              "median": 55.884765625,
+              "max": 44074.7255859375,
+              "mean": 4168.912320006128
+            },
+            "sampled_TX": {
+              "min": 0.4287109375,
+              "median": 35.8095703125,
+              "max": 4393.4814453125,
+              "mean": 447.4971532883987
+            }
+          },
+          "decode": {
+            "samples": 29,
+            "system_disk_read_GiB": 0.1634964942932129,
+            "process_page_faults": 7646,
+            "RSS_median_GiB": 113.83524703979492,
+            "GPU_Local_median_GiB": 22.394454956054688,
+            "GPU_NonLocal_median_GiB": 1.74444580078125,
+            "sampled_RX": {
+              "min": 29.611328125,
+              "median": 628.708984375,
+              "max": 694.322265625,
+              "mean": 384.60816271551727
+            },
+            "sampled_TX": {
+              "min": 17.404296875,
+              "median": 34.09375,
+              "max": 742.4345703125,
+              "mean": 263.14624865301727
+            }
+          }
+        },
+        {
+          "number": 2,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 84825.0,
+          "decode_ms": 14362.1,
+          "decode_tps": 17.755063674532277,
+          "decode_hit_rate": 0.3734042246621135,
+          "drafts_accepted": 20,
+          "drafts_offered": 34,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 14362.138,
+            "cpu_expert_ms": 8127.799,
+            "route_wait_ms": 4579.418,
+            "uploads": 235.0,
+            "drafts_offered": 34.0,
+            "drafts_accepted": 20.0,
+            "gpu_experts": 25915.0,
+            "cpu_experts": 43487.0
+          },
+          "prefill": {
+            "samples": 152,
+            "system_disk_read_GiB": 0.10852909088134766,
+            "process_page_faults": 0,
+            "RSS_median_GiB": 113.81975936889648,
+            "GPU_Local_median_GiB": 22.396808624267578,
+            "GPU_NonLocal_median_GiB": 3.06640625,
+            "sampled_RX": {
+              "min": 5.578125,
+              "median": 62.41748046875,
+              "max": 43154.0009765625,
+              "mean": 4466.838404605263
+            },
+            "sampled_TX": {
+              "min": 0.619140625,
+              "median": 32.734375,
+              "max": 3720.9033203125,
+              "mean": 447.79354055304276
+            }
+          },
+          "decode": {
+            "samples": 26,
+            "system_disk_read_GiB": 0.013842582702636719,
+            "process_page_faults": 3015,
+            "RSS_median_GiB": 113.84687614440918,
+            "GPU_Local_median_GiB": 22.394994735717773,
+            "GPU_NonLocal_median_GiB": 1.9918212890625,
+            "sampled_RX": {
+              "min": 7.390625,
+              "median": 340.22265625,
+              "max": 722.884765625,
+              "mean": 356.1198918269231
+            },
+            "sampled_TX": {
+              "min": 20.169921875,
+              "median": 40.220703125,
+              "max": 745.439453125,
+              "mean": 298.5949894831731
+            }
+          }
+        }
+      ],
+      "exchanges": [
+        "strata-poly: exchange: planned=233 completed=233 verified=0 failed=0 restored=0 committed_H2D=2679701504 committed_D2H=2679701504 committed_D2D=2679701504 bytes; plan_ms=189.260 registration_ms=67.107 copy_ms=336.844 reader_wait_ms=0.732 transaction_ms=404.825 budget_skips=0; no_cold=0 below_threshold=31323 locked=0 taken=0 no_room=0 batch_limit=2432520; registered=2679701504 peak_registered=2986344448 reg_added_total=242587467776 reg_removed_total=239907766272 bytes",
+        "strata-poly: exchange: planned=236 completed=236 verified=0 failed=0 restored=0 committed_H2D=2698510336 committed_D2H=2698510336 committed_D2D=2698510336 bytes; plan_ms=186.822 registration_ms=66.304 copy_ms=333.056 reader_wait_ms=0.701 transaction_ms=400.202 budget_skips=0; no_cold=0 below_threshold=3159 locked=0 taken=0 no_room=0 batch_limit=2460681; registered=2617704448 peak_registered=2986344448 reg_added_total=485170413568 reg_removed_total=482552709120 bytes"
+      ],
+      "parking": [
+        "strata-poly: conversation cache: parked 49999 tokens in 853.2 ms; parked=1 bytes=0 evictions=0"
+      ]
+    },
+    {
+      "source": "2026-10-21-deepseek-bat-prefill-specials",
+      "mode": "bat-mmap",
+      "binary_sha256": "49fb81a7ff12ec86608cdb8c6ef07d2ecdfb7a6a562c44ebbadd3cee435d1e3f",
+      "exit": 0,
+      "load_s": 37.50059619999956,
+      "command": [
+        "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+        "--serve",
+        "--compact-scratch",
+        "--compact-graphs",
+        "--rows-vram",
+        "--read-chunk",
+        "32768",
+        "--prompt-batch",
+        "4096",
+        "--stage-mib",
+        "2848",
+        "--model",
+        "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+        "--max-context",
+        "131072",
+        "--expert-profile",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-bat-prefill-specials\\bat-mmap-work\\expert-profile.txt",
+        "--conversation-cache-mib",
+        "0",
+        "--conversation-cache-no-branch",
+        "--prompt-cache",
+        "6",
+        "--conversation-cache-min-free-mib",
+        "512",
+        "--session-min-free-mib",
+        "4096",
+        "--session-dir",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-bat-prefill-specials\\bat-mmap-work\\sessions",
+        "--session-max-mib",
+        "16384",
+        "--vram-reserve-mib",
+        "256",
+        "--no-disk-vram-margin-mib",
+        "256",
+        "--expert-swaps",
+        "64",
+        "--dump-buffers"
+      ],
+      "allocations": [
+        {
+          "phase": "load",
+          "total": 22568.0,
+          "dense": 7758.37,
+          "experts": 7200.0,
+          "KV": 124.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22510.0,
+          "dense": 7758.37,
+          "experts": 6848.0,
+          "KV": 418.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22510.0,
+          "dense": 7758.37,
+          "experts": 6848.0,
+          "KV": 418.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        }
+      ],
+      "requests": [
+        {
+          "number": 1,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 203854.9,
+          "decode_ms": 28968.8,
+          "decode_tps": 8.80257380354036,
+          "decode_hit_rate": 0.4030592469545958,
+          "drafts_accepted": 30,
+          "drafts_offered": 55,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 28968.761,
+            "cpu_expert_ms": 22199.33,
+            "route_wait_ms": 4876.595,
+            "uploads": 913.0,
+            "drafts_offered": 55.0,
+            "drafts_accepted": 30.0,
+            "gpu_experts": 29117.0,
+            "cpu_experts": 43123.0
+          },
+          "prefill": {
+            "samples": 365,
+            "system_disk_read_GiB": 129.86749076843262,
+            "process_page_faults": 34506662,
+            "RSS_median_GiB": 98.69660568237305,
+            "GPU_Local_median_GiB": 22.635372161865234,
+            "GPU_NonLocal_median_GiB": 2.208984375,
+            "sampled_RX": {
+              "min": 0.0,
+              "median": 13.970703125,
+              "max": 39187.240234375,
+              "mean": 1736.7236622431508
+            },
+            "sampled_TX": {
+              "min": 0.142578125,
+              "median": 2.4794921875,
+              "max": 3126.19140625,
+              "mean": 192.95827001284246
+            }
+          },
+          "decode": {
+            "samples": 51,
+            "system_disk_read_GiB": 2.0923562049865723,
+            "process_page_faults": 744986,
+            "RSS_median_GiB": 117.98440170288086,
+            "GPU_Local_median_GiB": 22.592403411865234,
+            "GPU_NonLocal_median_GiB": 2.208984375,
+            "sampled_RX": {
+              "min": 7.9150390625,
+              "median": 38.861328125,
+              "max": 14845.1796875,
+              "mean": 1093.6966145833333
+            },
+            "sampled_TX": {
+              "min": 1.4296875,
+              "median": 30.2314453125,
+              "max": 1663.9228515625,
+              "mean": 110.01330805759804
+            }
+          }
+        },
+        {
+          "number": 2,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 101017.5,
+          "decode_ms": 13929.0,
+          "decode_tps": 18.307129011415032,
+          "decode_hit_rate": 0.47559305239843797,
+          "drafts_accepted": 13,
+          "drafts_offered": 24,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 13928.962,
+            "cpu_expert_ms": 7489.846,
+            "route_wait_ms": 4891.72,
+            "uploads": 72.0,
+            "drafts_offered": 24.0,
+            "drafts_accepted": 13.0,
+            "gpu_experts": 32639.0,
+            "cpu_experts": 35989.0
+          },
+          "prefill": {
+            "samples": 179,
+            "system_disk_read_GiB": 6.249013423919678,
+            "process_page_faults": 1762064,
+            "RSS_median_GiB": 118.08761596679688,
+            "GPU_Local_median_GiB": 22.592403411865234,
+            "GPU_NonLocal_median_GiB": 2.208984375,
+            "sampled_RX": {
+              "min": 0.046875,
+              "median": 66.2802734375,
+              "max": 47906.63671875,
+              "mean": 4123.144362124651
+            },
+            "sampled_TX": {
+              "min": 0.0,
+              "median": 44.7744140625,
+              "max": 4517.412109375,
+              "mean": 443.87151929120114
+            }
+          },
+          "decode": {
+            "samples": 24,
+            "system_disk_read_GiB": 0.05880451202392578,
+            "process_page_faults": 17016,
+            "RSS_median_GiB": 117.89888763427734,
+            "GPU_Local_median_GiB": 22.592403411865234,
+            "GPU_NonLocal_median_GiB": 2.208984375,
+            "sampled_RX": {
+              "min": 31.470703125,
+              "median": 52.7138671875,
+              "max": 1345.4912109375,
+              "mean": 181.6943359375
+            },
+            "sampled_TX": {
+              "min": 27.2744140625,
+              "median": 46.75341796875,
+              "max": 94.0791015625,
+              "mean": 50.725056966145836
+            }
+          }
+        }
+      ],
+      "exchanges": [],
+      "parking": [
+        "strata-poly: conversation cache: parked 49999 tokens in 890.0 ms; parked=1 bytes=0 evictions=0"
+      ]
+    },
+    {
+      "source": "2026-10-21-deepseek-bat-prefill-specials-reverse",
+      "mode": "bat-mmap",
+      "binary_sha256": "49fb81a7ff12ec86608cdb8c6ef07d2ecdfb7a6a562c44ebbadd3cee435d1e3f",
+      "exit": 0,
+      "load_s": 28.092926499957684,
+      "command": [
+        "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+        "--serve",
+        "--compact-scratch",
+        "--compact-graphs",
+        "--rows-vram",
+        "--read-chunk",
+        "32768",
+        "--prompt-batch",
+        "4096",
+        "--stage-mib",
+        "2848",
+        "--model",
+        "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+        "--max-context",
+        "131072",
+        "--expert-profile",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-bat-prefill-specials-reverse\\bat-mmap-work\\expert-profile.txt",
+        "--conversation-cache-mib",
+        "0",
+        "--conversation-cache-no-branch",
+        "--prompt-cache",
+        "6",
+        "--conversation-cache-min-free-mib",
+        "512",
+        "--session-min-free-mib",
+        "4096",
+        "--session-dir",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-bat-prefill-specials-reverse\\bat-mmap-work\\sessions",
+        "--session-max-mib",
+        "16384",
+        "--vram-reserve-mib",
+        "256",
+        "--no-disk-vram-margin-mib",
+        "256",
+        "--expert-swaps",
+        "64",
+        "--dump-buffers"
+      ],
+      "allocations": [
+        {
+          "phase": "load",
+          "total": 22568.0,
+          "dense": 7758.37,
+          "experts": 7200.0,
+          "KV": 124.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22510.0,
+          "dense": 7758.37,
+          "experts": 6848.0,
+          "KV": 418.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22510.0,
+          "dense": 7758.37,
+          "experts": 6848.0,
+          "KV": 418.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        }
+      ],
+      "requests": [
+        {
+          "number": 1,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 238175.5,
+          "decode_ms": 27420.9,
+          "decode_tps": 9.299475947178976,
+          "decode_hit_rate": 0.40266543085046624,
+          "drafts_accepted": 26,
+          "drafts_offered": 47,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 27420.875,
+            "cpu_expert_ms": 20323.178,
+            "route_wait_ms": 5195.29,
+            "uploads": 912.0,
+            "drafts_offered": 47.0,
+            "drafts_accepted": 26.0,
+            "gpu_experts": 28673.0,
+            "cpu_experts": 42535.0
+          },
+          "prefill": {
+            "samples": 419,
+            "system_disk_read_GiB": 144.91140222549438,
+            "process_page_faults": 38156529,
+            "RSS_median_GiB": 105.85716247558594,
+            "GPU_Local_median_GiB": 22.572994232177734,
+            "GPU_NonLocal_median_GiB": 2.271484375,
+            "sampled_RX": {
+              "min": 0.0,
+              "median": 406.0263671875,
+              "max": 29257.630859375,
+              "mean": 1601.164780355012
+            },
+            "sampled_TX": {
+              "min": 0.0,
+              "median": 68.6162109375,
+              "max": 4182.8623046875,
+              "mean": 422.8749137641706
+            }
+          },
+          "decode": {
+            "samples": 48,
+            "system_disk_read_GiB": 4.330204010009766,
+            "process_page_faults": 1368075,
+            "RSS_median_GiB": 116.24442672729492,
+            "GPU_Local_median_GiB": 22.592403411865234,
+            "GPU_NonLocal_median_GiB": 2.208984375,
+            "sampled_RX": {
+              "min": 9.6796875,
+              "median": 35.81005859375,
+              "max": 3255.7001953125,
+              "mean": 418.4658610026042
+            },
+            "sampled_TX": {
+              "min": 1.3349609375,
+              "median": 29.1103515625,
+              "max": 209.6171875,
+              "mean": 41.084025065104164
+            }
+          }
+        },
+        {
+          "number": 2,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 109440.4,
+          "decode_ms": 22517.8,
+          "decode_tps": 11.32437449484408,
+          "decode_hit_rate": 0.431930172465597,
+          "drafts_accepted": 14,
+          "drafts_offered": 17,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 22517.823,
+            "cpu_expert_ms": 15794.45,
+            "route_wait_ms": 4977.605,
+            "uploads": 126.0,
+            "drafts_offered": 17.0,
+            "drafts_accepted": 14.0,
+            "gpu_experts": 28751.0,
+            "cpu_experts": 37813.0
+          },
+          "prefill": {
+            "samples": 194,
+            "system_disk_read_GiB": 21.731616497039795,
+            "process_page_faults": 5893049,
+            "RSS_median_GiB": 115.4623908996582,
+            "GPU_Local_median_GiB": 22.592403411865234,
+            "GPU_NonLocal_median_GiB": 2.208984375,
+            "sampled_RX": {
+              "min": 4.4345703125,
+              "median": 76.17431640625,
+              "max": 34267.330078125,
+              "mean": 4330.325366462629
+            },
+            "sampled_TX": {
+              "min": 0.71484375,
+              "median": 45.39453125,
+              "max": 4461.955078125,
+              "mean": 456.6634886436856
+            }
+          },
+          "decode": {
+            "samples": 38,
+            "system_disk_read_GiB": 0.5125775337219238,
+            "process_page_faults": 153183,
+            "RSS_median_GiB": 115.23863410949707,
+            "GPU_Local_median_GiB": 22.592403411865234,
+            "GPU_NonLocal_median_GiB": 2.208984375,
+            "sampled_RX": {
+              "min": 7.5810546875,
+              "median": 34.35595703125,
+              "max": 1304.1494140625,
+              "mean": 133.96309621710526
+            },
+            "sampled_TX": {
+              "min": 1.3349609375,
+              "median": 29.849609375,
+              "max": 154.3515625,
+              "mean": 40.358835320723685
+            }
+          }
+        }
+      ],
+      "exchanges": [],
+      "parking": [
+        "strata-poly: conversation cache: parked 49999 tokens in 939.0 ms; parked=1 bytes=0 evictions=0"
+      ]
+    },
+    {
+      "source": "2026-10-21-deepseek-bat-prefill-specials-reverse",
+      "mode": "bat-exchange",
+      "binary_sha256": "49fb81a7ff12ec86608cdb8c6ef07d2ecdfb7a6a562c44ebbadd3cee435d1e3f",
+      "exit": 0,
+      "load_s": 215.5513210000354,
+      "command": [
+        "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+        "--serve",
+        "--compact-scratch",
+        "--compact-graphs",
+        "--no-disk",
+        "--rows-vram",
+        "--read-chunk",
+        "32768",
+        "--prompt-batch",
+        "4096",
+        "--stage-mib",
+        "2848",
+        "--model",
+        "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+        "--max-context",
+        "131072",
+        "--expert-profile",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-bat-prefill-specials-reverse\\bat-exchange-work\\expert-profile.txt",
+        "--conversation-cache-mib",
+        "0",
+        "--conversation-cache-no-branch",
+        "--prompt-cache",
+        "6",
+        "--conversation-cache-min-free-mib",
+        "512",
+        "--session-min-free-mib",
+        "4096",
+        "--session-dir",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-bat-prefill-specials-reverse\\bat-exchange-work\\sessions",
+        "--session-max-mib",
+        "16384",
+        "--vram-reserve-mib",
+        "256",
+        "--no-disk-vram-margin-mib",
+        "256",
+        "--expert-swaps",
+        "64",
+        "--no-disk-expert-exchange",
+        "--dump-buffers"
+      ],
+      "allocations": [
+        {
+          "phase": "load",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        }
+      ],
+      "requests": [
+        {
+          "number": 1,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 87043.2,
+          "decode_ms": 16983.4,
+          "decode_tps": 15.014661375225218,
+          "decode_hit_rate": 0.22335091207746174,
+          "drafts_accepted": 20,
+          "drafts_offered": 34,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 16983.439,
+            "cpu_expert_ms": 10318.661,
+            "route_wait_ms": 4774.185,
+            "uploads": 233.0,
+            "drafts_offered": 34.0,
+            "drafts_accepted": 20.0,
+            "gpu_experts": 15501.0,
+            "cpu_experts": 53901.0
+          },
+          "prefill": {
+            "samples": 155,
+            "system_disk_read_GiB": 0.0934138298034668,
+            "process_page_faults": 28650,
+            "RSS_median_GiB": 113.78469848632812,
+            "GPU_Local_median_GiB": 22.39678955078125,
+            "GPU_NonLocal_median_GiB": 3.06640625,
+            "sampled_RX": {
+              "min": 9.9658203125,
+              "median": 66.6611328125,
+              "max": 31992.2919921875,
+              "mean": 3417.1853326612904
+            },
+            "sampled_TX": {
+              "min": 3.48046875,
+              "median": 37.1455078125,
+              "max": 4025.4111328125,
+              "mean": 396.9060987903226
+            }
+          },
+          "decode": {
+            "samples": 30,
+            "system_disk_read_GiB": 0.008188724517822266,
+            "process_page_faults": 7591,
+            "RSS_median_GiB": 113.83543014526367,
+            "GPU_Local_median_GiB": 22.39474105834961,
+            "GPU_NonLocal_median_GiB": 1.879058837890625,
+            "sampled_RX": {
+              "min": 28.037109375,
+              "median": 357.69873046875,
+              "max": 702.142578125,
+              "mean": 360.3007486979167
+            },
+            "sampled_TX": {
+              "min": 15.3056640625,
+              "median": 29.70654296875,
+              "max": 737.427734375,
+              "mean": 216.74739583333334
+            }
+          }
+        },
+        {
+          "number": 2,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 87285.9,
+          "decode_ms": 14806.3,
+          "decode_tps": 17.222398573580165,
+          "decode_hit_rate": 0.3734042246621135,
+          "drafts_accepted": 20,
+          "drafts_offered": 34,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 14806.27,
+            "cpu_expert_ms": 8414.48,
+            "route_wait_ms": 4600.928,
+            "uploads": 235.0,
+            "drafts_offered": 34.0,
+            "drafts_accepted": 20.0,
+            "gpu_experts": 25915.0,
+            "cpu_experts": 43487.0
+          },
+          "prefill": {
+            "samples": 156,
+            "system_disk_read_GiB": 0.01523590087890625,
+            "process_page_faults": 0,
+            "RSS_median_GiB": 113.819580078125,
+            "GPU_Local_median_GiB": 22.396808624267578,
+            "GPU_NonLocal_median_GiB": 3.06640625,
+            "sampled_RX": {
+              "min": 7.4384765625,
+              "median": 65.9462890625,
+              "max": 48537.015625,
+              "mean": 4180.843505859375
+            },
+            "sampled_TX": {
+              "min": 1.8115234375,
+              "median": 37.7890625,
+              "max": 3061.5322265625,
+              "mean": 445.1410569411058
+            }
+          },
+          "decode": {
+            "samples": 26,
+            "system_disk_read_GiB": 0.002819061279296875,
+            "process_page_faults": 3004,
+            "RSS_median_GiB": 113.84694290161133,
+            "GPU_Local_median_GiB": 22.394855499267578,
+            "GPU_NonLocal_median_GiB": 1.92822265625,
+            "sampled_RX": {
+              "min": 42.771484375,
+              "median": 670.98095703125,
+              "max": 700.759765625,
+              "mean": 459.52016977163464
+            },
+            "sampled_TX": {
+              "min": 17.880859375,
+              "median": 40.64990234375,
+              "max": 823.9267578125,
+              "mean": 303.75574669471155
+            }
+          }
+        }
+      ],
+      "exchanges": [
+        "strata-poly: exchange: planned=233 completed=233 verified=0 failed=0 restored=0 committed_H2D=2679701504 committed_D2H=2679701504 committed_D2D=2679701504 bytes; plan_ms=190.123 registration_ms=106.549 copy_ms=378.633 reader_wait_ms=0.756 transaction_ms=486.092 budget_skips=0; no_cold=0 below_threshold=31323 locked=0 taken=0 no_room=0 batch_limit=2432520; registered=2679701504 peak_registered=2986344448 reg_added_total=242587467776 reg_removed_total=239907766272 bytes",
+        "strata-poly: exchange: planned=236 completed=236 verified=0 failed=0 restored=0 committed_H2D=2698510336 committed_D2H=2698510336 committed_D2D=2698510336 bytes; plan_ms=189.175 registration_ms=123.718 copy_ms=374.958 reader_wait_ms=0.762 transaction_ms=499.606 budget_skips=0; no_cold=0 below_threshold=3159 locked=0 taken=0 no_room=0 batch_limit=2460681; registered=2617704448 peak_registered=2986344448 reg_added_total=485170413568 reg_removed_total=482552709120 bytes"
+      ],
+      "parking": [
+        "strata-poly: conversation cache: parked 49999 tokens in 877.5 ms; parked=1 bytes=0 evictions=0"
+      ]
+    },
+    {
+      "source": "2026-10-21-deepseek-bat-prefill-specials-reverse",
+      "mode": "bat-no-disk",
+      "binary_sha256": "49fb81a7ff12ec86608cdb8c6ef07d2ecdfb7a6a562c44ebbadd3cee435d1e3f",
+      "exit": 0,
+      "load_s": 205.75544320000336,
+      "command": [
+        "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+        "--serve",
+        "--compact-scratch",
+        "--compact-graphs",
+        "--no-disk",
+        "--rows-vram",
+        "--read-chunk",
+        "32768",
+        "--prompt-batch",
+        "4096",
+        "--stage-mib",
+        "2848",
+        "--model",
+        "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+        "--max-context",
+        "131072",
+        "--expert-profile",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-bat-prefill-specials-reverse\\bat-no-disk-work\\expert-profile.txt",
+        "--conversation-cache-mib",
+        "0",
+        "--conversation-cache-no-branch",
+        "--prompt-cache",
+        "6",
+        "--conversation-cache-min-free-mib",
+        "512",
+        "--session-min-free-mib",
+        "4096",
+        "--session-dir",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-bat-prefill-specials-reverse\\bat-no-disk-work\\sessions",
+        "--session-max-mib",
+        "16384",
+        "--vram-reserve-mib",
+        "256",
+        "--no-disk-vram-margin-mib",
+        "256",
+        "--expert-swaps",
+        "64",
+        "--dump-buffers"
+      ],
+      "allocations": [
+        {
+          "phase": "load",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        }
+      ],
+      "requests": [
+        {
+          "number": 1,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 85405.2,
+          "decode_ms": 15677.5,
+          "decode_tps": 16.265348429277626,
+          "decode_hit_rate": 0.2992791555822535,
+          "drafts_accepted": 23,
+          "drafts_offered": 39,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 15677.452,
+            "cpu_expert_ms": 9433.404,
+            "route_wait_ms": 4824.677,
+            "uploads": 465.0,
+            "drafts_offered": 39.0,
+            "drafts_accepted": 23.0,
+            "gpu_experts": 20925.0,
+            "cpu_experts": 48993.0
+          },
+          "prefill": {
+            "samples": 153,
+            "system_disk_read_GiB": 0.13964271545410156,
+            "process_page_faults": 32670,
+            "RSS_median_GiB": 113.78503799438477,
+            "GPU_Local_median_GiB": 22.39678955078125,
+            "GPU_NonLocal_median_GiB": 3.06640625,
+            "sampled_RX": {
+              "min": 7.962890625,
+              "median": 58.1259765625,
+              "max": 43518.7333984375,
+              "mean": 4328.38316993464
+            },
+            "sampled_TX": {
+              "min": 1.287109375,
+              "median": 36.4775390625,
+              "max": 4261.4931640625,
+              "mean": 420.6932955473856
+            }
+          },
+          "decode": {
+            "samples": 28,
+            "system_disk_read_GiB": 0.002105712890625,
+            "process_page_faults": 7478,
+            "RSS_median_GiB": 113.83450698852539,
+            "GPU_Local_median_GiB": 22.391742706298828,
+            "GPU_NonLocal_median_GiB": 0.480712890625,
+            "sampled_RX": {
+              "min": 36.0009765625,
+              "median": 55.7421875,
+              "max": 6130.4560546875,
+              "mean": 511.26597377232144
+            },
+            "sampled_TX": {
+              "min": 20.8369140625,
+              "median": 29.87353515625,
+              "max": 665.9501953125,
+              "mean": 63.871861049107146
+            }
+          }
+        },
+        {
+          "number": 2,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 85671.4,
+          "decode_ms": 14533.6,
+          "decode_tps": 17.545549622942698,
+          "decode_hit_rate": 0.34442249558528626,
+          "drafts_accepted": 18,
+          "drafts_offered": 22,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 14533.551,
+            "cpu_expert_ms": 8618.857,
+            "route_wait_ms": 4712.003,
+            "uploads": 284.0,
+            "drafts_offered": 22.0,
+            "drafts_accepted": 18.0,
+            "gpu_experts": 23015.0,
+            "cpu_experts": 43807.0
+          },
+          "prefill": {
+            "samples": 153,
+            "system_disk_read_GiB": 0.2658505439758301,
+            "process_page_faults": 0,
+            "RSS_median_GiB": 113.81858825683594,
+            "GPU_Local_median_GiB": 22.396808624267578,
+            "GPU_NonLocal_median_GiB": 3.0772705078125,
+            "sampled_RX": {
+              "min": 22.125,
+              "median": 64.1337890625,
+              "max": 40727.8056640625,
+              "mean": 4807.866019454656
+            },
+            "sampled_TX": {
+              "min": 1.66796875,
+              "median": 36.095703125,
+              "max": 4937.314453125,
+              "mean": 439.78015854779414
+            }
+          },
+          "decode": {
+            "samples": 25,
+            "system_disk_read_GiB": 0.0017843246459960938,
+            "process_page_faults": 4173,
+            "RSS_median_GiB": 113.84068298339844,
+            "GPU_Local_median_GiB": 22.391719818115234,
+            "GPU_NonLocal_median_GiB": 0.4698486328125,
+            "sampled_RX": {
+              "min": 39.86328125,
+              "median": 58.8408203125,
+              "max": 708.5322265625,
+              "mean": 162.318671875
+            },
+            "sampled_TX": {
+              "min": 25.224609375,
+              "median": 53.833984375,
+              "max": 2243.8046875,
+              "mean": 143.0583203125
+            }
+          }
+        }
+      ],
+      "exchanges": [],
+      "parking": [
+        "strata-poly: conversation cache: parked 49999 tokens in 865.4 ms; parked=1 bytes=0 evictions=0"
+      ]
+    },
+    {
+      "source": "2026-10-21-deepseek-cpu-share",
+      "mode": "bat-cpu-0",
+      "binary_sha256": "49fb81a7ff12ec86608cdb8c6ef07d2ecdfb7a6a562c44ebbadd3cee435d1e3f",
+      "exit": 0,
+      "load_s": 201.22206800000276,
+      "command": [
+        "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+        "--serve",
+        "--compact-scratch",
+        "--compact-graphs",
+        "--no-disk",
+        "--rows-vram",
+        "--read-chunk",
+        "32768",
+        "--prompt-batch",
+        "4096",
+        "--stage-mib",
+        "2848",
+        "--model",
+        "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+        "--max-context",
+        "131072",
+        "--expert-profile",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-cpu-share\\bat-cpu-0-work\\expert-profile.txt",
+        "--conversation-cache-mib",
+        "0",
+        "--conversation-cache-no-branch",
+        "--prompt-cache",
+        "6",
+        "--conversation-cache-min-free-mib",
+        "512",
+        "--session-min-free-mib",
+        "4096",
+        "--session-dir",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-cpu-share\\bat-cpu-0-work\\sessions",
+        "--session-max-mib",
+        "16384",
+        "--vram-reserve-mib",
+        "256",
+        "--no-disk-vram-margin-mib",
+        "256",
+        "--expert-swaps",
+        "64",
+        "--stage-ahead",
+        "0",
+        "--cpu-share",
+        "0.0",
+        "--dump-buffers"
+      ],
+      "allocations": [
+        {
+          "phase": "load",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        }
+      ],
+      "requests": [
+        {
+          "number": 1,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 189543.1,
+          "decode_ms": 14749.6,
+          "decode_tps": 17.288604436730488,
+          "decode_hit_rate": 0.2996944491597352,
+          "drafts_accepted": 24,
+          "drafts_offered": 43,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 14749.576,
+            "cpu_expert_ms": 8755.581,
+            "route_wait_ms": 4622.739,
+            "uploads": 466.0,
+            "drafts_offered": 43.0,
+            "drafts_accepted": 24.0,
+            "gpu_experts": 21186.0,
+            "cpu_experts": 49506.0
+          },
+          "prefill": {
+            "samples": 335,
+            "system_disk_read_GiB": 0.839055061340332,
+            "process_page_faults": 26989,
+            "RSS_median_GiB": 113.78491973876953,
+            "GPU_Local_median_GiB": 22.396236419677734,
+            "GPU_NonLocal_median_GiB": 2.7752685546875,
+            "sampled_RX": {
+              "min": 0.0947265625,
+              "median": 219.392578125,
+              "max": 48383.998046875,
+              "mean": 10883.024078824626
+            },
+            "sampled_TX": {
+              "min": 0.046875,
+              "median": 55.6943359375,
+              "max": 7624.912109375,
+              "mean": 1349.6660389458955
+            }
+          },
+          "decode": {
+            "samples": 25,
+            "system_disk_read_GiB": 0.00335693359375,
+            "process_page_faults": 9313,
+            "RSS_median_GiB": 113.83419799804688,
+            "GPU_Local_median_GiB": 22.391719818115234,
+            "GPU_NonLocal_median_GiB": 0.4698486328125,
+            "sampled_RX": {
+              "min": 20.8369140625,
+              "median": 62.322265625,
+              "max": 3191.0888671875,
+              "mean": 411.1207421875
+            },
+            "sampled_TX": {
+              "min": 25.0810546875,
+              "median": 60.033203125,
+              "max": 1134.5859375,
+              "mean": 135.779765625
+            }
+          }
+        },
+        {
+          "number": 2,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 194347.2,
+          "decode_ms": 14515.1,
+          "decode_tps": 17.567912036431025,
+          "decode_hit_rate": 0.33886838868388686,
+          "drafts_accepted": 25,
+          "drafts_offered": 41,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 14515.066,
+            "cpu_expert_ms": 8704.77,
+            "route_wait_ms": 4574.249,
+            "uploads": 292.0,
+            "drafts_offered": 41.0,
+            "drafts_accepted": 25.0,
+            "gpu_experts": 23693.0,
+            "cpu_experts": 46225.0
+          },
+          "prefill": {
+            "samples": 342,
+            "system_disk_read_GiB": 0.061591148376464844,
+            "process_page_faults": 7,
+            "RSS_median_GiB": 113.8256721496582,
+            "GPU_Local_median_GiB": 22.396394729614258,
+            "GPU_NonLocal_median_GiB": 2.8599853515625,
+            "sampled_RX": {
+              "min": 0.810546875,
+              "median": 215.05322265625,
+              "max": 51072.978515625,
+              "mean": 12405.391395970395
+            },
+            "sampled_TX": {
+              "min": 0.4287109375,
+              "median": 69.4033203125,
+              "max": 9343.91015625,
+              "mean": 1386.3122173108552
+            }
+          },
+          "decode": {
+            "samples": 25,
+            "system_disk_read_GiB": 0.000972747802734375,
+            "process_page_faults": 5714,
+            "RSS_median_GiB": 113.84773254394531,
+            "GPU_Local_median_GiB": 22.391719818115234,
+            "GPU_NonLocal_median_GiB": 0.4698486328125,
+            "sampled_RX": {
+              "min": 7.390625,
+              "median": 55.0263671875,
+              "max": 1923.2744140625,
+              "mean": 176.2784765625
+            },
+            "sampled_TX": {
+              "min": 1.3828125,
+              "median": 51.6884765625,
+              "max": 203.1796875,
+              "mean": 56.8061328125
+            }
+          }
+        }
+      ],
+      "exchanges": [],
+      "parking": [
+        "strata-poly: conversation cache: parked 49999 tokens in 922.0 ms; parked=1 bytes=0 evictions=0"
+      ]
+    },
+    {
+      "source": "2026-10-21-deepseek-cpu-share",
+      "mode": "bat-cpu-50",
+      "binary_sha256": "49fb81a7ff12ec86608cdb8c6ef07d2ecdfb7a6a562c44ebbadd3cee435d1e3f",
+      "exit": 0,
+      "load_s": 208.11667800002033,
+      "command": [
+        "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+        "--serve",
+        "--compact-scratch",
+        "--compact-graphs",
+        "--no-disk",
+        "--rows-vram",
+        "--read-chunk",
+        "32768",
+        "--prompt-batch",
+        "4096",
+        "--stage-mib",
+        "2848",
+        "--model",
+        "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+        "--max-context",
+        "131072",
+        "--expert-profile",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-cpu-share\\bat-cpu-50-work\\expert-profile.txt",
+        "--conversation-cache-mib",
+        "0",
+        "--conversation-cache-no-branch",
+        "--prompt-cache",
+        "6",
+        "--conversation-cache-min-free-mib",
+        "512",
+        "--session-min-free-mib",
+        "4096",
+        "--session-dir",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-cpu-share\\bat-cpu-50-work\\sessions",
+        "--session-max-mib",
+        "16384",
+        "--vram-reserve-mib",
+        "256",
+        "--no-disk-vram-margin-mib",
+        "256",
+        "--expert-swaps",
+        "64",
+        "--stage-ahead",
+        "0",
+        "--cpu-share",
+        "0.5",
+        "--dump-buffers"
+      ],
+      "allocations": [
+        {
+          "phase": "load",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        }
+      ],
+      "requests": [
+        {
+          "number": 1,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 290442.1,
+          "decode_ms": 15152.7,
+          "decode_tps": 16.82868399691144,
+          "decode_hit_rate": 0.3131382476615464,
+          "drafts_accepted": 21,
+          "drafts_offered": 37,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 15152.677,
+            "cpu_expert_ms": 8986.898,
+            "route_wait_ms": 4779.993,
+            "uploads": 478.0,
+            "drafts_offered": 37.0,
+            "drafts_accepted": 21.0,
+            "gpu_experts": 21894.0,
+            "cpu_experts": 48024.0
+          },
+          "prefill": {
+            "samples": 471,
+            "system_disk_read_GiB": 0.8197593688964844,
+            "process_page_faults": 51859,
+            "RSS_median_GiB": 113.88183212280273,
+            "GPU_Local_median_GiB": 22.393909454345703,
+            "GPU_NonLocal_median_GiB": 1.5667724609375,
+            "sampled_RX": {
+              "min": 0.0,
+              "median": 82.7783203125,
+              "max": 59192.4658203125,
+              "mean": 5558.031762125132
+            },
+            "sampled_TX": {
+              "min": 0.0,
+              "median": 34.474609375,
+              "max": 6248.42578125,
+              "mean": 908.3748320561306
+            }
+          },
+          "decode": {
+            "samples": 26,
+            "system_disk_read_GiB": 0.002239227294921875,
+            "process_page_faults": 7108,
+            "RSS_median_GiB": 113.92989349365234,
+            "GPU_Local_median_GiB": 22.391719818115234,
+            "GPU_NonLocal_median_GiB": 0.4698486328125,
+            "sampled_RX": {
+              "min": 28.80078125,
+              "median": 66.63720703125,
+              "max": 1910.447265625,
+              "mean": 442.75199068509613
+            },
+            "sampled_TX": {
+              "min": 19.263671875,
+              "median": 52.4755859375,
+              "max": 199.5078125,
+              "mean": 70.74199969951923
+            }
+          }
+        },
+        {
+          "number": 2,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 296930.8,
+          "decode_ms": 13765.7,
+          "decode_tps": 18.52430315930174,
+          "decode_hit_rate": 0.3362473830136366,
+          "drafts_accepted": 24,
+          "drafts_offered": 43,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 13765.739,
+            "cpu_expert_ms": 8181.812,
+            "route_wait_ms": 4404.46,
+            "uploads": 278.0,
+            "drafts_offered": 43.0,
+            "drafts_accepted": 24.0,
+            "gpu_experts": 23770.0,
+            "cpu_experts": 46922.0
+          },
+          "prefill": {
+            "samples": 480,
+            "system_disk_read_GiB": 0.3945136070251465,
+            "process_page_faults": 3142,
+            "RSS_median_GiB": 113.913818359375,
+            "GPU_Local_median_GiB": 22.393909454345703,
+            "GPU_NonLocal_median_GiB": 1.5345458984375,
+            "sampled_RX": {
+              "min": 0.0,
+              "median": 77.34228515625,
+              "max": 51914.5009765625,
+              "mean": 4472.829823811849
+            },
+            "sampled_TX": {
+              "min": 0.0947265625,
+              "median": 33.33056640625,
+              "max": 4638.8623046875,
+              "mean": 738.0886047363281
+            }
+          },
+          "decode": {
+            "samples": 24,
+            "system_disk_read_GiB": 0.008662223815917969,
+            "process_page_faults": 7730,
+            "RSS_median_GiB": 113.96010208129883,
+            "GPU_Local_median_GiB": 22.391719818115234,
+            "GPU_NonLocal_median_GiB": 0.4698486328125,
+            "sampled_RX": {
+              "min": 26.75,
+              "median": 43.98779296875,
+              "max": 33683.34765625,
+              "mean": 1473.0488688151042
+            },
+            "sampled_TX": {
+              "min": 22.8876953125,
+              "median": 55.24072265625,
+              "max": 657.462890625,
+              "mean": 76.99678548177083
+            }
+          }
+        }
+      ],
+      "exchanges": [],
+      "parking": [
+        "strata-poly: conversation cache: parked 49999 tokens in 966.0 ms; parked=1 bytes=0 evictions=0"
+      ]
+    },
+    {
+      "source": "2026-10-21-deepseek-cpu-share",
+      "mode": "bat-cpu-75",
+      "binary_sha256": "49fb81a7ff12ec86608cdb8c6ef07d2ecdfb7a6a562c44ebbadd3cee435d1e3f",
+      "exit": 0,
+      "load_s": 204.33060590003151,
+      "command": [
+        "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+        "--serve",
+        "--compact-scratch",
+        "--compact-graphs",
+        "--no-disk",
+        "--rows-vram",
+        "--read-chunk",
+        "32768",
+        "--prompt-batch",
+        "4096",
+        "--stage-mib",
+        "2848",
+        "--model",
+        "L:\\AI_pictures_generate\\text-generation-webui2\\user_data\\models\\DeepSeek-V4-Flash-0731-Q3_K_M-custom.gguf",
+        "--max-context",
+        "131072",
+        "--expert-profile",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-cpu-share\\bat-cpu-75-work\\expert-profile.txt",
+        "--conversation-cache-mib",
+        "0",
+        "--conversation-cache-no-branch",
+        "--prompt-cache",
+        "6",
+        "--conversation-cache-min-free-mib",
+        "512",
+        "--session-min-free-mib",
+        "4096",
+        "--session-dir",
+        "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-21-deepseek-cpu-share\\bat-cpu-75-work\\sessions",
+        "--session-max-mib",
+        "16384",
+        "--vram-reserve-mib",
+        "256",
+        "--no-disk-vram-margin-mib",
+        "256",
+        "--expert-swaps",
+        "64",
+        "--stage-ahead",
+        "0",
+        "--cpu-share",
+        "0.75",
+        "--dump-buffers"
+      ],
+      "allocations": [
+        {
+          "phase": "load",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        },
+        {
+          "phase": "request",
+          "total": 22306.09,
+          "dense": 7758.37,
+          "experts": 6202.09,
+          "KV": 860.0,
+          "staging": 2848.0,
+          "rows": 2048.0,
+          "other": 2589.63
+        }
+      ],
+      "requests": [
+        {
+          "number": 1,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 612957.8,
+          "decode_ms": 15870.2,
+          "decode_tps": 16.067850436667463,
+          "decode_hit_rate": 0.3104691678146017,
+          "drafts_accepted": 32,
+          "drafts_offered": 64,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 15870.188,
+            "cpu_expert_ms": 9885.813,
+            "route_wait_ms": 4548.607,
+            "uploads": 475.0,
+            "drafts_offered": 64.0,
+            "drafts_accepted": 32.0,
+            "gpu_experts": 22989.0,
+            "cpu_experts": 51057.0
+          },
+          "prefill": {
+            "samples": 939,
+            "system_disk_read_GiB": 0.8396520614624023,
+            "process_page_faults": 71361,
+            "RSS_median_GiB": 113.94180679321289,
+            "GPU_Local_median_GiB": 22.392616271972656,
+            "GPU_NonLocal_median_GiB": 0.9478759765625,
+            "sampled_RX": {
+              "min": 0.0,
+              "median": 14.1142578125,
+              "max": 37006.998046875,
+              "mean": 1630.3780264077477
+            },
+            "sampled_TX": {
+              "min": 0.0,
+              "median": 3.2900390625,
+              "max": 4349.66015625,
+              "mean": 279.5585303098376
+            }
+          },
+          "decode": {
+            "samples": 27,
+            "system_disk_read_GiB": 0.3204498291015625,
+            "process_page_faults": 12987,
+            "RSS_median_GiB": 113.99011993408203,
+            "GPU_Local_median_GiB": 22.391719818115234,
+            "GPU_NonLocal_median_GiB": 0.4698486328125,
+            "sampled_RX": {
+              "min": 33.2353515625,
+              "median": 62.8466796875,
+              "max": 10067.8916015625,
+              "mean": 742.809425636574
+            },
+            "sampled_TX": {
+              "min": 17.8330078125,
+              "median": 31.4228515625,
+              "max": 214.43359375,
+              "mean": 60.474754050925924
+            }
+          }
+        },
+        {
+          "number": 2,
+          "read": 50000,
+          "resume": 0,
+          "generated": 256,
+          "finish": "length",
+          "prompt_ms": 613136.2,
+          "decode_ms": 13671.3,
+          "decode_tps": 18.652213030216586,
+          "decode_hit_rate": 0.33754109733659093,
+          "drafts_accepted": 16,
+          "drafts_offered": 18,
+          "decode_costs": {
+            "generated": 256.0,
+            "accounted_tokens": 255.0,
+            "wall_ms": 13671.325,
+            "cpu_expert_ms": 8005.649,
+            "route_wait_ms": 4517.92,
+            "uploads": 293.0,
+            "drafts_offered": 18.0,
+            "drafts_accepted": 16.0,
+            "gpu_experts": 22381.0,
+            "cpu_experts": 43925.0
+          },
+          "prefill": {
+            "samples": 934,
+            "system_disk_read_GiB": 0.9696049690246582,
+            "process_page_faults": 3254,
+            "RSS_median_GiB": 113.99648666381836,
+            "GPU_Local_median_GiB": 22.392742156982422,
+            "GPU_NonLocal_median_GiB": 0.958740234375,
+            "sampled_RX": {
+              "min": 0.0,
+              "median": 9.15478515625,
+              "max": 40582.7998046875,
+              "mean": 2163.2896375635705
+            },
+            "sampled_TX": {
+              "min": 0.0,
+              "median": 2.5263671875,
+              "max": 3877.92578125,
+              "mean": 317.31218632896145
+            }
+          },
+          "decode": {
+            "samples": 23,
+            "system_disk_read_GiB": 0.003025054931640625,
+            "process_page_faults": 1267,
+            "RSS_median_GiB": 114.01868057250977,
+            "GPU_Local_median_GiB": 22.391719818115234,
+            "GPU_NonLocal_median_GiB": 0.4698486328125,
+            "sampled_RX": {
+              "min": 20.5986328125,
+              "median": 45.1083984375,
+              "max": 736.474609375,
+              "mean": 103.02942425271739
+            },
+            "sampled_TX": {
+              "min": 23.173828125,
+              "median": 54.6923828125,
+              "max": 126.6474609375,
+              "mean": 54.54135529891305
+            }
+          }
+        }
+      ],
+      "exchanges": [],
+      "parking": [
+        "strata-poly: conversation cache: parked 49999 tokens in 855.1 ms; parked=1 bytes=0 evictions=0"
+      ]
+    }
+  ],
+  "checks": {
+    "same_binary": true,
+    "same_public_inputs": true,
+    "same_initial_profile": true,
+    "all_18_full_reads_and_256_outputs": true
+  },
+  "source_files": {
+    "src\\poly\\engine.cpp": "93b1ed837e7d32d8123b6d6fc7d05e52cb2da45a5560894cdc0b4ee75e853340",
+    "src\\poly\\deepseek4.cpp": "9960b8bbfd2eb3b23e78576ed6272e6293b00c17d9e9eaed0b148b0634a4357f",
+    "src\\poly\\resident_dma.hpp": "a14027ef4bf57888867dcd450e037207ca58cf291b08672b22642caef462eb04",
+    "src\\poly\\exchange.cpp": "f3e6cfbe9849c3159209680297ab4d07829ff924d7296d6101017895b0ddd5e2",
+    "src\\poly\\conversations.hpp": "bb2a93384e1f5d7c9807e5a9ada523a6c241adc44de997258d0691d889c61692",
+    "src\\poly\\session_file.hpp": "2d7cb0f3e58464120d2933b06aa9942c60a69519d21fdca5fb130b8fdeed0a50"
+  }
+}

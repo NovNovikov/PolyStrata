@@ -1,0 +1,5 @@
+exchange planner: 12384 experts, zero exchanges: 0.110 ms/call
+exchange_test: 7689 checks OK
+exchange_gpu_test: 1000 verified in-place exchanges, four rollback points, payloads/tails/canaries and bounded retained DMA registrations OK
+no_disk_test: 1579 checks passed
+conversations_test: 55602 checks passed

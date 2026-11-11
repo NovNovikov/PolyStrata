@@ -1,0 +1,103 @@
+{
+  "new_model_runs": 0,
+  "new_builds": 0,
+  "source_run": "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-22-poly-dma-coalesced-idle",
+  "requests": [
+    {
+      "request": 1,
+      "generated": 256,
+      "accounted_intervals": 255.0,
+      "wall_ms": 15153.651,
+      "cpu_expert_main_thread_span_ms": 8769.404,
+      "router_ready_main_thread_wait_ms": 4926.921,
+      "output_main_thread_wait_ms": 632.039,
+      "decode_dma_prepare_ms": 205.9514,
+      "residual_before_output_dma_ms": 1457.325999999999,
+      "residual_including_cpu_route_ms": 619.3355999999991
+    },
+    {
+      "request": 2,
+      "generated": 256,
+      "accounted_intervals": 255.0,
+      "wall_ms": 14080.938,
+      "cpu_expert_main_thread_span_ms": 8070.699,
+      "router_ready_main_thread_wait_ms": 4732.264,
+      "output_main_thread_wait_ms": 603.0559,
+      "decode_dma_prepare_ms": 92.4159,
+      "residual_before_output_dma_ms": 1277.9750000000004,
+      "residual_including_cpu_route_ms": 582.5032000000004
+    },
+    {
+      "request": 3,
+      "generated": 32,
+      "accounted_intervals": 31.0,
+      "wall_ms": 1529.781,
+      "cpu_expert_main_thread_span_ms": 957.78,
+      "router_ready_main_thread_wait_ms": 433.229,
+      "output_main_thread_wait_ms": 85.5587,
+      "decode_dma_prepare_ms": 0,
+      "residual_before_output_dma_ms": 138.772,
+      "residual_including_cpu_route_ms": 53.21329999999999
+    },
+    {
+      "request": 4,
+      "generated": 128,
+      "accounted_intervals": 127.0,
+      "wall_ms": 6878.684,
+      "cpu_expert_main_thread_span_ms": 4294.384,
+      "router_ready_main_thread_wait_ms": 1906.534,
+      "output_main_thread_wait_ms": 300.84349999999995,
+      "decode_dma_prepare_ms": 85.252,
+      "residual_before_output_dma_ms": 677.7660000000001,
+      "residual_including_cpu_route_ms": 291.6705000000001
+    }
+  ],
+  "totals": {
+    "wall_ms": 37643.054000000004,
+    "cpu_expert_main_thread_span_ms": 22092.267,
+    "router_ready_main_thread_wait_ms": 11998.948,
+    "output_main_thread_wait_ms": 1621.4970999999998,
+    "decode_dma_prepare_ms": 383.6193,
+    "residual_before_output_dma_ms": 3551.8389999999995,
+    "residual_including_cpu_route_ms": 1546.7225999999996,
+    "residual_percent": 4.108919005349565,
+    "accounted_intervals": 668.0,
+    "cpu_expert_ms_per_output_interval": 33.072255988023954
+  },
+  "raw_router_wait": {
+    "calls": 26273,
+    "host_ms": 11949.898
+  },
+  "unused_host_x": {
+    "calls": 43,
+    "bytes": 704512
+  },
+  "executed_graph_D2H_copy2_bytes": 516495360,
+  "captured_gpu_head_timing_coverage": {
+    "attention-head-interval": 0,
+    "copy2-kernel-interval": 1214
+  },
+  "older_gpu_probe": {
+    "source": "L:\\AI_pictures_generate\\PolyStrata\\bench\\results\\2026-10-20-poly-cpu-bottleneck\\phase-probe\\engine\\engine.stderr",
+    "scalar_samples": 101,
+    "median_ms": {
+      "hc_norm_ms": 1.121056,
+      "qkv_ms": 2.707456,
+      "index_ms": 3.477504,
+      "attend_ms": 5.507072,
+      "out_proj_ms": 3.748864,
+      "router_ms": 1.41312
+    },
+    "total_head_median_ms": 18.293344,
+    "different_geometry": true,
+    "may_subtract_from_new_run": false
+  },
+  "limits": [
+    "Residual subtracts disjoint caller-thread spans in this single-GPU small-batch path. It is not a sum of CPU and GPU execution durations.",
+    "CPU expert span includes worker waits and overlapping GPU-submission callback. Their GPU time is not added again.",
+    "Residual is an upper budget containing CPU route plus other host costs, not an isolated measurement of route().",
+    "Moving routing to GPU can alter overlap/dependencies; the residual is not a bound on every possible scheduling optimization.",
+    "Latest graph replays account transfer bytes but do not retain per-invocation GPU head/copy completion timestamps.",
+    "Older external-event phase probe establishes real GPU work but cannot be numerically subtracted from the newer workload."
+  ]
+}

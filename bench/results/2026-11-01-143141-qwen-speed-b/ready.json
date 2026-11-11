@@ -1,0 +1,18 @@
+{
+  "load_s": 116.95769400001154,
+  "memory": {
+    "rss": 110957543424,
+    "vms": 139744366592,
+    "num_page_faults": 53984347,
+    "peak_wset": 110957543424,
+    "wset": 110957543424,
+    "peak_paged_pool": 332264360,
+    "paged_pool": 1984376,
+    "peak_nonpaged_pool": 163880,
+    "nonpaged_pool": 160312,
+    "pagefile": 139744366592,
+    "peak_pagefile": 139744423936,
+    "private": 139744366592
+  },
+  "ready_line": "READY 193280 stop"
+}

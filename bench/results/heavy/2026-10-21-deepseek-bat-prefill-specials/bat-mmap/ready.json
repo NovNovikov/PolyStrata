@@ -1,0 +1,26 @@
+{
+  "load_s": 37.50059619999956,
+  "memory": {
+    "rss": 18673377280,
+    "vms": 27476729856,
+    "num_page_faults": 4592231,
+    "peak_wset": 18673377280,
+    "wset": 18673377280,
+    "peak_paged_pool": 531766200,
+    "paged_pool": 266808320,
+    "peak_nonpaged_pool": 109640,
+    "nonpaged_pool": 109512,
+    "pagefile": 27476729856,
+    "peak_pagefile": 27724705792,
+    "private": 27476729856
+  },
+  "process_gpu": {
+    "used": 24250011648,
+    "spilled": 2369781760,
+    "shared": 2369781760,
+    "asked": 26619793408
+  },
+  "model_or_draft_handles_open": [
+    "l:\\ai_pictures_generate\\text-generation-webui2\\user_data\\models\\deepseek-v4-flash-0731-q3_k_m-custom.gguf"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "exe_sha256": "25e7871680bcf518c5eafbd5ae14917201b783ac2882f61187d2548bc562add4",
+  "config_sha256": "ac8d380e9f6cf5df9d8ec4a19d83b1cee02f3c754c06021e7a2d9ed268a3e27e",
+  "work": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\decode-vram-audit-20261019-mergecheck",
+  "anchors": [
+    2048,
+    4096,
+    6144,
+    8192
+  ],
+  "stages": [
+    "initial"
+  ]
+}

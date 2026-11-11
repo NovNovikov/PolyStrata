@@ -1,0 +1,1 @@
+bitwise/callback cases=5504 all passed

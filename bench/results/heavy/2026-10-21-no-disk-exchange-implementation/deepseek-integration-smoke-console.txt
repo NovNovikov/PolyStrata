@@ -1,0 +1,41 @@
+deepseek-integration-smoke load elapsed_s 1
+deepseek-integration-smoke load elapsed_s 11
+deepseek-integration-smoke load elapsed_s 21
+deepseek-integration-smoke load elapsed_s 31
+deepseek-integration-smoke load elapsed_s 41
+deepseek-integration-smoke load elapsed_s 52
+deepseek-integration-smoke load elapsed_s 62
+deepseek-integration-smoke load elapsed_s 72
+deepseek-integration-smoke load elapsed_s 82
+deepseek-integration-smoke load elapsed_s 92
+deepseek-integration-smoke load elapsed_s 102
+deepseek-integration-smoke load elapsed_s 112
+deepseek-integration-smoke load elapsed_s 122
+deepseek-integration-smoke load elapsed_s 132
+deepseek-integration-smoke load elapsed_s 142
+deepseek-integration-smoke load elapsed_s 152
+deepseek-integration-smoke load elapsed_s 162
+deepseek-integration-smoke load elapsed_s 172
+deepseek-integration-smoke load elapsed_s 182
+deepseek-integration-smoke load elapsed_s 193
+deepseek-integration-smoke load elapsed_s 203
+deepseek-integration-smoke READY 207.75
+EXCHANGE -1 ERR EXCHANGE: injected exchange failure before copy
+EXCHANGE 1 ERR EXCHANGE: expert exchange: injected exchange failure
+EXCHANGE 2 ERR EXCHANGE: expert exchange: injected exchange failure
+EXCHANGE 3 ERR EXCHANGE: expert exchange: injected exchange failure
+EXCHANGE EXCHANGED 1
+deepseek-integration-smoke request-1/prefill elapsed_s 214
+deepseek-integration-smoke request-1 {"generated": 16, "prompt_ms": 2029.3, "decode_ms": 1229.4, "decode_tps": 12.201073694485114, "ttft_s": 2.0320000000065193, "resume": 0, "drafts_accepted": 0, "drafts_offered": 2}
+deepseek-integration-smoke request-2 {"generated": 16, "prompt_ms": 1536.8, "decode_ms": 1354.7, "decode_tps": 11.072562190890972, "ttft_s": 1.5309999999881256, "resume": 0, "drafts_accepted": 0, "drafts_offered": 0}
+deepseek-integration-smoke request-3 {"generated": 16, "prompt_ms": 1559.4, "decode_ms": 1261.7, "decode_tps": 11.888721566140921, "ttft_s": 1.562999999994645, "resume": 0, "drafts_accepted": 0, "drafts_offered": 0}
+deepseek-integration-smoke request-4/prefill elapsed_s 224
+deepseek-integration-smoke request-4/prefill elapsed_s 234
+deepseek-integration-smoke request-4 PP 2049 2050 12561 163.1
+deepseek-integration-smoke request-4 {"generated": 64, "prompt_ms": 12873.8, "decode_ms": 4785.7, "decode_tps": 13.164218400651944, "ttft_s": 12.89100000000326, "resume": 0, "drafts_accepted": 3, "drafts_offered": 5}
+EXCHANGE EXCHANGED 112
+deepseek-integration-smoke request-5 {"generated": 32, "prompt_ms": 71.3, "decode_ms": 2328.0, "decode_tps": 13.316151202749142, "ttft_s": 0.0779999999795109, "resume": 2049, "drafts_accepted": 3, "drafts_offered": 3}
+deepseek-integration-smoke request-6 PP 4004 6150 10432 383.8
+deepseek-integration-smoke request-6 {"generated": 32, "prompt_ms": 16233.2, "decode_ms": 1612.7, "decode_tps": 19.22242202517517, "ttft_s": 16.25, "resume": 0, "drafts_accepted": 26, "drafts_offered": 26}
+deepseek-integration-smoke request-7 {"generated": 32, "prompt_ms": 269.3, "decode_ms": 2711.8, "decode_tps": 11.431521498635592, "ttft_s": 0.26600000000325963, "resume": 2049, "drafts_accepted": 2, "drafts_offered": 5}
+FINISHED deepseek-integration-smoke {"completed": true}

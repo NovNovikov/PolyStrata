@@ -1,0 +1,36 @@
+glm-smoke load elapsed_s 1
+glm-smoke load elapsed_s 11
+glm-smoke load elapsed_s 21
+glm-smoke load elapsed_s 31
+glm-smoke load elapsed_s 42
+glm-smoke load elapsed_s 52
+glm-smoke load elapsed_s 62
+glm-smoke load elapsed_s 72
+glm-smoke load elapsed_s 82
+glm-smoke load elapsed_s 92
+glm-smoke load elapsed_s 102
+glm-smoke load elapsed_s 112
+glm-smoke load elapsed_s 122
+glm-smoke load elapsed_s 132
+glm-smoke load elapsed_s 142
+glm-smoke load elapsed_s 152
+glm-smoke load elapsed_s 162
+glm-smoke load elapsed_s 173
+glm-smoke load elapsed_s 183
+glm-smoke load elapsed_s 193
+glm-smoke READY 197.52
+EXCHANGE -1 ERR EXCHANGE: injected exchange failure before copy
+EXCHANGE 1 ERR EXCHANGE: expert exchange: injected exchange failure
+EXCHANGE 2 ERR EXCHANGE: expert exchange: injected exchange failure
+EXCHANGE 3 ERR EXCHANGE: expert exchange: injected exchange failure
+EXCHANGE EXCHANGED 1
+glm-smoke request-1 {"generated": 16, "prompt_ms": 1920.6, "decode_ms": 1098.2, "decode_tps": 13.658714259697687, "ttft_s": 1.9219999999913853, "resume": 0, "drafts_accepted": 3, "drafts_offered": 9}
+glm-smoke request-2 {"generated": 16, "prompt_ms": 162.1, "decode_ms": 1060.5, "decode_tps": 14.144271570014144, "ttft_s": 0.1720000000204891, "resume": 30, "drafts_accepted": 2, "drafts_offered": 5}
+glm-smoke request-3 {"generated": 16, "prompt_ms": 179.8, "decode_ms": 1263.2, "decode_tps": 11.87460417986067, "ttft_s": 0.17199999999138527, "resume": 31, "drafts_accepted": 1, "drafts_offered": 1}
+glm-smoke request-4 PP 1566 2050 10139 151.3
+glm-smoke request-4 {"generated": 64, "prompt_ms": 12848.8, "decode_ms": 3292.2, "decode_tps": 19.136139967195188, "ttft_s": 12.85999999998603, "resume": 32, "drafts_accepted": 25, "drafts_offered": 26}
+EXCHANGE EXCHANGED 2
+glm-smoke request-5 {"generated": 32, "prompt_ms": 69.9, "decode_ms": 1952.3, "decode_tps": 15.87870716590688, "ttft_s": 0.07800000000861473, "resume": 2049, "drafts_accepted": 15, "drafts_offered": 19}
+glm-smoke request-6 PP 1425 2050 10124 140.8
+glm-smoke request-6 {"generated": 32, "prompt_ms": 13781.2, "decode_ms": 1698.3, "decode_tps": 18.25354766531237, "ttft_s": 13.780999999988126, "resume": 0, "drafts_accepted": 16, "drafts_offered": 18}
+FINISHED glm-smoke {"completed": true}

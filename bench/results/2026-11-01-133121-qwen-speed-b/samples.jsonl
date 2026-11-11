@@ -1,0 +1,1 @@
+{"t": 157720.8551448, "elapsed": 0.006057699996745214, "phase": "spawn", "cpu_percent": 0.0, "memory": {"rss": 2347008, "vms": 327680, "num_page_faults": 603, "peak_wset": 2347008, "wset": 2347008, "peak_paged_pool": 11200, "paged_pool": 11200, "peak_nonpaged_pool": 3208, "nonpaged_pool": 3208, "pagefile": 327680, "peak_pagefile": 458752, "private": 327680}, "gpu_used_mib": null}

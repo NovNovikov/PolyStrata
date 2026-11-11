@@ -1,0 +1,31 @@
+glm-exchange-final load elapsed_s 1
+glm-exchange-final load elapsed_s 11
+glm-exchange-final load elapsed_s 21
+glm-exchange-final load elapsed_s 31
+glm-exchange-final load elapsed_s 42
+glm-exchange-final load elapsed_s 52
+glm-exchange-final load elapsed_s 62
+glm-exchange-final load elapsed_s 72
+glm-exchange-final load elapsed_s 82
+glm-exchange-final load elapsed_s 92
+glm-exchange-final load elapsed_s 102
+glm-exchange-final load elapsed_s 112
+glm-exchange-final load elapsed_s 122
+glm-exchange-final load elapsed_s 132
+glm-exchange-final load elapsed_s 142
+glm-exchange-final load elapsed_s 152
+glm-exchange-final load elapsed_s 162
+glm-exchange-final load elapsed_s 172
+glm-exchange-final load elapsed_s 183
+glm-exchange-final READY 183.55
+glm-exchange-final request-1 PP 1469 2050 10402 141.2
+glm-exchange-final request-1 generated=122
+glm-exchange-final request-1 generated=326
+glm-exchange-final request-1 {"generated": 512, "prompt_ms": 13744.5, "decode_ms": 26681.5, "decode_tps": 19.151846785225718, "ttft_s": 13.75, "resume": 0, "drafts_accepted": 315, "drafts_offered": 367}
+glm-exchange-final request-2 generated=191
+glm-exchange-final request-2 generated=369
+glm-exchange-final request-2 {"generated": 512, "prompt_ms": 98.2, "decode_ms": 27176.9, "decode_tps": 18.802733203566262, "ttft_s": 0.10899999999674037, "resume": 2049, "drafts_accepted": 259, "drafts_offered": 310}
+glm-exchange-final request-3 generated=208
+glm-exchange-final request-3 generated=431
+glm-exchange-final request-3 {"generated": 512, "prompt_ms": 82.4, "decode_ms": 24225.2, "decode_tps": 21.093737100209697, "ttft_s": 0.09400000001187436, "resume": 2049, "drafts_accepted": 277, "drafts_offered": 316}
+FINISHED glm-exchange-final {"completed": true}

@@ -1,0 +1,14 @@
+{
+  "exe": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+  "exe_sha256": "1ac94af4a3bef24d0bb2d0049518464f41033a58f2ab44fbb947f0708b4b2abe",
+  "source_commit": "af5f35268e676f965a24ae0e5598351f37cd7521",
+  "config": "L:\\AI_pictures_generate\\PolyStrata\\strata-mimo-mopd-q2k.json",
+  "config_sha256": "fb076fecf68d2dd5136712394799162944697da782983a165992a0c6dd2bf215",
+  "gen_tokens": 256,
+  "repeats": 0,
+  "phases": {
+    "trace": [
+      "--trace-graphs"
+    ]
+  }
+}

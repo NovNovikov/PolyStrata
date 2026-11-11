@@ -1,0 +1,67 @@
+{
+  "exe": "L:\\AI_pictures_generate\\PolyStrata\\build-poly-cuda12\\strata-poly.exe",
+  "args": [
+    "--model",
+    "L:\\AI_pictures_generate\\PolyStrata-data\\models\\glm-3.0BIT\\GLM-5.3-Flash-GSQ-RCO-3.0bit-q4kattn.gguf",
+    "--max-context",
+    "200000",
+    "--expert-profile",
+    "L:\\Temp\\opencode\\glm-fork-clean-20261020\\expert-profile.txt",
+    "--draft-model",
+    "L:\\AI_pictures_generate\\PolyStrata-data\\mtp\\glm-5.3-flash\\draft-block.gguf",
+    "--conversation-cache-mib",
+    "0",
+    "--conversation-cache-no-branch",
+    "--prompt-cache",
+    "6",
+    "--conversation-cache-min-free-mib",
+    "512",
+    "--session-min-free-mib",
+    "4096",
+    "--session-dir",
+    "L:\\Temp\\opencode\\glm-mmap-vs-no-disk-20261020\\mmap-control\\sessions",
+    "--session-max-mib",
+    "16384"
+  ],
+  "prompt_tokens": 2050,
+  "results": [
+    {
+      "number": 1,
+      "prompt_ms": 11002.8,
+      "decode_ms": 21743.1,
+      "generated": 512,
+      "drafts_accepted": 264,
+      "drafts_offered": 341,
+      "resume": 0,
+      "gpu_hits": 85942,
+      "lookups": 201464
+    },
+    {
+      "number": 2,
+      "prompt_ms": 61.3,
+      "decode_ms": 18695.3,
+      "generated": 512,
+      "drafts_accepted": 320,
+      "drafts_offered": 357,
+      "resume": 2049,
+      "gpu_hits": 75945,
+      "lookups": 187272
+    },
+    {
+      "number": 3,
+      "prompt_ms": 61.3,
+      "decode_ms": 20179.9,
+      "generated": 512,
+      "drafts_accepted": 249,
+      "drafts_offered": 305,
+      "resume": 2049,
+      "gpu_hits": 82007,
+      "lookups": 193896
+    }
+  ],
+  "decode_costs": [
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=21743.129 cpu_expert_ms=19058.269 route_wait_ms=1329.640 uploads=2124 drafts_offered=341 drafts_accepted=264 gpu_experts=85841 cpu_experts=114951",
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=18695.330 cpu_expert_ms=17472.461 route_wait_ms=548.951 uploads=860 drafts_offered=357 drafts_accepted=320 gpu_experts=75868 cpu_experts=111068",
+    "strata-poly: decode-costs generated=512 accounted_tokens=511 wall_ms=20179.881 cpu_expert_ms=18048.032 route_wait_ms=1027.724 uploads=813 drafts_offered=305 drafts_accepted=249 gpu_experts=81923 cpu_experts=111637"
+  ]
+}

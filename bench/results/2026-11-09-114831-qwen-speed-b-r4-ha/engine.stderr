@@ -1,0 +1,343 @@
+strata generate: memory guard: limit 127.8 GiB (source: meminfo), current 11.5 GiB, reclaimable cache credited 0.0 GiB; available 116.3 GiB (MemAvailable 116.3 GiB), floor 512 MiB
+strata: K-quant prompt kernels from L:\AI_pictures_generate\PolyStrata\engine\strata_kq.dll (STRATA_MMQ_KQ=1)
+strata generate: PCIe probe: 24.1 GB/s host->device (best of 24.1 24.1 24.1 24.1) -> pcie_frac 0.55 (default 0.55)
+strata generate: this CPU has no AVX-512: the expert kernels run on AVX-2 (multi-token for the i-quant gate/up rows)
+strata generate: native pack: L:\AI_pictures_generate\PolyStrata-data\packs\unsloth-ud-q6_k_xl experts (largest blob 5.22 MB), token embedding Q8_0 in mapped host memory (644 MiB, 1.1 s)
+strata trace: 22730 MiB free after the CUDA context and the weight arena
+strata generate: 216 MiB of weights loaded from L:\AI_pictures_generate\PolyStrata-data\packs\unsloth-ud-q6_k_xl in 0.1 s (495 canonical tensors skipped: served natively)
+strata trace: 22730 MiB free after the pack weights
+strata: STRATA_HC_Q8=1: 0.63 GiB of Q8_0 hyper-connection projections for the verify read
+strata generate: 499 native projection matrices, 3619.14 MiB of weights, in 8.3 s
+strata generate: PLE direct read probe: 60735 rows/s (fine)
+strata generate: the SSD is kept awake while rows are read: one page of the table after 100 ms without a read, until 60 s after the last request (STRATA_SSD_KEEPALIVE=0 turns it off)
+strata generate: profile L:\AI_pictures_generate\PolyStrata\bench\results\2026-11-09-114831-qwen-speed-b-r4-ha\profile.bin: 24576 ranked pairs, built for 24576 slots
+strata generate: KV streaming: 32768 of 193280 cells per QSA layer in VRAM, the K/V in 2.28 GiB of pinned RAM
+strata generate: PLE on, table 320001536 rows of L:\AI_pictures_generate\text-generation-webui2\user_data\models\Qwen3.8-Flash-Next-UD-Q6_K_XL-00003-of-00006.gguf
+strata trace: 17964 MiB free after the session (KV, GDN state, PLE history)
+strata mtp: draft layer loaded, 835 MiB of VRAM (experts 675, dense 111), files read in 0.24 s (3246 MiB/s)
+strata generate: experimental native Q5_K head, 675430400 bytes, in 1.1 s
+strata trace: 16478 MiB free after the native head
+strata mtp: draft head over 106299 tokens (275.7 MiB)
+strata generate: --prefill-head-alias: the 675430400-byte output head is prompt workspace
+strata generate: GPU 0: NVIDIA GeForce RTX 4090, compute capability 8.9
+strata generate: expert arena read unbuffered (0 of 48 probe reads from the file cache; 9.9 GiB available, 106.2 GiB of files)
+strata generate: expert arena: locked 4329 MiB via working-set minimum + VirtualLock; cudaHostRegister of the whole arena FAILED (out of memory); 46 slices pinned (97 GiB); large pages refused for 109255327744 B (GetLargePageMinimum=2097152, VirtualAlloc error 1450); using 4 KB pages
+strata generate: loaded 101.75 GiB at 1.22 GiB/s
+strata generate: CPU pool tasks/phase: 18 (automatic), participating threads: 6
+strata generate: 5 pool workers on logical processors 2,4,6,8,10, the host thread on 0 (draining too) (--host-core first)
+strata aux cpus: not available on this system
+strata trace: 16840 MiB free after the weights, the session and the drafter
+strata generate: expert cache auto: 16.45 GiB free, 700 MiB reserved (+0 MiB for the draft head) -> 3240 slots
+strata generate: expert cache 3808 slots, 15.75 GiB of VRAM; policy is
+strata trace: 656 MiB free after opening the expert cache
+strata generate: the GPU computes the experts in the cache; it rounds differently from the CPU,
+                 so a reply can differ slightly from a run without the cache (same quality:
+                 bench/results/2026-09-27-cache-parity).
+                 PROFILE, ranked by routing frequency, no eviction.
+strata trace: 656 MiB free after the profile fill
+strata generate: pre-filled 3808 of 3808 slots from the profile in 0.8 s (22471 MB/s); slot 0 verified
+strata trace: 656 MiB free after the R4 hit path
+strata generate: R4 hit path ON - resident experts are computed on the GPU
+strata generate: 5 expert-pool workers + the host thread
+strata trace: 656 MiB free after the expert cache and the graphs
+strata generate: session is up (engine 0.1.45)
+strata generate: token graph hit path: 3808 resident experts, decided on the device
+strata serve: Windows commit: 30.1 GiB left of a 175.8 GiB limit (RAM + page file)
+prefill: the CPU share is ON by default for prompt chunks below 1024 tokens (the idle CPU takes some of the experts the GPU would stream; answers can differ slightly from 0.1.40.3, mean KL ~0.004). STRATA_PREFILL_CPU_SHARE=0 turns it off.
+strata serve: prompt chunk auto: 16384 tokens, a 384-slot ring
+strata serve: prompt chunk head alias: 2048 tokens with 16128 MiB borrowed and 656 MiB free
+strata serve: the prompt path borrows 3807 CUDA0 cache slots (15.75 GiB)
+strata trace: 656 MiB free after before the prompt path init
+strata trace: 460 MiB free after the head and the prompt path
+strata hc: CUDA0: the hyper-connection read runs as staged (the norm per token and stream, the down projection's activations staged ahead by cp.async); checked bit for bit against the plain read on this card (STRATA_HC_SPLIT=1 or 0 for the earlier ones)
+strata verify: window up to 6 tokens, 114.5 MiB of device buffers
+strata trace: 344 MiB free after the verifier and the drafter's binding
+strata serve: adaptive overlap: off (STRATA_ADAPT_OVERLAP=1 turns it on)
+strata serve: 344 MiB of VRAM free with everything loaded
+strata serve: that is little room for the verify windows' buffers under WDDM; if the engine exits right after this line, --prefill auto:8192 (a smaller prompt chunk borrows fewer cache slots) or a larger --vram-reserve-mib leaves more
+strata serve: WARNING: only 332 MiB of VRAM free at the start of this request (below 1024 MiB): when the card is this full the driver can page GPU memory to system RAM, decode falls to a few tok/s and a window may never finish (#2065). Add --vram-reserve-mib 1408 to the config's args, or lower --max-context / --batch
+strata trace: request 32675 0
+strata trace: prompt start 32674 -1
+strata trace: lent 3807 slots for 2048 tokens in 0.1 ms
+strata trace: prompt chunk 0 of 32670
+strata trace: prompt chunk 2048 of 32670
+strata trace: prompt chunk 4096 of 32670
+strata trace: prompt chunk 6144 of 32670
+strata trace: prompt chunk 8192 of 32670
+strata trace: prompt chunk 10240 of 32670
+strata trace: prompt chunk 12288 of 32670
+strata trace: prompt chunk 14336 of 32670
+strata trace: prompt chunk 16384 of 32670
+strata trace: prompt chunk 18432 of 32670
+strata trace: prompt chunk 20480 of 32670
+strata trace: prompt chunk 22528 of 32670
+strata trace: prompt chunk 24576 of 32670
+strata trace: prompt chunk 26624 of 32670
+strata trace: prompt chunk 28672 of 32670
+strata trace: prompt chunk 30720 of 32670
+strata trace: read 32670 tokens (batched) in 81770.4 ms
+strata trace: checkpoint at 32670: sync 0.0 ms, save 28.2 ms (1 stage(s))
+strata trace: lent 3807 slots for 2048 tokens in 0.0 ms
+strata trace: prompt chunk 0 of 4
+strata trace: read 4 tokens (batched) in 150.2 ms
+strata trace: refill start 3807 -1
+strata trace: refilled 3807 slots on 1 stage(s) in 744.4 ms
+strata serve: --prefill-head-alias: output head restored in 2183.6 ms before decode
+strata trace: prompt done (slots refilled) -1 -1
+strata trace: window 32674 1
+strata verify: capturing the 1-token window (0 MiB of VRAM free)
+strata verify: captured the 1-token window (upload no error, sync no error)
+strata trace: window 32675 4
+strata verify: capturing the 4-token window (0 MiB of VRAM free)
+strata verify: captured the 4-token window (upload no error, sync no error)
+strata trace: window 32679 4
+strata trace: window 32683 4
+strata trace: window 32687 4
+strata trace: window 32691 6
+strata verify: capturing the 6-token window (0 MiB of VRAM free)
+strata verify: captured the 6-token window (upload no error, sync no error)
+strata trace: window 32695 1
+strata trace: window 32696 2
+strata verify: capturing the 2-token window (0 MiB of VRAM free)
+strata verify: captured the 2-token window (upload no error, sync no error)
+strata trace: window 32698 1
+strata trace: window 32699 4
+strata trace: window 32701 4
+strata trace: window 32705 2
+strata trace: window 32707 4
+strata trace: window 32711 6
+strata trace: window 32713 3
+strata verify: capturing the 3-token window (0 MiB of VRAM free)
+strata verify: captured the 3-token window (upload no error, sync no error)
+strata trace: window 32716 1
+strata trace: window 32717 1
+strata trace: window 32718 3
+strata trace: window 32721 4
+strata trace: window 32725 1
+strata trace: window 32726 1
+strata trace: window 32727 1
+strata trace: window 32728 3
+strata trace: window 32731 1
+strata trace: window 32732 3
+strata trace: window 32735 3
+strata trace: window 32738 3
+strata trace: window 32741 1
+strata trace: window 32742 3
+strata trace: window 32743 3
+strata trace: window 32746 2
+strata trace: window 32748 4
+strata trace: window 32752 3
+strata trace: window 32754 2
+strata trace: window 32756 4
+strata trace: window 32759 1
+strata trace: window 32760 4
+strata trace: window 32764 1
+strata trace: window 32765 2
+strata trace: window 32767 2
+strata trace: window 32769 2
+strata trace: window 32771 4
+strata trace: window 32773 4
+strata trace: window 32777 3
+strata trace: window 32779 1
+strata trace: window 32780 1
+strata trace: window 32781 1
+strata trace: window 32782 2
+strata serve: PCIe share: the CPU pool takes 87 us per missed expert (51.1 GB/s of expert bytes), the link 24.1 GB/s -> pcie_frac 0.20 (was 0.55; --pcie-frac N fixes it, STRATA_PCIE_FRAC_DEFAULT=old keeps the start-up rule)
+strata trace: window 32784 1
+strata trace: window 32785 1
+strata trace: window 32786 1
+strata trace: window 32787 2
+strata trace: window 32789 1
+strata trace: window 32790 2
+strata trace: window 32792 1
+strata trace: window 32793 3
+strata trace: window 32796 3
+strata trace: window 32799 1
+strata trace: window 32800 2
+strata trace: window 32802 2
+strata trace: window 32804 2
+strata trace: window 32806 3
+strata trace: window 32808 3
+strata trace: window 32811 1
+strata trace: window 32812 2
+strata trace: window 32814 1
+strata trace: window 32815 3
+strata trace: window 32818 1
+strata trace: window 32819 1
+strata trace: window 32820 1
+strata trace: window 32821 2
+strata trace: window 32823 3
+strata trace: window 32826 1
+strata trace: window 32827 2
+strata trace: window 32829 1
+strata trace: window 32830 3
+strata trace: window 32833 1
+strata trace: window 32834 1
+strata trace: window 32835 2
+strata trace: window 32837 3
+strata trace: window 32839 3
+strata trace: window 32841 2
+strata trace: window 32843 1
+strata trace: window 32844 4
+strata trace: window 32845 4
+strata trace: window 32847 4
+strata trace: window 32849 1
+strata trace: window 32850 1
+strata trace: window 32851 1
+strata trace: window 32852 2
+strata trace: window 32854 1
+strata trace: window 32855 3
+strata trace: window 32858 1
+strata trace: window 32859 4
+strata trace: window 32863 2
+strata trace: window 32865 4
+strata trace: window 32868 2
+strata trace: window 32870 1
+strata trace: window 32871 4
+strata trace: window 32874 4
+strata trace: window 32877 4
+strata trace: window 32880 2
+strata trace: window 32881 1
+strata trace: window 32882 2
+strata trace: window 32884 1
+strata trace: window 32885 3
+strata trace: window 32888 4
+strata trace: window 32889 2
+strata trace: window 32891 3
+strata trace: window 32894 3
+strata trace: window 32895 4
+strata trace: window 32899 3
+strata trace: window 32901 1
+strata trace: window 32902 4
+strata trace: window 32906 3
+strata trace: window 32909 1
+strata trace: window 32910 2
+strata trace: window 32911 1
+strata trace: window 32912 2
+strata trace: window 32914 1
+strata trace: window 32915 2
+strata trace: window 32917 2
+strata trace: window 32919 2
+strata trace: window 32921 4
+strata trace: window 32924 4
+strata trace: window 32928 4
+strata trace: window 32932 4
+strata trace: window 32936 4
+strata trace: window 32939 4
+strata trace: window 32943 1
+strata trace: window 32944 1
+strata trace: window 32945 4
+strata trace: window 32946 2
+strata trace: window 32948 3
+strata trace: window 32950 1
+strata trace: window 32951 4
+strata trace: window 32955 3
+strata trace: window 32958 1
+strata trace: window 32959 1
+strata trace: window 32960 4
+strata trace: window 32964 1
+strata trace: window 32965 4
+strata trace: window 32966 2
+strata trace: window 32968 2
+strata trace: window 32970 3
+strata trace: window 32972 1
+strata trace: window 32973 2
+strata trace: window 32975 2
+strata trace: window 32977 4
+strata trace: window 32981 3
+strata trace: window 32984 3
+strata trace: window 32987 4
+strata trace: window 32991 3
+strata trace: window 32992 2
+strata trace: window 32994 4
+strata trace: window 32995 1
+strata trace: window 32996 4
+strata trace: window 33000 1
+strata trace: window 33001 3
+strata trace: window 33004 4
+strata trace: window 33007 1
+strata trace: window 33008 1
+strata trace: window 33009 4
+strata trace: window 33010 1
+strata trace: window 33011 1
+strata trace: window 33012 1
+strata trace: window 33013 3
+strata trace: window 33014 1
+strata trace: window 33015 4
+strata trace: window 33019 3
+strata trace: window 33022 2
+strata trace: window 33024 3
+strata trace: window 33027 3
+strata trace: window 33030 1
+strata trace: window 33031 3
+strata trace: window 33034 3
+strata trace: window 33036 1
+strata trace: window 33037 4
+strata trace: window 33041 4
+strata trace: window 33043 4
+strata trace: window 33045 4
+strata trace: window 33049 3
+strata trace: window 33052 2
+strata trace: window 33054 2
+strata trace: window 33055 4
+strata trace: window 33057 4
+strata trace: window 33061 1
+strata trace: window 33062 4
+strata trace: window 33063 2
+strata trace: window 33065 4
+strata trace: window 33066 4
+strata trace: window 33070 3
+strata trace: window 33073 4
+strata trace: window 33077 4
+strata trace: window 33080 2
+strata trace: window 33082 4
+strata trace: window 33086 4
+strata trace: window 33090 3
+strata trace: window 33092 4
+strata trace: window 33096 1
+strata trace: window 33097 4
+strata trace: window 33098 1
+strata trace: window 33099 4
+strata trace: window 33103 3
+strata trace: window 33106 1
+strata trace: window 33107 2
+strata trace: window 33109 4
+strata trace: window 33113 3
+strata trace: window 33116 2
+strata trace: window 33118 4
+strata trace: window 33120 4
+strata trace: window 33124 1
+strata trace: window 33125 4
+strata trace: window 33126 1
+strata trace: window 33127 4
+strata trace: window 33131 1
+strata trace: window 33132 4
+strata trace: window 33134 2
+strata trace: window 33136 4
+strata trace: window 33137 3
+strata trace: window 33138 2
+strata trace: window 33140 1
+strata trace: window 33141 3
+strata trace: window 33142 4
+strata trace: window 33143 1
+strata trace: window 33144 3
+strata trace: window 33146 1
+strata trace: window 33147 4
+strata trace: window 33150 1
+strata trace: window 33151 3
+strata trace: window 33154 1
+strata trace: window 33155 1
+strata trace: window 33156 3
+strata trace: window 33157 4
+strata trace: window 33161 4
+strata trace: window 33165 4
+strata trace: window 33169 3
+strata trace: window 33172 3
+strata trace: window 33175 4
+strata trace: window 33179 4
+strata trace: window 33183 4
+strata trace: window 33184 4
+strata serve: prompt 32675 tokens = 0 reused + 32675 read in 84886 ms (384.9 tok/s), 512 generated in 24490 ms (20.9 tok/s), drafts accepted 270 of 373, 1 checkpoints
+strata serve: decode expert cache hit rate: 74.7% (208249 hits / 278863 lookups); 16337 more read by the GPU over PCIe or from another GPU (5.5% of all 295200 routed)
+strata serve: KV streaming: 97.91% of 3789564 block reads hit VRAM, 318.4 MiB read from RAM
+strata serve: suffix drafts: 20 windows, 33 of 46 drafts accepted

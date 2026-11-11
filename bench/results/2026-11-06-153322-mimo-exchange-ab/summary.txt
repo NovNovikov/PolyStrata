@@ -1,0 +1,14 @@
+
+=== ответы фаз (совпадения не ожидается: кеш меняет GPU/CPU-путь, near-tie флипы законны) ===
+req 1: расхождение с токена #45 (exchange: 256 ток., length; cache: 256 ток., length)
+req 2: расхождение с токена #51 (exchange: 256 ток., length; cache: 256 ток., length)
+req 3: расхождение с токена #120 (exchange: 256 ток., length; cache: 256 ток., length)
+req 4: расхождение с токена #31 (exchange: 256 ток., length; cache: 256 ток., length)
+req 5: расхождение с токена #97 (exchange: 256 ток., length; cache: 256 ток., length)
+
+=== ИТОГ: тёплые повторы (req 3+), медиана ===
+decode exchange        : 27.52 ток/с
+decode exchange+cache  : 29.47 ток/с   (+7.1%)
+expert hit exchange    : 44.3%
+expert hit exchange+cache: 50.4%
+accept exchange / +cache: 89.8% / 88.0%

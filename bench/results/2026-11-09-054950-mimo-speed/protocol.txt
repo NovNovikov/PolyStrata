@@ -1,0 +1,878 @@
+INFO context=131072 expert_slots=651 expert_cache_mib=6184 pool_workers=12 conversation_cache_mib=0 conversation_cache_slots=4 conversation_cache_min_free_mib=2560 vram_free_mib=1284 vram_elastic=0 batch_slots=0 engine=0.1.45
+INFO session_dir=L:\AI_pictures_generate\PolyStrata\bench\results\2026-11-09-054950-mimo-speed\work\sessions session_max_mib=16384
+READY 131072 stop
+RESUME 0
+PP 668 50000 800 835.0 cpu_ms=0 route_ms=0 experts=0/0
+PP 1337 50000 2294 582.8 cpu_ms=0 route_ms=392 experts=0/0
+PP 2006 50000 3285 610.7 cpu_ms=0 route_ms=681 experts=0/0
+PP 2674 50000 4385 609.8 cpu_ms=0 route_ms=1003 experts=0/0
+PP 3343 50000 5466 611.6 cpu_ms=0 route_ms=1319 experts=0/0
+PP 4012 50000 6773 592.3 cpu_ms=0 route_ms=1793 experts=0/0
+PP 4681 50000 7833 597.6 cpu_ms=0 route_ms=2105 experts=0/0
+PP 5349 50000 8823 606.3 cpu_ms=0 route_ms=2394 experts=0/0
+PP 6018 50000 9822 612.7 cpu_ms=0 route_ms=2687 experts=0/0
+PP 6687 50000 10844 616.7 cpu_ms=0 route_ms=2990 experts=0/0
+PP 7356 50000 11885 618.9 cpu_ms=0 route_ms=3295 experts=0/0
+PP 8024 50000 13105 612.3 cpu_ms=0 route_ms=3745 experts=0/0
+PP 8693 50000 14106 616.3 cpu_ms=0 route_ms=4039 experts=0/0
+PP 9362 50000 15092 620.3 cpu_ms=0 route_ms=4329 experts=0/0
+PP 10031 50000 16105 622.8 cpu_ms=0 route_ms=4628 experts=0/0
+PP 10699 50000 17143 624.1 cpu_ms=0 route_ms=4934 experts=0/0
+PP 11368 50000 18163 625.9 cpu_ms=0 route_ms=5233 experts=0/0
+PP 12037 50000 19467 618.3 cpu_ms=0 route_ms=5696 experts=0/0
+PP 12705 50000 20494 619.9 cpu_ms=0 route_ms=5992 experts=0/0
+PP 13374 50000 21501 622.0 cpu_ms=0 route_ms=6292 experts=0/0
+PP 14043 50000 22625 620.7 cpu_ms=0 route_ms=6631 experts=0/0
+PP 14712 50000 23675 621.4 cpu_ms=0 route_ms=6934 experts=0/0
+PP 15380 50000 24682 623.1 cpu_ms=0 route_ms=7233 experts=0/0
+PP 16049 50000 25913 619.3 cpu_ms=0 route_ms=7687 experts=0/0
+PP 16718 50000 26916 621.1 cpu_ms=0 route_ms=7982 experts=0/0
+PP 17387 50000 27855 624.2 cpu_ms=0 route_ms=8261 experts=0/0
+PP 18055 50000 28791 627.1 cpu_ms=0 route_ms=8540 experts=0/0
+PP 18724 50000 29741 629.6 cpu_ms=0 route_ms=8823 experts=0/0
+PP 19393 50000 30740 630.9 cpu_ms=0 route_ms=9119 experts=0/0
+PP 20062 50000 31988 627.2 cpu_ms=0 route_ms=9563 experts=0/0
+PP 20730 50000 33061 627.0 cpu_ms=0 route_ms=9893 experts=0/0
+PP 21399 50000 34103 627.5 cpu_ms=0 route_ms=10194 experts=0/0
+PP 22068 50000 35062 629.4 cpu_ms=0 route_ms=10472 experts=0/0
+PP 22736 50000 36036 630.9 cpu_ms=0 route_ms=10763 experts=0/0
+PP 23405 50000 37041 631.9 cpu_ms=0 route_ms=11061 experts=0/0
+PP 24074 50000 38277 628.9 cpu_ms=0 route_ms=11518 experts=0/0
+PP 24743 50000 39286 629.8 cpu_ms=0 route_ms=11818 experts=0/0
+PP 25411 50000 40314 630.3 cpu_ms=0 route_ms=12124 experts=0/0
+PP 26080 50000 41312 631.3 cpu_ms=0 route_ms=12415 experts=0/0
+PP 26749 50000 42318 632.1 cpu_ms=0 route_ms=12712 experts=0/0
+PP 27418 50000 43311 633.0 cpu_ms=0 route_ms=13007 experts=0/0
+PP 28086 50000 44595 629.8 cpu_ms=0 route_ms=13472 experts=0/0
+PP 28755 50000 45594 630.7 cpu_ms=0 route_ms=13766 experts=0/0
+PP 29424 50000 46634 631.0 cpu_ms=0 route_ms=14068 experts=0/0
+PP 30093 50000 47690 631.0 cpu_ms=0 route_ms=14381 experts=0/0
+PP 30761 50000 48720 631.4 cpu_ms=0 route_ms=14691 experts=0/0
+PP 31430 50000 49733 632.0 cpu_ms=0 route_ms=14987 experts=0/0
+PP 32099 50000 51038 628.9 cpu_ms=0 route_ms=15460 experts=0/0
+PP 33471 50000 52271 640.3 cpu_ms=0 route_ms=15707 experts=0/0
+PP 33822 50000 52841 640.1 cpu_ms=0 route_ms=15862 experts=0/0
+PP 34174 50000 53539 638.3 cpu_ms=0 route_ms=16032 experts=0/0
+PP 34526 50000 54247 636.5 cpu_ms=0 route_ms=16197 experts=0/0
+PP 34877 50000 55280 630.9 cpu_ms=0 route_ms=16534 experts=0/0
+PP 35229 50000 55964 629.5 cpu_ms=0 route_ms=16696 experts=0/0
+PP 35581 50000 56611 628.5 cpu_ms=0 route_ms=16844 experts=0/0
+PP 35932 50000 57273 627.4 cpu_ms=0 route_ms=16996 experts=0/0
+PP 36284 50000 57952 626.1 cpu_ms=0 route_ms=17155 experts=0/0
+PP 36636 50000 58627 624.9 cpu_ms=0 route_ms=17313 experts=0/0
+PP 36987 50000 59593 620.7 cpu_ms=0 route_ms=17632 experts=0/0
+PP 37339 50000 60247 619.8 cpu_ms=0 route_ms=17784 experts=0/0
+PP 37691 50000 60887 619.0 cpu_ms=0 route_ms=17932 experts=0/0
+PP 38042 50000 61534 618.2 cpu_ms=0 route_ms=18085 experts=0/0
+PP 38394 50000 62222 617.0 cpu_ms=0 route_ms=18249 experts=0/0
+PP 38746 50000 62902 616.0 cpu_ms=0 route_ms=18407 experts=0/0
+PP 39097 50000 63901 611.8 cpu_ms=0 route_ms=18736 experts=0/0
+PP 39449 50000 64580 610.9 cpu_ms=0 route_ms=18892 experts=0/0
+PP 39801 50000 65258 609.9 cpu_ms=0 route_ms=19054 experts=0/0
+PP 40152 50000 65949 608.8 cpu_ms=0 route_ms=19211 experts=0/0
+PP 40504 50000 66608 608.1 cpu_ms=0 route_ms=19366 experts=0/0
+PP 40856 50000 67266 607.4 cpu_ms=0 route_ms=19520 experts=0/0
+PP 41207 50000 68239 603.9 cpu_ms=0 route_ms=19841 experts=0/0
+PP 41559 50000 68891 603.3 cpu_ms=0 route_ms=19992 experts=0/0
+PP 41910 50000 69504 603.0 cpu_ms=0 route_ms=20132 experts=0/0
+PP 42262 50000 70118 602.7 cpu_ms=0 route_ms=20272 experts=0/0
+PP 42614 50000 70739 602.4 cpu_ms=0 route_ms=20413 experts=0/0
+PP 42965 50000 71392 601.8 cpu_ms=0 route_ms=20566 experts=0/0
+PP 43317 50000 72346 598.7 cpu_ms=0 route_ms=20882 experts=0/0
+PP 43669 50000 72987 598.3 cpu_ms=0 route_ms=21030 experts=0/0
+PP 44020 50000 73635 597.8 cpu_ms=0 route_ms=21180 experts=0/0
+PP 44372 50000 74257 597.5 cpu_ms=0 route_ms=21320 experts=0/0
+PP 44724 50000 74887 597.2 cpu_ms=0 route_ms=21464 experts=0/0
+PP 45075 50000 75538 596.7 cpu_ms=0 route_ms=21615 experts=0/0
+PP 45427 50000 76514 593.7 cpu_ms=0 route_ms=21938 experts=0/0
+PP 45779 50000 77175 593.2 cpu_ms=0 route_ms=22090 experts=0/0
+PP 46130 50000 77846 592.6 cpu_ms=0 route_ms=22248 experts=0/0
+PP 46482 50000 78511 592.0 cpu_ms=0 route_ms=22401 experts=0/0
+PP 46834 50000 79177 591.5 cpu_ms=0 route_ms=22557 experts=0/0
+PP 47185 50000 79826 591.1 cpu_ms=0 route_ms=22709 experts=0/0
+PP 47537 50000 80823 588.2 cpu_ms=0 route_ms=23038 experts=0/0
+PP 47889 50000 81496 587.6 cpu_ms=0 route_ms=23193 experts=0/0
+PP 48240 50000 82151 587.2 cpu_ms=0 route_ms=23345 experts=0/0
+PP 48592 50000 82848 586.5 cpu_ms=0 route_ms=23510 experts=0/0
+PP 48944 50000 83515 586.1 cpu_ms=0 route_ms=23664 experts=0/0
+PP 49295 50000 84192 585.5 cpu_ms=0 route_ms=23818 experts=0/0
+PP 49647 50000 85270 582.2 cpu_ms=0 route_ms=24154 experts=0/0
+PP 50000 50000 85598 584.1 cpu_ms=53 route_ms=24181 experts=14/362
+T 25
+T 6203
+T 220
+T 22
+T 19
+T 315
+T 6193
+T 220
+T 19
+T 16
+T 15804
+T 220
+T 17
+T 19
+T 18
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 17
+T 24
+T 23
+T 25
+T 6203
+T 220
+T 23
+T 16
+T 315
+T 6193
+T 220
+T 19
+T 17
+T 15804
+T 220
+T 20
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 17
+T 24
+T 24
+T 25
+T 6203
+T 220
+T 23
+T 23
+T 315
+T 6193
+T 220
+T 19
+T 18
+T 15804
+T 220
+T 16
+T 23
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 15
+T 25
+T 6203
+T 220
+T 24
+T 20
+T 315
+T 6193
+T 220
+T 19
+T 19
+T 15804
+T 220
+T 18
+T 16
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 16
+T 25
+T 6203
+T 220
+T 20
+T 315
+T 6193
+T 220
+T 19
+T 20
+T 15804
+T 220
+T 19
+T 19
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 17
+T 25
+T 6203
+T 220
+T 16
+T 17
+T 315
+T 6193
+T 220
+T 19
+T 21
+T 15804
+T 220
+T 20
+T 22
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 18
+T 25
+T 6203
+T 220
+T 16
+T 24
+T 315
+T 6193
+T 220
+T 15
+T 15804
+T 220
+T 22
+T 15
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 19
+T 25
+T 6203
+T 220
+T 17
+T 21
+T 315
+T 6193
+T 220
+T 16
+T 15804
+T 220
+T 23
+T 18
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 20
+T 25
+T 6203
+T 220
+T 18
+T 18
+T 315
+T 6193
+T 220
+T 17
+T 15804
+T 220
+T 24
+T 21
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 21
+T 25
+T 6203
+T 220
+T 19
+T 15
+T 315
+T 6193
+T 220
+T 18
+T 15804
+T 220
+T 16
+T 15
+T 24
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 22
+T 25
+T 6203
+T 220
+T 19
+T 22
+T 315
+T 6193
+T 220
+T 19
+T 15804
+T 220
+T 16
+T 17
+T 17
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 23
+T 25
+T 6203
+T 220
+T 20
+T 19
+T 315
+T 6193
+T 220
+T 20
+T 15804
+T 220
+T 16
+T 18
+T 20
+T 6978
+T 198
+T 1056
+T 220
+DONE 256 50000 85597.6 14298.5 length 127 128 0 28811 96256 0 0 0.0 50000 0
+RESUME 0
+PP 668 50000 667 1001.0 cpu_ms=0 route_ms=0 experts=0/0
+PP 1337 50000 1699 787.1 cpu_ms=0 route_ms=389 experts=0/0
+PP 2006 50000 2665 752.9 cpu_ms=0 route_ms=672 experts=0/0
+PP 2674 50000 3748 713.4 cpu_ms=0 route_ms=994 experts=0/0
+PP 3343 50000 4829 692.3 cpu_ms=0 route_ms=1310 experts=0/0
+PP 4012 50000 6142 653.2 cpu_ms=0 route_ms=1781 experts=0/0
+PP 4681 50000 7202 649.9 cpu_ms=0 route_ms=2092 experts=0/0
+PP 5349 50000 8174 654.4 cpu_ms=0 route_ms=2381 experts=0/0
+PP 6018 50000 9181 655.5 cpu_ms=0 route_ms=2673 experts=0/0
+PP 6687 50000 10202 655.4 cpu_ms=0 route_ms=2975 experts=0/0
+PP 7356 50000 11224 655.4 cpu_ms=0 route_ms=3277 experts=0/0
+PP 8024 50000 12442 644.9 cpu_ms=0 route_ms=3727 experts=0/0
+PP 8693 50000 13460 645.8 cpu_ms=0 route_ms=4013 experts=0/0
+PP 9362 50000 14489 646.1 cpu_ms=0 route_ms=4304 experts=0/0
+PP 10031 50000 15577 644.0 cpu_ms=0 route_ms=4629 experts=0/0
+PP 10699 50000 16611 644.1 cpu_ms=0 route_ms=4933 experts=0/0
+PP 11368 50000 17622 645.1 cpu_ms=0 route_ms=5232 experts=0/0
+PP 12037 50000 18892 637.1 cpu_ms=0 route_ms=5696 experts=0/0
+PP 12705 50000 19906 638.2 cpu_ms=0 route_ms=5991 experts=0/0
+PP 13374 50000 20928 639.1 cpu_ms=0 route_ms=6294 experts=0/0
+PP 14043 50000 22047 637.0 cpu_ms=0 route_ms=6629 experts=0/0
+PP 14712 50000 23076 637.6 cpu_ms=0 route_ms=6923 experts=0/0
+PP 15380 50000 24064 639.1 cpu_ms=0 route_ms=7217 experts=0/0
+PP 16049 50000 25297 634.4 cpu_ms=0 route_ms=7667 experts=0/0
+PP 16718 50000 26287 636.0 cpu_ms=0 route_ms=7957 experts=0/0
+PP 17387 50000 27260 637.8 cpu_ms=0 route_ms=8237 experts=0/0
+PP 18055 50000 28241 639.3 cpu_ms=0 route_ms=8517 experts=0/0
+PP 18724 50000 29224 640.7 cpu_ms=0 route_ms=8800 experts=0/0
+PP 19393 50000 30232 641.5 cpu_ms=0 route_ms=9095 experts=0/0
+PP 20062 50000 31439 638.1 cpu_ms=0 route_ms=9540 experts=0/0
+PP 20730 50000 32433 639.2 cpu_ms=0 route_ms=9831 experts=0/0
+PP 21399 50000 33452 639.7 cpu_ms=0 route_ms=10129 experts=0/0
+PP 22068 50000 34401 641.5 cpu_ms=0 route_ms=10402 experts=0/0
+PP 22736 50000 35388 642.5 cpu_ms=0 route_ms=10692 experts=0/0
+PP 23405 50000 36399 643.0 cpu_ms=0 route_ms=10986 experts=0/0
+PP 24074 50000 37640 639.6 cpu_ms=0 route_ms=11441 experts=0/0
+PP 24743 50000 38651 640.2 cpu_ms=0 route_ms=11737 experts=0/0
+PP 25411 50000 39678 640.4 cpu_ms=0 route_ms=12037 experts=0/0
+PP 26080 50000 40683 641.0 cpu_ms=0 route_ms=12329 experts=0/0
+PP 26749 50000 41696 641.5 cpu_ms=0 route_ms=12628 experts=0/0
+PP 27418 50000 42689 642.3 cpu_ms=0 route_ms=12917 experts=0/0
+PP 28086 50000 43950 639.0 cpu_ms=0 route_ms=13380 experts=0/0
+PP 28755 50000 44955 639.6 cpu_ms=0 route_ms=13673 experts=0/0
+PP 29424 50000 45976 640.0 cpu_ms=0 route_ms=13971 experts=0/0
+PP 30093 50000 47049 639.6 cpu_ms=0 route_ms=14284 experts=0/0
+PP 30761 50000 48059 640.1 cpu_ms=0 route_ms=14587 experts=0/0
+PP 31430 50000 49065 640.6 cpu_ms=0 route_ms=14879 experts=0/0
+PP 32099 50000 50364 637.3 cpu_ms=0 route_ms=15350 experts=0/0
+PP 33471 50000 51586 648.8 cpu_ms=0 route_ms=15595 experts=0/0
+PP 33822 50000 52149 648.6 cpu_ms=0 route_ms=15747 experts=0/0
+PP 34174 50000 52848 646.7 cpu_ms=0 route_ms=15916 experts=0/0
+PP 34526 50000 53561 644.6 cpu_ms=0 route_ms=16081 experts=0/0
+PP 34877 50000 54577 639.0 cpu_ms=0 route_ms=16423 experts=0/0
+PP 35229 50000 55270 637.4 cpu_ms=0 route_ms=16586 experts=0/0
+PP 35581 50000 55941 636.0 cpu_ms=0 route_ms=16734 experts=0/0
+PP 35932 50000 56610 634.7 cpu_ms=0 route_ms=16888 experts=0/0
+PP 36284 50000 57279 633.5 cpu_ms=0 route_ms=17048 experts=0/0
+PP 36636 50000 57946 632.2 cpu_ms=0 route_ms=17203 experts=0/0
+PP 36987 50000 58915 627.8 cpu_ms=0 route_ms=17525 experts=0/0
+PP 37339 50000 59572 626.8 cpu_ms=0 route_ms=17678 experts=0/0
+PP 37691 50000 60214 625.9 cpu_ms=0 route_ms=17824 experts=0/0
+PP 38042 50000 60869 625.0 cpu_ms=0 route_ms=17976 experts=0/0
+PP 38394 50000 61560 623.7 cpu_ms=0 route_ms=18141 experts=0/0
+PP 38746 50000 62276 622.2 cpu_ms=0 route_ms=18297 experts=0/0
+PP 39097 50000 63284 617.8 cpu_ms=0 route_ms=18630 experts=0/0
+PP 39449 50000 63960 616.8 cpu_ms=0 route_ms=18785 experts=0/0
+PP 39801 50000 64624 615.9 cpu_ms=0 route_ms=18944 experts=0/0
+PP 40152 50000 65294 614.9 cpu_ms=0 route_ms=19103 experts=0/0
+PP 40504 50000 65951 614.1 cpu_ms=0 route_ms=19257 experts=0/0
+PP 40856 50000 66606 613.4 cpu_ms=0 route_ms=19409 experts=0/0
+PP 41207 50000 67564 609.9 cpu_ms=0 route_ms=19724 experts=0/0
+PP 41559 50000 68203 609.3 cpu_ms=0 route_ms=19870 experts=0/0
+PP 41910 50000 68815 609.0 cpu_ms=0 route_ms=20009 experts=0/0
+PP 42262 50000 69423 608.8 cpu_ms=0 route_ms=20151 experts=0/0
+PP 42614 50000 70047 608.4 cpu_ms=0 route_ms=20293 experts=0/0
+PP 42965 50000 70700 607.7 cpu_ms=0 route_ms=20445 experts=0/0
+PP 43317 50000 71656 604.5 cpu_ms=0 route_ms=20760 experts=0/0
+PP 43669 50000 72292 604.1 cpu_ms=0 route_ms=20906 experts=0/0
+PP 44020 50000 72959 603.3 cpu_ms=0 route_ms=21060 experts=0/0
+PP 44372 50000 73579 603.1 cpu_ms=0 route_ms=21199 experts=0/0
+PP 44724 50000 74218 602.6 cpu_ms=0 route_ms=21344 experts=0/0
+PP 45075 50000 74874 602.0 cpu_ms=0 route_ms=21495 experts=0/0
+PP 45427 50000 75849 598.9 cpu_ms=0 route_ms=21817 experts=0/0
+PP 45779 50000 76514 598.3 cpu_ms=0 route_ms=21968 experts=0/0
+PP 46130 50000 77201 597.5 cpu_ms=0 route_ms=22127 experts=0/0
+PP 46482 50000 77862 597.0 cpu_ms=0 route_ms=22281 experts=0/0
+PP 46834 50000 78527 596.4 cpu_ms=0 route_ms=22435 experts=0/0
+PP 47185 50000 79172 596.0 cpu_ms=0 route_ms=22584 experts=0/0
+PP 47537 50000 80175 592.9 cpu_ms=0 route_ms=22912 experts=0/0
+PP 47889 50000 80837 592.4 cpu_ms=0 route_ms=23063 experts=0/0
+PP 48240 50000 81495 591.9 cpu_ms=0 route_ms=23214 experts=0/0
+PP 48592 50000 82190 591.2 cpu_ms=0 route_ms=23376 experts=0/0
+PP 48944 50000 82851 590.7 cpu_ms=0 route_ms=23528 experts=0/0
+PP 49295 50000 83526 590.2 cpu_ms=0 route_ms=23680 experts=0/0
+PP 49647 50000 84580 587.0 cpu_ms=0 route_ms=24011 experts=0/0
+PP 50000 50000 84958 588.5 cpu_ms=47 route_ms=24038 experts=45/331
+T 25
+T 6203
+T 220
+T 22
+T 19
+T 315
+T 6193
+T 220
+T 19
+T 16
+T 15804
+T 220
+T 17
+T 19
+T 18
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 17
+T 24
+T 23
+T 25
+T 6203
+T 220
+T 23
+T 16
+T 315
+T 6193
+T 220
+T 19
+T 17
+T 15804
+T 220
+T 20
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 17
+T 24
+T 24
+T 25
+T 6203
+T 220
+T 23
+T 23
+T 315
+T 6193
+T 220
+T 19
+T 18
+T 15804
+T 220
+T 16
+T 23
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 15
+T 25
+T 6203
+T 220
+T 24
+T 20
+T 315
+T 6193
+T 220
+T 19
+T 19
+T 15804
+T 220
+T 18
+T 16
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 16
+T 25
+T 6203
+T 220
+T 20
+T 315
+T 6193
+T 220
+T 19
+T 20
+T 15804
+T 220
+T 19
+T 19
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 17
+T 25
+T 6203
+T 220
+T 16
+T 17
+T 315
+T 6193
+T 220
+T 19
+T 21
+T 15804
+T 220
+T 20
+T 22
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 18
+T 25
+T 6203
+T 220
+T 16
+T 24
+T 315
+T 6193
+T 220
+T 15
+T 15804
+T 220
+T 22
+T 15
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 19
+T 25
+T 6203
+T 220
+T 17
+T 21
+T 315
+T 6193
+T 220
+T 16
+T 15804
+T 220
+T 23
+T 18
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 20
+T 25
+T 6203
+T 220
+T 18
+T 18
+T 315
+T 6193
+T 220
+T 17
+T 15804
+T 220
+T 24
+T 21
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 21
+T 25
+T 6203
+T 220
+T 19
+T 15
+T 315
+T 6193
+T 220
+T 18
+T 15804
+T 220
+T 16
+T 15
+T 24
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 22
+T 25
+T 6203
+T 220
+T 19
+T 22
+T 315
+T 6193
+T 220
+T 19
+T 15804
+T 220
+T 16
+T 17
+T 17
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 18
+T 15
+T 23
+T 25
+T 6203
+T 220
+T 20
+T 19
+T 315
+T 6193
+T 220
+T 20
+T 15804
+T 220
+T 16
+T 18
+T 20
+T 6978
+T 198
+T 1056
+T 220
+DONE 256 50000 84957.8 13356.1 length 128 128 0 36642 96256 0 0 0.0 50000 0
+RESUME 49999
+PP 50000 50000 2082 0.5 cpu_ms=32 route_ms=56 experts=157/219
+T 25
+T 6203
+T 220
+T 22
+T 19
+T 315
+T 6193
+T 220
+T 19
+T 16
+T 15804
+T 220
+T 17
+T 19
+T 18
+T 6978
+T 198
+T 1056
+T 220
+T 17
+T 17
+T 24
+T 23
+T 25
+T 6203
+T 220
+T 23
+T 16
+T 315
+T 6193
+T 220
+T 19
+DONE 32 50000 2081.9 1618.1 length 16 16 49999 4940 12032 0 0 0.0 1 0
+RESUME 0
+PP 999 1000 10160 98.3 cpu_ms=7693 route_ms=458 experts=0/72228
+PP 1000 1000 10503 95.2 cpu_ms=7739 route_ms=572 experts=66/72538
+T 151667
+T 785
+T 1196
+T 374
+T 10161
+T 752
+T 311
+T 10339
+T 1487
+T 5128
+T 5435
+T 311
+T 330
+T 53049
+T 1
+T 323
+T 330
+T 44997
+T 82
+T 11666
+T 1
+T 304
+T 264
+T 4128
+T 1614
+T 4712
+T 11
+T 10339
+T 3170
+T 25978
+T 24722
+T 705
+T 14507
+T 11
+T 323
+T 1128
+T 386
+T 4239
+T 320
+T 20358
+T 89022
+T 61865
+T 8
+T 1558
+T 13
+T 2379
+T 8990
+T 944
+T 3897
+T 3151
+T 1487
+T 5128
+T 11
+T 714
+T 807
+T 2299
+T 10161
+T 911
+T 264
+T 4586
+T 7286
+T 382
+T 10061
+T 752
+T 10339
+T 279
+T 18940
+T 1447
+T 16
+T 13
+T 3070
+T 38081
+T 334
+T 481
+T 1096
+T 19257
+T 311
+T 84648
+T 36680
+T 25978
+T 320
+T 1592
+T 12
+T 1130
+T 6500
+T 25978
+T 568
+T 3197
+T 23163
+T 1467
+T 11
+T 279
+T 1614
+T 57203
+T 6529
+T 916
+T 3681
+T 11211
+T 13
+T 576
+T 84648
+T 36680
+T 10533
+T 279
+T 1376
+T 323
+T 897
+T 22879
+T 369
+T 1817
+T 3950
+T 594
+T 6529
+T 34447
+T 13
+T 330
+T 38081
+T 1
+T 3363
+T 429
+T 979
+T 23163
+T 501
+T 11211
+T 11
+T 279
+T 1614
+T 312
+DONE 128 1000 10502.7 7192.8 length 51 53 0 5842 48504 0 0 0.0 1000 0

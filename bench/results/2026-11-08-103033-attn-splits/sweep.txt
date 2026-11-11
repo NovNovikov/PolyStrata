@@ -1,0 +1,138 @@
+card: NVIDIA GeForce RTX 4090 (sm_89), tile smem 86016 bytes
+this bench's own card memory: 208.0 MiB (free before 23040.0, after 22832.0 of 24563.5 MiB)
+
+an answer's attend, rows 2 - a token with its drafts - by the warps a block gets (4 is today's launch):
+global  rows  2 depth    1000 warps  4 splits 1 batch 1      215.0 us   useful   11.9 GB/s   through the card   190.5 GB/s
+global  rows  2 depth    1000 warps  8 splits 1 batch 1      117.6 us   useful   21.8 GB/s   through the card   348.2 GB/s
+global  rows  2 depth    1000 warps 16 splits 1 batch 1       70.6 us   useful   36.3 GB/s   through the card   580.2 GB/s
+global  rows  2 depth    1000 warps 32 splits 1 batch 1       65.5 us   useful   39.1 GB/s   through the card   625.0 GB/s
+global  rows  2 depth    4096 warps  4 splits 1 batch 1      848.5 us   useful   12.4 GB/s   through the card   197.7 GB/s
+global  rows  2 depth    4096 warps  8 splits 1 batch 1      443.4 us   useful   23.6 GB/s   through the card   378.4 GB/s
+global  rows  2 depth    4096 warps 16 splits 1 batch 1      245.6 us   useful   42.7 GB/s   through the card   683.0 GB/s
+global  rows  2 depth    4096 warps 32 splits 1 batch 1      211.7 us   useful   49.5 GB/s   through the card   792.5 GB/s
+global  rows  2 depth   16384 warps  4 splits 1 batch 1     3363.8 us   useful   12.5 GB/s   through the card   199.5 GB/s
+global  rows  2 depth   16384 warps  8 splits 1 batch 1     1741.8 us   useful   24.1 GB/s   through the card   385.3 GB/s
+global  rows  2 depth   16384 warps 16 splits 1 batch 1      939.0 us   useful   44.7 GB/s   through the card   714.7 GB/s
+global  rows  2 depth   16384 warps 32 splits 1 batch 1      775.2 us   useful   54.1 GB/s   through the card   865.7 GB/s
+global  rows  2 depth   32768 warps  4 splits 1 batch 1     8234.0 us   useful   10.2 GB/s   through the card   163.0 GB/s
+global  rows  2 depth   32768 warps  8 splits 1 batch 1     5237.8 us   useful   16.0 GB/s   through the card   256.3 GB/s
+global  rows  2 depth   32768 warps 16 splits 1 batch 1     2704.4 us   useful   31.0 GB/s   through the card   496.3 GB/s
+global  rows  2 depth   32768 warps 32 splits 1 batch 1     1510.4 us   useful   55.5 GB/s   through the card   888.6 GB/s
+global  rows  2 depth   50000 warps  4 splits 1 batch 1    15792.1 us   useful    8.1 GB/s   through the card   129.7 GB/s
+global  rows  2 depth   50000 warps  8 splits 1 batch 1     7986.2 us   useful   16.0 GB/s   through the card   256.4 GB/s
+global  rows  2 depth   50000 warps 16 splits 1 batch 1     4120.5 us   useful   31.1 GB/s   through the card   497.0 GB/s
+global  rows  2 depth   50000 warps 32 splits 1 batch 1     2292.7 us   useful   55.8 GB/s   through the card   893.3 GB/s
+
+warps by row count at the deepest depth at or under the cap (an answer's calls are rows 1 to 4; the rows over that are a short prompt's, which take this kernel too):
+global  rows  1 depth   50000 warps  4 splits 1 batch 1    15863.8 us   useful    8.1 GB/s   through the card   129.1 GB/s
+global  rows  1 depth   50000 warps  8 splits 1 batch 1     7962.6 us   useful   16.1 GB/s   through the card   257.2 GB/s
+global  rows  1 depth   50000 warps 16 splits 1 batch 1     4058.9 us   useful   31.5 GB/s   through the card   504.6 GB/s
+global  rows  1 depth   50000 warps 32 splits 1 batch 1     2139.1 us   useful   59.8 GB/s   through the card   957.4 GB/s
+global  rows  2 depth   50000 warps  4 splits 1 batch 1    15787.0 us   useful    8.1 GB/s   through the card   129.7 GB/s
+global  rows  2 depth   50000 warps  8 splits 1 batch 1     7989.2 us   useful   16.0 GB/s   through the card   256.3 GB/s
+global  rows  2 depth   50000 warps 16 splits 1 batch 1     4119.6 us   useful   31.1 GB/s   through the card   497.1 GB/s
+global  rows  2 depth   50000 warps 32 splits 1 batch 1     2290.6 us   useful   55.9 GB/s   through the card   894.1 GB/s
+global  rows  3 depth   50000 warps  4 splits 1 batch 1    15671.2 us   useful    8.2 GB/s   through the card   130.7 GB/s
+global  rows  3 depth   50000 warps  8 splits 1 batch 1     7970.6 us   useful   16.1 GB/s   through the card   256.9 GB/s
+global  rows  3 depth   50000 warps 16 splits 1 batch 1     4162.6 us   useful   30.8 GB/s   through the card   492.0 GB/s
+global  rows  3 depth   50000 warps 32 splits 1 batch 1     4365.0 us   useful   29.3 GB/s   through the card   469.2 GB/s
+global  rows  4 depth   50000 warps  4 splits 1 batch 1    15744.0 us   useful    8.1 GB/s   through the card   130.1 GB/s
+global  rows  4 depth   50000 warps  8 splits 1 batch 1     8060.9 us   useful   15.9 GB/s   through the card   254.1 GB/s
+global  rows  4 depth   50000 warps 16 splits 1 batch 1     4369.4 us   useful   29.3 GB/s   through the card   468.7 GB/s
+global  rows  4 depth   50000 warps 32 splits 1 batch 1     4507.6 us   useful   28.4 GB/s   through the card   454.3 GB/s
+global  rows  8 depth   50000 warps  4 splits 1 batch 1    16185.3 us   useful    7.9 GB/s   through the card   126.5 GB/s
+global  rows  8 depth   50000 warps  8 splits 1 batch 1     8799.1 us   useful   14.5 GB/s   through the card   232.8 GB/s
+global  rows  8 depth   50000 warps 16 splits 1 batch 1     8813.6 us   useful   14.5 GB/s   through the card   232.4 GB/s
+global  rows  8 depth   50000 warps 32 splits 1 batch 1     8974.3 us   useful   14.3 GB/s   through the card   228.2 GB/s
+global  rows 16 depth   50000 warps  4 splits 1 batch 1    17117.2 us   useful    7.5 GB/s   through the card   119.6 GB/s
+global  rows 16 depth   50000 warps  8 splits 1 batch 1    17605.6 us   useful    7.3 GB/s   through the card   116.3 GB/s
+global  rows 16 depth   50000 warps 16 splits 1 batch 1    17839.1 us   useful    7.2 GB/s   through the card   114.8 GB/s
+global  rows 16 depth   50000 warps 32 splits 1 batch 1    17892.4 us   useful    7.2 GB/s   through the card   114.5 GB/s
+
+keys split over block groups, at each rows' best warp count (1 = no split, the launch today):
+global  rows  1 depth   16384 warps 32 splits 1 batch 1      588.8 us   useful   71.2 GB/s   through the card  1139.8 GB/s
+global  rows  1 depth   16384 warps 32 splits 2 batch 1      395.9 us   useful  105.9 GB/s   through the card  1695.1 GB/s
+global  rows  1 depth   16384 warps 32 splits 4 batch 1      390.1 us   useful  107.5 GB/s   through the card  1720.1 GB/s
+global  rows  1 depth   16384 warps 32 splits 8 batch 1      390.1 us   useful  107.5 GB/s   through the card  1720.1 GB/s
+global  rows  2 depth   16384 warps 32 splits 1 batch 1      777.2 us   useful   54.0 GB/s   through the card   863.5 GB/s
+global  rows  2 depth   16384 warps 32 splits 2 batch 1      767.0 us   useful   54.7 GB/s   through the card   875.0 GB/s
+global  rows  2 depth   16384 warps 32 splits 4 batch 1      762.9 us   useful   55.0 GB/s   through the card   879.7 GB/s
+global  rows  2 depth   16384 warps 32 splits 8 batch 1      731.1 us   useful   57.4 GB/s   through the card   917.9 GB/s
+global  rows  3 depth   16384 warps 16 splits 1 batch 1     1070.1 us   useful   39.2 GB/s   through the card   627.1 GB/s
+global  rows  3 depth   16384 warps 16 splits 2 batch 1     1177.6 us   useful   35.6 GB/s   through the card   569.9 GB/s
+global  rows  3 depth   16384 warps 16 splits 4 batch 1     1013.5 us   useful   41.4 GB/s   through the card   662.1 GB/s
+global  rows  3 depth   16384 warps 16 splits 8 batch 1      987.1 us   useful   42.5 GB/s   through the card   679.8 GB/s
+global  rows  4 depth   16384 warps 16 splits 1 batch 1     1315.7 us   useful   31.9 GB/s   through the card   510.1 GB/s
+global  rows  4 depth   16384 warps 16 splits 2 batch 1     1303.6 us   useful   32.2 GB/s   through the card   514.8 GB/s
+global  rows  4 depth   16384 warps 16 splits 4 batch 1     1316.9 us   useful   31.9 GB/s   through the card   509.6 GB/s
+global  rows  4 depth   16384 warps 16 splits 8 batch 1     1307.6 us   useful   32.1 GB/s   through the card   513.2 GB/s
+global  rows  1 depth   50000 warps 32 splits 1 batch 1     1968.1 us   useful   65.0 GB/s   through the card  1040.6 GB/s
+global  rows  1 depth   50000 warps 32 splits 2 batch 1     1135.3 us   useful  112.7 GB/s   through the card  1803.9 GB/s
+global  rows  1 depth   50000 warps 32 splits 4 batch 1     1133.6 us   useful  112.9 GB/s   through the card  1806.7 GB/s
+global  rows  1 depth   50000 warps 32 splits 8 batch 1     1143.8 us   useful  111.9 GB/s   through the card  1790.5 GB/s
+global  rows  2 depth   50000 warps 32 splits 1 batch 1     2287.6 us   useful   56.0 GB/s   through the card   895.3 GB/s
+global  rows  2 depth   50000 warps 32 splits 2 batch 1     2270.8 us   useful   56.4 GB/s   through the card   901.9 GB/s
+global  rows  2 depth   50000 warps 32 splits 4 batch 1     2274.2 us   useful   56.3 GB/s   through the card   900.5 GB/s
+global  rows  2 depth   50000 warps 32 splits 8 batch 1     2290.3 us   useful   55.9 GB/s   through the card   894.2 GB/s
+global  rows  3 depth   50000 warps 16 splits 1 batch 1     4164.3 us   useful   30.7 GB/s   through the card   491.8 GB/s
+global  rows  3 depth   50000 warps 16 splits 2 batch 1     4113.4 us   useful   31.1 GB/s   through the card   497.9 GB/s
+global  rows  3 depth   50000 warps 16 splits 4 batch 1     3221.5 us   useful   39.7 GB/s   through the card   635.7 GB/s
+global  rows  3 depth   50000 warps 16 splits 8 batch 1     3173.3 us   useful   40.3 GB/s   through the card   645.4 GB/s
+global  rows  4 depth   50000 warps 16 splits 1 batch 1     4383.6 us   useful   29.2 GB/s   through the card   467.2 GB/s
+global  rows  4 depth   50000 warps 16 splits 2 batch 1     4467.7 us   useful   28.7 GB/s   through the card   458.4 GB/s
+global  rows  4 depth   50000 warps 16 splits 4 batch 1     4503.6 us   useful   28.4 GB/s   through the card   454.8 GB/s
+global  rows  4 depth   50000 warps 16 splits 8 batch 1     4561.7 us   useful   28.1 GB/s   through the card   449.0 GB/s
+
+keys a warp takes per round, at each rows' best warps and splits (1 = the loop of every build before this; the wall being tested is one dependent memory round trip per key):
+global  rows  1 depth   16384 warps 32 splits 2 batch 1      386.0 us   useful  108.6 GB/s   through the card  1738.4 GB/s
+global  rows  1 depth   16384 warps 16 splits 2 batch 1      479.2 us   useful   87.5 GB/s   through the card  1400.3 GB/s
+global  rows  1 depth   16384 warps 16 splits 2 batch 2      557.8 us   useful   75.2 GB/s   through the card  1203.1 GB/s
+global  rows  1 depth   16384 warps 16 splits 2 batch 4      478.1 us   useful   87.7 GB/s   through the card  1403.7 GB/s
+global  rows  1 depth   16384 warps 16 splits 2 batch 8      423.9 us   useful   98.9 GB/s   through the card  1583.0 GB/s
+global  rows  2 depth   16384 warps 32 splits 1 batch 1      773.0 us   useful   54.3 GB/s   through the card   868.2 GB/s
+global  rows  2 depth   16384 warps 16 splits 1 batch 1      942.1 us   useful   44.5 GB/s   through the card   712.3 GB/s
+global  rows  2 depth   16384 warps 16 splits 1 batch 2     1089.4 us   useful   38.5 GB/s   through the card   616.0 GB/s
+global  rows  2 depth   16384 warps 16 splits 1 batch 4      930.8 us   useful   45.1 GB/s   through the card   721.0 GB/s
+global  rows  2 depth   16384 warps 16 splits 1 batch 8      839.7 us   useful   50.0 GB/s   through the card   799.2 GB/s
+global  rows  3 depth   16384 warps 16 splits 8 batch 1      984.7 us   useful   42.6 GB/s   through the card   681.5 GB/s
+global  rows  3 depth   16384 warps 16 splits 8 batch 2     1297.4 us   useful   32.3 GB/s   through the card   517.3 GB/s
+global  rows  3 depth   16384 warps 16 splits 8 batch 4     1122.9 us   useful   37.4 GB/s   through the card   597.6 GB/s
+global  rows  3 depth   16384 warps 16 splits 8 batch 8     1204.2 us   useful   34.8 GB/s   through the card   557.3 GB/s
+global  rows  4 depth   16384 warps 16 splits 1 batch 1     1328.1 us   useful   31.6 GB/s   through the card   505.3 GB/s
+global  rows  4 depth   16384 warps 16 splits 1 batch 2     1758.1 us   useful   23.9 GB/s   through the card   381.7 GB/s
+global  rows  4 depth   16384 warps 16 splits 1 batch 4     1509.2 us   useful   27.8 GB/s   through the card   444.7 GB/s
+global  rows  4 depth   16384 warps 16 splits 1 batch 8     1659.9 us   useful   25.3 GB/s   through the card   404.3 GB/s
+global  rows  1 depth   50000 warps 32 splits 2 batch 1     1135.6 us   useful  112.7 GB/s   through the card  1803.5 GB/s
+global  rows  1 depth   50000 warps 16 splits 2 batch 1     2076.6 us   useful   61.6 GB/s   through the card   986.2 GB/s
+global  rows  1 depth   50000 warps 16 splits 2 batch 2     1597.3 us   useful   80.1 GB/s   through the card  1282.2 GB/s
+global  rows  1 depth   50000 warps 16 splits 2 batch 4     1425.4 us   useful   89.8 GB/s   through the card  1436.8 GB/s
+global  rows  1 depth   50000 warps 16 splits 2 batch 8     1297.4 us   useful   98.7 GB/s   through the card  1578.5 GB/s
+global  rows  2 depth   50000 warps 32 splits 1 batch 1     2247.6 us   useful   57.0 GB/s   through the card   911.2 GB/s
+global  rows  2 depth   50000 warps 16 splits 1 batch 1     4125.6 us   useful   31.0 GB/s   through the card   496.4 GB/s
+global  rows  2 depth   50000 warps 16 splits 1 batch 2     3316.3 us   useful   38.6 GB/s   through the card   617.6 GB/s
+global  rows  2 depth   50000 warps 16 splits 1 batch 4     2828.0 us   useful   45.3 GB/s   through the card   724.2 GB/s
+global  rows  2 depth   50000 warps 16 splits 1 batch 8     2555.8 us   useful   50.1 GB/s   through the card   801.3 GB/s
+global  rows  3 depth   50000 warps 16 splits 8 batch 1     3182.3 us   useful   40.2 GB/s   through the card   643.6 GB/s
+global  rows  3 depth   50000 warps 16 splits 8 batch 2     3881.7 us   useful   33.0 GB/s   through the card   527.6 GB/s
+global  rows  3 depth   50000 warps 16 splits 8 batch 4     3366.9 us   useful   38.0 GB/s   through the card   608.3 GB/s
+global  rows  3 depth   50000 warps 16 splits 8 batch 8     3609.7 us   useful   35.5 GB/s   through the card   567.4 GB/s
+global  rows  4 depth   50000 warps 16 splits 1 batch 1     4376.6 us   useful   29.2 GB/s   through the card   467.9 GB/s
+global  rows  4 depth   50000 warps 16 splits 1 batch 2     5337.9 us   useful   24.0 GB/s   through the card   383.7 GB/s
+global  rows  4 depth   50000 warps 16 splits 1 batch 4     4588.2 us   useful   27.9 GB/s   through the card   446.4 GB/s
+global  rows  4 depth   50000 warps 16 splits 1 batch 8     5089.1 us   useful   25.2 GB/s   through the card   402.4 GB/s
+
+the 39 window layers, 128 rows of a ring:
+window  rows  1 depth   16384 warps  4 splits 1 batch 1       38.7 us   useful   16.9 GB/s   through the card   135.5 GB/s
+window  rows  1 depth   16384 warps 32 splits 1 batch 1       24.2 us   useful   27.1 GB/s   through the card   216.4 GB/s
+window  rows  4 depth   16384 warps  4 splits 1 batch 1       39.9 us   useful   16.4 GB/s   through the card   131.5 GB/s
+window  rows  4 depth   16384 warps 32 splits 1 batch 1       44.0 us   useful   14.9 GB/s   through the card   119.1 GB/s
+window  rows  1 depth   50000 warps  4 splits 1 batch 1       38.8 us   useful   16.9 GB/s   through the card   135.3 GB/s
+window  rows  1 depth   50000 warps 32 splits 1 batch 1       24.3 us   useful   27.0 GB/s   through the card   215.9 GB/s
+window  rows  4 depth   50000 warps  4 splits 1 batch 1       39.8 us   useful   16.5 GB/s   through the card   131.7 GB/s
+window  rows  4 depth   50000 warps 32 splits 1 batch 1       44.8 us   useful   14.6 GB/s   through the card   116.9 GB/s
+
+strata-poly: mimo2-attend: split kernel at 8 warps a block, 64 blocks a token (STRATA_MIMO_ATTN_WARPS=8)
+strata-poly: mimo2-attend: split kernel at 16 warps a block, 64 blocks a token (STRATA_MIMO_ATTN_WARPS=16)
+strata-poly: mimo2-attend: split kernel at 32 warps a block, 64 blocks a token (STRATA_MIMO_ATTN_WARPS=32)
+strata-poly: mimo2-attend: split kernel walks a head's keys in 2 block groups, merged after (STRATA_MIMO_ATTN_SPLITK=2)
+strata-poly: mimo2-attend: split kernel takes 2 keys a warp's round (STRATA_MIMO_ATTN_BATCH=2)

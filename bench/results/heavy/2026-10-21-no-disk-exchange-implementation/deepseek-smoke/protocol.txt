@@ -1,0 +1,3 @@
+INFO context=131072 expert_slots=566 expert_cache_mib=6203 pool_workers=12 conversation_cache_mib=0 conversation_cache_slots=4 conversation_cache_min_free_mib=512 vram_free_mib=403 vram_elastic=0 batch_slots=0 engine=0.1.45
+INFO session_dir=L:\AI_pictures_generate\PolyStrata\bench\results\2026-10-21-no-disk-exchange-implementation\deepseek-smoke-work\sessions session_max_mib=16384
+READY 131072 stop

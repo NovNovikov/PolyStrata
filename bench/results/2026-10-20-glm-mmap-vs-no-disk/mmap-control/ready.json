@@ -1,0 +1,27 @@
+{
+  "load_s": 39.14654809999047,
+  "memory": {
+    "rss": 21171335168,
+    "vms": 26270416896,
+    "num_page_faults": 5227789,
+    "peak_wset": 21171335168,
+    "wset": 21171335168,
+    "peak_paged_pool": 450951736,
+    "paged_pool": 229104768,
+    "peak_nonpaged_pool": 101056,
+    "nonpaged_pool": 100928,
+    "pagefile": 26270416896,
+    "peak_pagefile": 26475016192,
+    "private": 26270416896
+  },
+  "process_gpu": {
+    "used": 23444377600,
+    "spilled": 2197815296,
+    "shared": 2197815296,
+    "asked": 25642192896
+  },
+  "model_or_draft_handles_open": [
+    "l:\\ai_pictures_generate\\polystrata-data\\models\\glm-3.0bit\\glm-5.3-flash-gsq-rco-3.0bit-q4kattn.gguf",
+    "l:\\ai_pictures_generate\\polystrata-data\\mtp\\glm-5.3-flash\\draft-block.gguf"
+  ]
+}
