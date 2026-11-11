@@ -1327,11 +1327,32 @@ uint64_t session_stream_peak_bytes(const SessionSaveLive& live) {
 
 bool session_save_checkpoints(const std::vector<ConversationCheckpoint>& chain, const SessionSaveLive& live,
                               const std::function<bool(uint64_t need_bytes, std::string& why)>& admit,
-                              std::vector<ConversationCheckpoint>& out, std::string& why) {
+                              std::vector<ConversationCheckpoint>& out, std::string& why,
+                              size_t max_checkpoints) {
     out.clear();
-    const ConversationCheckpoint* deepest = session_deepest_checkpoint(chain);
-    if (admit && !admit(session_save_peak_bytes(deepest, live), why)) return false;
-    if (deepest) out.push_back(*deepest);
+    if (chain.empty()) return true;
+    // every checkpoint RAM admits, deepest first: a file carrying them lets a prompt that DIVERGES from
+    // the stored conversation resume at the deepest checkpoint under the divergence, not only at the end
+    // of it (the request side already starts from a matching checkpoint).  max_checkpoints keeps the file
+    // inside what this engine's read limits accept (the caller passes its own restore limit).
+    std::vector<const ConversationCheckpoint*> order;
+    order.reserve(chain.size());
+    for (const ConversationCheckpoint& c : chain) order.push_back(&c);
+    std::sort(order.begin(), order.end(), [](const ConversationCheckpoint* a, const ConversationCheckpoint* b) {
+        return a->ids.size() > b->ids.size();
+    });
+    if (max_checkpoints < order.size()) order.resize(max_checkpoints);
+    uint64_t need = session_save_peak_bytes(nullptr, live);
+    for (const ConversationCheckpoint* c : order) {
+        const uint64_t next = sat_add(need, sat_mul(2, c->bytes()));   // the list and the image's copy
+        std::string w;
+        if (admit && !admit(next, w)) {
+            if (out.empty()) { why = w; return false; }   // the deepest one refused: nothing to save
+            break;                                        // this one and the shallower stay in RAM
+        }
+        need = next;
+        out.push_back(*c);
+    }
     return true;
 }
 

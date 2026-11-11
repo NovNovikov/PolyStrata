@@ -15600,7 +15600,8 @@ int main(int argc, char** argv) {
                             std::vector<strata::core::SessionKvSource> sources;
                             blocking("capture", 0);
                             if (!strata::core::session_stream_snapshot(stream, sources, view, ss, g,
-                                                                       mtp.kv_state(), err)) {
+                                                                       mtp.kv_state(), err,
+                                                                       (size_t) std::max(o.prompt_cache, 1))) {
                                 refuse(err, strata::core::SessionError::io);
                                 continue;
                             }
@@ -15612,7 +15613,8 @@ int main(int argc, char** argv) {
                                 continue;
                             }
                         } else {
-                        if (!strata::core::session_save_checkpoints(checks, sl, admit, disk_checks, why)) {
+                        if (!strata::core::session_save_checkpoints(checks, sl, admit, disk_checks, why,
+                                                                    (size_t) std::max(o.prompt_cache, 1))) {
                             refuse(why, strata::core::SessionError::memory);
                             continue;
                         }

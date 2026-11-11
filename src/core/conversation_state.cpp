@@ -704,11 +704,13 @@ bool session_live_stream_source(SessionStateSource& out, const SessionState& ss,
 }
 
 // The stream edition of conversation_snapshot_sources: descriptors only, no vectors, no
-// copies.  The deepest checkpoint is chosen exactly as session_checkpoints_to_save
-// chooses it, by pointer (session_deepest_checkpoint).
+// copies.  EVERY checkpoint of the chain goes to the file (descriptors cost no RAM, the stream
+// reads each from its owner): a prompt that diverges from the stored conversation then resumes
+// from the deepest checkpoint under the divergence instead of re-reading down to it.
 bool session_stream_snapshot(SavedConversationStream& stream, std::vector<SessionKvSource>& kv,
                              const ConversationView& view, const SessionState& ss,
-                             const ModelGeometry& g, const QsaState& draft, std::string& error) {
+                             const ModelGeometry& g, const QsaState& draft, std::string& error,
+                             size_t max_checkpoints) {
     if (!view_validate(view, ss, g, error) || !sync(error)) return false;
     SavedConversationStream s;
     s.geometry = geometry_key(g);
@@ -716,12 +718,19 @@ bool session_stream_snapshot(SavedConversationStream& stream, std::vector<Sessio
     s.cvec = view.cvec;
     s.live.ids = &view.ids; s.live.imgs = &view.images; s.live.used = 0;
     if (!session_live_stream_source(s.live.state, ss, g, view.ids.size(), error)) return false;
-    if (const ConversationCheckpoint* deepest = session_deepest_checkpoint(view.checkpoints)) {
-        if (!deepest->stage_parts.empty())
+    std::vector<const ConversationCheckpoint*> order;   // deepest first, like the copying save path
+    order.reserve(view.checkpoints.size());
+    for (const ConversationCheckpoint& c : view.checkpoints) order.push_back(&c);
+    std::sort(order.begin(), order.end(), [](const ConversationCheckpoint* a, const ConversationCheckpoint* b) {
+        return a->ids.size() > b->ids.size();
+    });
+    if (max_checkpoints < order.size()) order.resize(max_checkpoints);
+    for (const ConversationCheckpoint* c : order) {
+        if (!c->stage_parts.empty())
             return fail(error, "layer-split state cannot be saved");
         SavedConversationStreamCheckpoint entry;
-        entry.ids = &deepest->ids; entry.imgs = &deepest->imgs; entry.used = deepest->used;
-        if (!session_checkpoint_stream_source(entry.state, *deepest, error)) return false;
+        entry.ids = &c->ids; entry.imgs = &c->imgs; entry.used = c->used;
+        if (!session_checkpoint_stream_source(entry.state, *c, error)) return false;
         s.checkpoints.push_back(std::move(entry));
     }
     const int64_t upto = (int64_t) view.ids.size();

@@ -714,8 +714,8 @@ int main() {
         for (size_t i = 0; same_chain && i < chain.size(); ++i) same_chain = same_checkpoint(chain[i], before[i]);
         check(same_chain, "save: a refusal leaves the live checkpoints untouched");
         const auto agree = [&](uint64_t, std::string&) { return true; };
-        check(session_save_checkpoints(chain, live, agree, out, why) && out.size() == 1 &&
-              same_checkpoint(out[0], chain[1]), "save: admitted, the deepest checkpoint is copied");
+        check(session_save_checkpoints(chain, live, agree, out, why) && out.size() == chain.size() &&
+              same_checkpoint(out[0], chain[1]), "save: admitted, every checkpoint is copied, deepest first");
         check(session_save_checkpoints({}, live, agree, out, why) && out.empty(), "save: no checkpoints, none copied");
 #if defined(__linux__) && !defined(__SANITIZE_ADDRESS__) && !defined(STRATA_NO_RLIMIT_TEST)
         // under a real address-space limit that cannot hold one more copy: the refusal comes first, no bad_alloc;
