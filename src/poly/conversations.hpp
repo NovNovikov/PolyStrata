@@ -323,6 +323,34 @@ public:
         return ok ? SOut::saved : st.no_room ? SOut::storage : SOut::io;
     }
 
+    /// RESTORE's short-circuit, the Qwen engine's already-held peek (conversation_file.cpp's
+    /// session_file_held) in this host's words: when the live conversation IS the file's conversation at
+    /// the file's depth - the file's ids are the head of the live ids and the engine sits at the live
+    /// conversation's last token - the mount below would read gigabytes to rebuild what this process
+    /// already holds, and drop the staging whose rewarming the next prefill pays for.  The peek reads the
+    /// file's head only (ids, shapes, parent: a few hundred KB against the whole file).  Any doubt - a
+    /// deeper file, a file of a row chain (a parent), shapes that moved since, no live conversation, an
+    /// unreadable head - answers false, and the caller mounts exactly as it always did; a refusal is never
+    /// this method's verdict.  A file corrupt below its ids still says held: skipping a mount the live
+    /// conversation makes pointless cannot damage it, and the next real read refuses the corruption.
+    /// `tokens` and `bytes` name what the mount's own RESTORED line names: the file's tokens, its size.
+    bool holds_file(const std::filesystem::path& path, int64_t& tokens, size_t& bytes) const {
+        const Slot& live = slots_[cur_];
+        if (!live.held || live.seq.empty()) return false;   // no engine state to answer with
+        std::error_code ec;
+        const auto size = std::filesystem::file_size(path, ec);
+        if (ec) return false;                               // no file: the mount reports it as it always did
+        const std::optional<SessionFile::Head> head = SessionFile::read_head(path);
+        if (!head || !head->parent.empty()) return false;   // a chain file holds only part of a conversation
+        if (head->sb != e_.state_bytes() || head->rb != e_.row_bytes()) return false;
+        const int64_t n = (int64_t) head->seq.size();
+        if (n == 0 || n > (int64_t) live.seq.size()) return false;   // the file runs deeper: read it
+        if (std::memcmp(head->seq.data(), live.seq.data(), (size_t) n * sizeof(int32_t)) != 0) return false;
+        tokens = n;
+        bytes = (size_t) size;
+        return true;
+    }
+
     /// RESTORE <path>: the file's conversation takes the engine whole; the outgoing one is given up, as the
     /// Qwen engine's restore does (the parked ones stay).  `floor` is the RAM floor, the conversation cache's
     /// (`conversation-cache-min-free-mib`).  What is asked before the engine is touched: the parse's peak and

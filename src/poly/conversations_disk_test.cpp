@@ -477,6 +477,32 @@ int main() {
         check(more_from == (int64_t) ids.size(), "the restored conversation is where it left off");
         go_on(e5, second, more, more_from);
         check(e5.holds(more), "the conversation read on from the restore is bit for bit the reread's result");
+        // The already-held short-circuit: the server sends RESTORE with every request, and the engine must
+        // not read back the file whose conversation it holds (the Qwen engine's session_file_held rule).
+        int64_t h_tokens = 0;
+        size_t h_bytes = 0;
+        check(kept.holds_file(store / name, h_tokens, h_bytes) && h_tokens == (int64_t) ids.size() &&
+                  h_bytes == bytes,
+              "the conversation the file was saved from holds it at its exact depth: nothing to read");
+        check(second.holds_file(store / name, h_tokens, h_bytes) && h_tokens == (int64_t) ids.size(),
+              "a file the live conversation starts with is held too: the live one is the deeper part");
+        Fake e_none;
+        const std::filesystem::path none_dir = store / "no-engine";   // another dir: the scan takes nothing away
+        std::filesystem::create_directories(none_dir);
+        Conversations<Fake> nobody(e_none, options(none_dir));
+        check(!nobody.holds_file(store / name, h_tokens, h_bytes), "an engine with no conversation holds no file");
+        // the foreign conversation lives in a host of its own dir: the shared dir's files and counts stay as
+        // the later checks left them
+        Fake e_for;
+        Conversations<Fake> outsider(e_for, options(none_dir));
+        std::vector<int32_t> foreign = text(123, 130);
+        const int64_t f_from = outsider.resume(foreign);
+        go_on(e_for, outsider, foreign, f_from);
+        outsider.prompt_was((int64_t) foreign.size());
+        check(!outsider.holds_file(store / name, h_tokens, h_bytes),
+              "a live conversation the file's ids do not start with is not held");
+        check(!second.holds_file(store / "no-such-file.bin", h_tokens, h_bytes),
+              "a file that is not there decides nothing: the sideload reports it as it always did");
         // The host holds the payloads unpacked, and the file's own bytes are never in memory twice: a host
         // that cannot take the payloads gets the refusal before the engine is touched
         {

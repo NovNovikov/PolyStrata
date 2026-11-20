@@ -904,6 +904,26 @@ int serve(Session& ss, const Options& o) {
                     refuse("io", false, e.what());
                 }
             } else {
+                // ALREADY-HELD short-circuit, the shape the Qwen engine answers RESTORE with: when the live
+                // conversation IS this file's conversation at the file's depth, the sideload below would read
+                // gigabytes to rebuild what this process already holds - and the staging it drops costs the
+                // next prefill seconds of rewarming, which is what reads as a slow prompt.  The peek touches
+                // the file's head only; any doubt falls through to the sideload, which reports refusals
+                // exactly as it always did.
+                {
+                    int64_t held_tokens = 0;
+                    size_t held_bytes = 0;
+                    const Clock::time_point t_hold = Clock::now();
+                    if (ss.kept.holds_file(path, held_tokens, held_bytes)) {
+                        std::fprintf(stderr, "strata-poly: session restore %s: the live session already holds it "
+                                             "(%lld tokens), nothing read\n",
+                                     path.c_str(), (long long) held_tokens);
+                        std::printf("RESTORED %lld %zu %.1f\n", (long long) held_tokens, held_bytes,
+                                    ms_since(t_hold));
+                        std::fflush(stdout);
+                        continue;
+                    }
+                }
                 bool touched = false;   // the engine's writes began: the answer to all failures after is fatal
                 long long tokens = 0;
                 size_t bytes = 0;
