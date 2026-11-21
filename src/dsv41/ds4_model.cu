@@ -7906,6 +7906,14 @@ struct Model::Impl {
            << " tensors.txt:" << size_of(pk.dir + "/tensors.txt");
         for (size_t i = 0; i < pk.files.size(); ++i)
             id << " " << pk.files[i] << ":" << (i < pk.fsz.size() ? pk.fsz[i] : os::file_size(pk.fds[i]));
+        // (local, task spec 6) Expert Deferral changes what a layer adds to the state a session keeps: with a defer
+        // mode on, the mode and its knobs join the identity, so a file computed under deferral can never mount on a
+        // run without it (or under other knobs) unnoticed. With DEFER unset the string is byte-identical to before.
+        if (const int df = defer_mode(); df != 0) {
+            id << " defer=" << df << " w=" << (std::getenv("STRATA_DS4_DEFER_W") ? std::getenv("STRATA_DS4_DEFER_W") : "0.2");
+            if (df == 4) id << " k=" << defer_k() << (defer_cold() ? " cold" : "");
+            if (std::getenv("STRATA_DS4_DEFER_EARLY") != nullptr) id << " early";
+        }
         return id.str();
     }
 
