@@ -49,6 +49,7 @@ public:
     struct Stats {
         std::atomic<int64_t> hits{0}, misses{0}, prefetched{0}, prefetch_used{0}, prefetch_wasted{0}, evictions{0}, fails{0};
         std::atomic<int64_t> bytes_read{0}, wait_ns{0}, no_slot{0}, cancelled{0}, put{0};
+        std::atomic<int64_t> rebalances{0};   // (local) chunks recast between size classes so a class cannot starve on a full budget
     };
     struct Vis {                 // a slot the GPU may read from now on (dev != 0), or no longer (dev == 0)
         int layer = 0, e = 0;
@@ -615,8 +616,87 @@ private:
                 bv = v;
             }
         }
-        if (best < 0) return -1;
+        if (best < 0) {
+            // (local) the class cannot feed itself: it grows nothing (the byte budget lies committed in other
+            // classes' chunks) and has nothing of its own to evict (all pinned, visible, loading, or none yet).
+            // Under the uniform store this state could not outlast one eviction; with size classes it can be
+            // permanent, and under STRATA_DS4_DROP_SHARDS (no mapped view to fall back on) a store that will
+            // never hold an expert makes the engine's rescue loop give the process up. Reclaim instead: give
+            // this class a cold chunk of another one, whole.
+            if (rebalance(cls) >= 0) return take_slot(demand, cls);
+            return -1;
+        }
         return best;
+    }
+
+    // (local) Class starvation relief: the coldest chunk whose every slot is free, or ready and neither pinned
+    // nor GPU-visible, is recast as slots of class `cls` - the same committed bytes, another class's shape.
+    // A chunk of the wanted class is never recast (feeding this class from itself is the eviction loop's job,
+    // and a chunk full of pinned or loading slots gives nothing up). The recast group cannot be wider than
+    // the old one: later chunks' first entries are fixed, so leftover entries die (cls -1: every scan skips
+    // them, the bytes stay committed). Only shrink_chunks, which ends the arena, may retire entries - a dead
+    // middle entry costs nothing but its scan step.  Returns the group's first index, or -1.  mu_ held.
+    int rebalance(int cls) {
+        const size_t sb = cls_bytes_[(size_t) cls];
+        int best = -1;
+        double bs = 0.0;
+        for (size_t c = 0; c < chunks_.size(); ++c) {
+            const size_t first = chunk_first_[c], last = c + 1 < chunks_.size() ? chunk_first_[c + 1] : nalloc_;
+            if (first >= last || sb > chunks_[c].second) continue;   // (not even one wanted slot fits)
+            double s = 0.0;
+            bool ours = false, can = true;
+            for (size_t i = first; i < last && can; ++i) {
+                Slot& sp = slots_[i];
+                if (sp.state.load(std::memory_order_acquire) == kLoading && sp.left.load(std::memory_order_acquire) == 0) {   // (read by now: land it)
+                    try_ready(sp);
+                    if (sp.state.load(std::memory_order_acquire) == kLoading) finish(sp);
+                }
+                const int st = sp.state.load(std::memory_order_acquire);
+                if (st == kLoading) { can = false; break; }
+                if (sp.cls == cls) ours = true;
+                if (st == kReady) {
+                    if (sp.pin > 0 || sp.visible) { can = false; break; }
+                    s += score(sp);
+                }
+            }
+            if (!can || ours) continue;
+            if (best < 0 || s < bs || (s == bs && (size_t) best < c)) { best = (int) c; bs = s; }   // (ties: the later chunk - the arena's head is the older, usually hotter, ground)
+        }
+        if (best < 0) return -1;
+        const size_t c = (size_t) best, first = chunk_first_[c], last = chunk_first_[c] + (chunk_span(c));
+        void* p = chunks_[c].first;
+        const size_t n = std::min(last - first, chunks_[c].second / sb);
+        for (size_t i = first; i < last; ++i) {
+            Slot& sp = slots_[i];
+            if (sp.layer >= 0 && sp.expert >= 0) {   // (what it held is forgotten: the whole point of the reclaim)
+                where_[(size_t) sp.layer][(size_t) sp.expert] = -1;
+                st_.evictions.fetch_add(1, std::memory_order_relaxed);
+            }
+            sp.layer = sp.expert = -1;
+            sp.pin = 0;
+            sp.prefetch = false;
+            sp.visible = false;
+            sp.bad.store(false);
+            sp.cancel.store(false);
+            sp.left.store(0);
+            sp.tick = 0;
+            if (i - first < n) {
+                sp.base = (uint8_t*) p + (i - first) * sb + kSlack;
+                sp.cls = cls;
+                sp.chunk = (int) c;
+            } else {
+                sp.base = nullptr;
+                sp.cls = -1;
+            }
+            sp.state.store(kFree, std::memory_order_release);
+        }
+        st_.rebalances.fetch_add(1, std::memory_order_relaxed);
+        free_hint_c_[(size_t) cls] = std::min(free_hint_c_[(size_t) cls], first);   // (the scan must reach the new slots)
+        return (int) first;
+    }
+
+    size_t chunk_span(size_t c) const {
+        return (c + 1 < chunks_.size() ? chunk_first_[c + 1] : nalloc_) - chunk_first_[c];
     }
 
     Cfg cfg_;

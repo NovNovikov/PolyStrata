@@ -8,10 +8,12 @@
 // the same byte budget before the first eviction. No GGUF, no device, no model.
 #include "ds4_store.hpp"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace strata::ds4;
@@ -291,6 +293,119 @@ int main() {
             check(gone + held == kNExp && held > 0 && good == held, "after eviction: held experts read right, gone ones are unfindable");
         }
     }
+    // 6. class starvation and the rebalance (hostile review 3): the byte budget can lie entirely in one
+    // class's chunks, and then a class that owns none could get nothing forever - the uniform store could
+    // always evict somebody, classes cannot. Under DROP_SHARDS (no mapped view) that starves the engine's
+    // rescue loop into exiting the process. The store must recast a cold chunk of another class instead,
+    // never steal one whose slots are pinned, and every held expert must still match its file.
+    set_env("DS4_STORE_CHUNK_SLOTS=8");   // (the test knob: eight-slot chunks, so one chunk fills the budget)
+    set_env("DS4_STORE_UNIFORM=");        // (the uniform section above left it on: these blocks need the classes)
+    const auto sb_of = [&](int l) {
+        return (fx.geo[(size_t) l].blob + 2 * 8192 + 4095) & ~(size_t) 4095;   // the store's own slot-size formula
+    };
+    {
+        ExpertStore::Cfg c;
+        c.threads = 2;
+        c.floor_bytes = 0;
+        // eight big slots plus a tail too small even for the smallest class's chunk: the first chunk eats
+        // the budget, every other class starves by construction
+        c.budget_bytes = 8 * sb_of(0) + 200000;
+        ExpertStore st;
+        check(st.init(c, fx.geo, fx.dfds, fx.pfds), "starvation store inits");
+        check(st.used_bytes() <= st.budget(), "init stays inside the budget");
+        // fill the first class: 8 demand loads, all held
+        int held0 = 0;
+        for (int e = 0; e < 8; ++e)
+            if (load(st, 0, e) >= 0) ++held0;
+        check(held0 == 8, "the big class fills its chunk");
+        // the second class owns no slot and no budget is left for its chunk: the rebalance must give it one
+        check(load(st, 1, 3) >= 0, "a starved class gets a recast chunk");
+        check(st.stats().rebalances.load() > 0, "the store says it rebalanced");
+        check(check_held(st, 1, 3, fx.geo), "the recast class's expert reads its file's bytes");
+        check(st.used_bytes() <= st.budget(), "the recast does not grow the arena");
+        // and back: the first class is now the starved one - recast must give it room too (its slots are
+        // wider than the recast chunk leaves per slot: fewer slots, some entries die - scans must cope)
+        for (int e = 0; e < 8; ++e) load(st, 1, e);   // (make the class-1 chunk fully cold-held)
+        check(load(st, 0, 1) >= 0, "the wide class gets room from a recast too");
+        check(check_held(st, 0, 1, fx.geo), "its expert reads its file's bytes after the recast");
+        load(st, 0, 2);
+        load(st, 0, 3);   // (more loads than the recast slots: in-class eviction takes over, no -1 spiral)
+        // every expert the store still claims must match its file - dead entries and all
+        bool all_right = true, any_held = false;
+        for (int l = 0; l < kNLay; ++l)
+            for (int e = 0; e < kNExp; ++e) {
+                if (st.find(l, e) < 0) continue;
+                any_held = true;
+                if (!check_held(st, l, e, fx.geo)) all_right = false;
+            }
+        check(any_held && all_right, "after the recasts every held expert reads right, none is a ghost");
+        // pinned protection: a chunk whose slot is pinned by a live request must not be recast; the load
+        // that cannot be served reports no slot (the engine retries), it does not corrupt or crash
+        {
+            const int es[1] = {7};
+            std::vector<char> ok;
+            std::vector<int> sl;
+            st.begin(1, es, 1, ok, sl);   // (demand: pin held until release)
+            st.wait_slots(sl, ok, 0, 1);   // (let its read land: the probe must meet a kReady pinned slot, not a loading one)
+            // class 0, the wide one: its chunk was recast away and no budget is left for a new one, so the
+            // store reaches the recast - and the one chunk it could take is the chunk holding a pinned slot.
+            // It must answer "no slot" (the engine's rescue retries once pins drop), not steal it.
+            const int got = load(st, 0, 9);
+            check(got < 0, "with its only chunk pinned, the store gives no slot rather than recasting a live one");
+            const int s7 = st.find(1, 7);
+            check(s7 >= 0 && st.loaded(s7) && check_held(st, 1, 7, fx.geo), "the pinned expert is intact through the refused recast");
+            st.release(1, es, 1, ok);
+            // the starved narrow class: the engine's rescue retries until the store can serve; do the same
+            int got2 = -1;
+            for (int t = 0; t < 500 && (got2 = load(st, 2, 5)) < 0; ++t)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            check(got2 >= 0, "the starved class is served once the pins are down (the rescue's retry shape)");
+        }
+    }
+    // 6b. the recast's dead entries, deterministically: a narrow class's chunk recast to a wider one fits
+    // fewer slots - the extra table entries die. Every scan must pass over them, forget the narrow class's
+    // experts cleanly, and never show a ghost. Budget: the class-0 chunk + room for six class-2 slots + a
+    // tail too small for a class-1 chunk, so the class-1 demand reaches the recast and picks the narrow
+    // chunk (five cold slots' score beats the eight loaded class-0 ones).
+    {
+        const size_t sb0a = sb_of(0), sb2a = sb_of(2);
+        ExpertStore::Cfg c;
+        c.threads = 2;
+        c.floor_bytes = 0;
+        c.budget_bytes = 8 * sb0a + 6 * sb2a + 300000;
+        ExpertStore st;
+        check(st.init(c, fx.geo, fx.dfds, fx.pfds), "dead-entry store inits");
+        int held = 0;
+        for (int e = 0; e < 8; ++e)
+            if (load(st, 0, e) >= 0) ++held;
+        check(held == 8, "the wide class fills its chunk (and out-scores the narrow one later)");
+        for (int e = 0; e < 4; ++e)
+            check(load(st, 2, e) >= 0, "the narrow class grows its own chunk");
+        for (int e = 0; e < 8; ++e)
+            st.touch(0, e);   // (keep the wide chunk warm: the coldest-chunk metric - heat or recency, either
+                              //  way the touch moves it - so the middle class is offered the narrow chunk)
+        check(load(st, 1, 0) >= 0, "the middle class recasts the narrow chunk (its cold score wins)");
+        bool forgotten = true, wide_intact = true, mid_held = check_held(st, 1, 0, fx.geo);
+        for (int e = 0; e < 4; ++e)
+            if (st.find(2, e) >= 0) forgotten = false;   // (the recast forgot them: they must be gone, not ghosts)
+        for (int e = 0; e < 8; ++e)
+            if (!check_held(st, 0, e, fx.geo)) wide_intact = false;
+        check(forgotten, "the recast class's experts are forgotten, not ghosted");
+        check(wide_intact, "the untouched class reads right across the dead entries in its neighbour");
+        check(mid_held, "the recast's first expert reads its file");
+        check(load(st, 2, 9) >= 0, "the narrow class is served again after the recast (another chunk gives)");
+        check(check_held(st, 2, 9, fx.geo), "and its expert reads right past the dead entries");
+        bool sweep = true, any = false;
+        for (int l = 0; l < kNLay; ++l)
+            for (int e = 0; e < kNExp; ++e) {
+                if (st.find(l, e) < 0) continue;
+                any = true;
+                if (!check_held(st, l, e, fx.geo)) sweep = false;
+            }
+        check(any && sweep, "the dead-entry store's whole sweep: every held expert right, no ghosts");
+    }
+    set_env("DS4_STORE_CHUNK_SLOTS=");
+
     set_env("DS4_STORE_UNIFORM=");
     fx.close();
     std::printf("store_classes_test: %d checks, %d failures\n", checks, failures);
