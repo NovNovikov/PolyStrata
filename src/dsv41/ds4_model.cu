@@ -869,6 +869,7 @@ struct Layer {
           *gate_bias_vl = nullptr;   // (the image tokens' routing bias, with the vision tower)
     uint16_t* i_wproj = nullptr;
     float* gate_w = nullptr;   // the router's weights, F32 (DeepSeek's inference computes the gate in F32)
+    uint16_t* gate_bf = nullptr;   // (local, STRATA_DS4_ROUTER_BF16) the router kept in BF16 instead: half the VRAM, the same sums
     uint8_t* win = nullptr;                     // [win] rows of kKvFp8 (kv_row_bytes)
     float *c_kv = nullptr, *c_score = nullptr;  // the compressor's partial group (ratio > 1)
     // a run of chunks' states on the way (feed_mark, feed_marks): the ring and the partial group as they were before a
@@ -2336,6 +2337,25 @@ struct Model::Impl {
         cudaSetDevice(d.id);
         CK(cudaMemcpy(p, v.data(), n * 4, cudaMemcpyHostToDevice));
         return true;
+    }
+    // (local) STRATA_DS4_ROUTER_BF16=1: a BF16 router's bits as they are (gate_bf); any other dtype the F32 copy (gate_w)
+    bool router_w(Dev& d, Layer& l, const std::string& name, std::string& err, size_t* acct) {
+        // the donor's gemv_bf16 has no Metal body (a no-op stub): storing only BF16 there would silently drop the
+        // router's matmul, so the switch never takes effect on that backend and the F32 copy is kept (defect fix)
+#if defined(STRATA_METAL)
+        static const bool bf = false;
+#else
+        static const bool bf = std::getenv("STRATA_DS4_ROUTER_BF16") != nullptr && std::atoi(std::getenv("STRATA_DS4_ROUTER_BF16")) != 0;
+#endif
+        const Tensor* t = pk.get(name);
+        if (!bf || t == nullptr || t->dtype != "BF16" || t->bytes != (size_t) l.n_exp * g.dim * 2)
+            return f32(d, name, l.gate_w, err, acct, (size_t) l.n_exp * g.dim);
+        if (!dalloc(d, l.gate_bf, t->bytes / 2, err, acct)) return false;
+        return upload(d, *t, l.gate_bf, err);
+    }
+    void gate_gemv(const Layer& l, const float* x, int n, int k, int T, float* y, int ldy, cudaStream_t s) {
+        if (l.gate_bf != nullptr) gemv_bf16(l.gate_bf, x, n, k, T, y, ldy, s);
+        else gemv_f32(l.gate_w, x, n, k, T, y, ldy, s);
     }
     bool f16raw(Dev& d, const std::string& name, uint16_t*& p, std::string& err, size_t* acct) {
         const Tensor* t = pk.get(name);
@@ -5157,7 +5177,7 @@ struct Model::Impl {
                       f32(d, P + "hc_attn_base", l.hca_base, err, acct) && f32(d, P + "hc_ffn_fn", l.hcf_fn, err, acct) &&
                       f32(d, P + "hc_ffn_scale", l.hcf_scale, err, acct) &&
                       f32(d, P + "hc_ffn_base", l.hcf_base, err, acct) &&
-                      f32(d, P + "ffn.gate.weight", l.gate_w, err, acct, (size_t) l.n_exp * g.dim) &&
+                      router_w(d, l, P + "ffn.gate.weight", err, acct) &&
                       f32(d, P + "ffn.gate.bias", l.gate_bias, err, acct, (size_t) l.n_exp) &&
                       (l.mtp || img_tok < 0 || pk.get(P + "ffn.gate.bias_vl") == nullptr ||
                        f32(d, P + "ffn.gate.bias_vl", l.gate_bias_vl, err, acct, (size_t) l.n_exp)) &&
@@ -9395,7 +9415,7 @@ struct Model::Impl {
         const int j = l0.il + a, end = l0.mtp ? g.nl + g.n_mtp : g.nl;
         if (j >= end || j >= (int) L.size()) return nullptr;
         const Layer& n = L[(size_t) j];
-        if (n.dev != l0.dev || n.mtp != l0.mtp || n.lay.fmt != gg::kFmtMXFP4 || n.gate_w == nullptr || n.n_exp > 1024 ||
+        if (n.dev != l0.dev || n.mtp != l0.mtp || n.lay.fmt != gg::kFmtMXFP4 || (n.gate_w == nullptr && n.gate_bf == nullptr) || n.n_exp > 1024 ||
             (int) n.slot.size() < n.n_exp)
             return nullptr;
         for (int e = 0; e < n.n_exp; ++e)
@@ -11784,7 +11804,7 @@ struct Model::Impl {
 #endif
         hc_pre_norm(c.h, c.a_pre, l.ffn_norm, D, H, T, g.eps, c.x, s);
         x3::rows_f16(c.x, D, nullptr, T, D, c.x16, s);
-        gemv_f32(l.gate_w, c.x, l.n_exp, D, T, c.glog, 1024, s);   // (F32 x: the token path's bits)
+        gate_gemv(l, c.x, l.n_exp, D, T, c.glog, 1024, s);   // (F32 x: the token path's bits)
         for (int r0 = 0; r0 < T; r0 += kVlRows) {   // (route()'s image bits cover kVlRows rows a call)
             const int nr = std::min(kVlRows, T - r0);
             VlBits vb;
@@ -14266,7 +14286,7 @@ struct Model::Impl {
             // the routing goes to the service thread through the mailbox (a group's lead publishes it, the members
             // make the same plan) while the device runs the shared expert and the VRAM experts (from the plan the
             // router made), and waits for the answer only before the experts' sum
-            gemv_f32(l.gate_w, d.x, l.n_exp, D, T, d.glog, 1024, s);
+            gate_gemv(l, d.x, l.n_exp, D, T, d.glog, 1024, s);
             const unsigned sq = wp.seq[l.il];
             const int slot = (int) (sq % kRing);
             const bool lead = mi == 0;
@@ -14276,7 +14296,7 @@ struct Model::Impl {
                 if (nx == nullptr) break;
                 const int m = a == 1 ? std::max(1, std::min(kAhead1, nx->k_exp + ahead_extra)) : std::min(kPicks, nx->k_exp);
                 float* gl = d.glog_a + (size_t) (a - 1) * kWin * 1024;
-                gemv_f32(nx->gate_w, d.x, nx->n_exp, D, T, gl, 1024, s);   // (normed with the next layer's FFN
+                gate_gemv(*nx, d.x, nx->n_exp, D, T, gl, 1024, s);   // (normed with the next layer's FFN
                                                                          // weights instead: the same hit rate)
                 route_ahead(gl, nx->gate_bias, nx->n_exp, m, T, reqs + slot, (a - 1) * kAhead1, s);
                 na[a - 1] = m;
@@ -14457,7 +14477,7 @@ struct Model::Impl {
         static const bool phases = ds4_dbg("DS4_PHASES");   // debugging: where a decode layer's host time goes
         static double ph[8] = {0}, ph_prev = 0; static long ph_n = 0;
         const double ph0 = phases ? now_ms() : 0.0;
-        gemv_f32(l.gate_w, d.x, l.n_exp, D, T, d.glog, 1024, s);
+        gate_gemv(l, d.x, l.n_exp, D, T, d.glog, 1024, s);
         VlBits vb = {};
         vb.w[0] = l.mtp ? 0u : wp.vl;
         route(d.glog, l.gate_bias, l.n_exp, l.k_exp, T, g.route_scale, d.ridx, d.rw, s, l.gate_bias_vl,
@@ -14475,8 +14495,8 @@ struct Model::Impl {
                 const int il = l.il + a;
                 if (il >= g.nl) break;
                 const Layer& nx = L[(size_t) il];
-                if (nx.nm != 1 || nx.lay.fmt != gg::kFmtMXFP4 || nx.gate_bias == nullptr || nx.gate_w == nullptr) break;
-                gemv_f32(nx.gate_w, d.x, nx.n_exp, D, 1, d.glog_a + (size_t) (a - 1) * kWin * 1024, 1024, s);
+                if (nx.nm != 1 || nx.lay.fmt != gg::kFmtMXFP4 || nx.gate_bias == nullptr || (nx.gate_w == nullptr && nx.gate_bf == nullptr)) break;
+                gate_gemv(nx, d.x, nx.n_exp, D, 1, d.glog_a + (size_t) (a - 1) * kWin * 1024, 1024, s);
                 route(d.glog_a + (size_t) (a - 1) * kWin * 1024, nx.gate_bias, nx.n_exp, nx.k_exp, 1, g.route_scale, d.ridx_a + (a - 1) * kPicks,
                       d.rw_a + (a - 1) * kPicks, s, nullptr, nullptr);
                 CK(cudaMemcpyAsync(h_idx_a + (a - 1) * kPicks, d.ridx_a + (a - 1) * kPicks, (size_t) kPicks * 4, cudaMemcpyDeviceToHost, s));

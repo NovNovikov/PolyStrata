@@ -2422,6 +2422,34 @@ void gemv_f16_rows(const uint16_t* W, const float* x, size_t ldx, int n, int k, 
                                                                                                y, ldy);
 }
 
+// (local) STRATA_DS4_ROUTER_BF16: gemv_f32_kernel over BF16 rows - each value widened to F32 exactly (its bits << 16), the
+// same lanes, the same fmaf order and the same warp sum, so the same bits as the F32 copy's gemv
+__global__ void __launch_bounds__(kThreads) gemv_bf16_kernel(const uint16_t* __restrict__ W, const float* __restrict__ x,
+                                                             int n, int k, float* __restrict__ y, int ldy) {
+    const int row = blockIdx.x * (kThreads / 32) + (threadIdx.x >> 5);
+    const int lane = threadIdx.x & 31, t = blockIdx.y;
+    if (row >= n) return;
+    const uint2* w = (const uint2*) (W + (size_t) row * k);
+    const float4* xv = (const float4*) (x + (size_t) t * k);
+    float acc = 0.0f;
+    for (int c = lane; c < k / 4; c += 32) {
+        const uint2 u = w[c];
+        const float4 b = xv[c];
+        acc = fmaf(__uint_as_float(u.x << 16), b.x, acc);
+        acc = fmaf(__uint_as_float(u.x & 0xFFFF0000u), b.y, acc);
+        acc = fmaf(__uint_as_float(u.y << 16), b.z, acc);
+        acc = fmaf(__uint_as_float(u.y & 0xFFFF0000u), b.w, acc);
+    }
+    acc = warp_sum(acc);
+    if (lane == 0) y[(size_t) t * ldy + row] = acc;
+}
+void gemv_bf16(const uint16_t* W, const float* x, int n, int k, int T, float* y, int ldy, cudaStream_t s) {
+#if defined(STRATA_METAL)
+    (void) W; (void) x; (void) n; (void) k; (void) T; (void) y; (void) ldy; (void) s;
+#else
+    if (T > 0) strata_ds4_launch(gemv_bf16_kernel, dim3(cdiv(n, kThreads / 32), T), kThreads, 0, s, W, x, n, k, y, ldy);
+#endif
+}
 void gemv_f32(const float* W, const float* x, int n, int k, int T, float* y, int ldy, cudaStream_t s) {
 #if defined(STRATA_METAL)
     if (T > 0 && ::strata::dsv41::metal_host::gemv_f32(W, x, n, k, T, y, ldy)) return;
