@@ -763,6 +763,8 @@ struct Chunk {
         const uint8_t* ram = nullptr;                  // its RAM-tier blob, copied into staging (not pinned there)
         uint8_t* keep = nullptr;                       // (layer-major) its layer-cache slot: what is read kept there
         int64_t after = -1;                            // (layer-major) the items up to this one read first
+        std::atomic<int>* pf = nullptr;                // (local, LM_AHEAD) its layer-cache slot's read-ahead, still reading
+        std::atomic<bool>* pf_bad = nullptr;
         std::atomic<int> left{0};                      // parts still being read
         std::atomic<bool> bad{false};
     };
@@ -804,6 +806,18 @@ struct Chunk {
     std::vector<int> lc_of;                  // expert -> its slot (-1: none)
     std::vector<int64_t> lc_writer;          // slot -> the item reading its expert into it
     uint64_t it_lc = 0;                      // items taken from the layer cache
+    // (local) STRATA_DS4_LM_AHEAD=1: while a layer's later chunks compute (their experts from the layer cache, the
+    // disk idle), the next layer's likely experts are read into a second buffer the size of the layer cache (low
+    // priority, behind every demand read); at that layer's first item the two buffers swap and those experts are
+    // layer-cache hits.  The same items in the same order: only where their bytes come from changes.
+    uint8_t* la = nullptr;                   // the other buffer (lc_bytes)
+    int la_il = -1, la_n = 0;                // the layer read ahead into it, its slots taken
+    std::vector<int> la_of;                  // expert -> its slot in la (-1: none)
+    std::vector<char> lc_pf;                 // lc slot -> filled by the read-ahead
+    std::unique_ptr<std::atomic<int>[]> pf_left[2];    // a buffer's slot: the read-ahead's parts still reading
+    std::unique_ptr<std::atomic<bool>[]> pf_bad[2];
+    int lc_side = 0, pf_slots = 0;           // which pf arrays are lc's (la's: the other)
+    uint64_t la_experts = 0, it_la = 0;      // experts read ahead; items that took one
 };
 
 // the states a run of chunks keeps on the way, at most: the restore points inside it (feed_marks) and the checkpoint
@@ -4699,11 +4713,34 @@ struct Model::Impl {
                 c.lc_n = (int) std::min<size_t>(c.lc_of.size(), c.lc_bytes / stride);
                 c.lc_first = i;
                 std::fill(c.lc_of.begin(), c.lc_of.end(), -1);
+                if (c.la != nullptr) {
+                    std::fill(c.lc_pf.begin(), c.lc_pf.end(), 0);
+                    if (c.la_il == l.il) {   // (local, LM_AHEAD: the read-ahead buffer becomes the layer cache)
+                        std::swap(c.lc, c.la);
+                        c.lc_side = 1 - c.lc_side;
+                        for (int x = 0; x < l.n_exp; ++x) {
+                            const int js = c.la_of[(size_t) x];
+                            if (js < 0) continue;
+                            c.lc_of[(size_t) x] = js;
+                            c.lc_writer[(size_t) js] = -1;
+                            c.lc_pf[(size_t) js] = 1;
+                        }
+                        c.lc_used = std::min(c.la_n, c.lc_n);
+                    }
+                    c.la_il = -1;
+                    c.la_n = 0;
+                    std::fill(c.la_of.begin(), c.la_of.end(), -1);
+                }
             }
             const int j = c.lc_of[(size_t) e];
             if (j >= 0) {   // (copied into staging by io once its reader is done, then DMA'd)
                 it.ram = c.lc + (size_t) j * stride;
                 it.after = c.lc_writer[(size_t) j];
+                if (c.la != nullptr && c.lc_pf[(size_t) j]) {   // (local, LM_AHEAD: read ahead - once it has landed)
+                    it.pf = &c.pf_left[c.lc_side][(size_t) j];
+                    it.pf_bad = &c.pf_bad[c.lc_side][(size_t) j];
+                    ++c.it_la;
+                }
                 hit = true;
             } else if (k + 1 < (int) c.fl_T.size() && c.lc_used < c.lc_n) {   // (a later chunk may pick it)
                 const int jn = c.lc_used++;
@@ -4845,6 +4882,14 @@ struct Model::Impl {
         IoQueue::Job jobs[6];
         while (c.n_read < end) {
             Chunk::Item& it = fit(c, c.n_read);
+            if (it.pf != nullptr) {   // (local, LM_AHEAD: its expert still being read ahead)
+                if (it.pf->load(std::memory_order_acquire) != 0) break;
+                if (it.pf_bad->load(std::memory_order_acquire)) {
+                    err = "reading ahead layer " + std::to_string(it.il) + " expert " + std::to_string(it.e) +
+                          " from the model's files failed";
+                    return false;
+                }
+            }
             if (it.after >= 0) {   // layer-major: a slot's expert copied out of it once its reader is done; a slot
                 // written again once the layer before's items are all read (none still copies out of it)
                 bool wait = false;
@@ -4978,6 +5023,68 @@ struct Model::Impl {
         }
         return true;
     }
+    // (local, LM_AHEAD) layer il's first chunk routed: the next layer's likely file experts (not in the RAM tier or the
+    // store; their chance to be picked by the run's rows at least DS4_LM_AHEAD_Q, 0.5) read into la, likeliest first,
+    // as many as it holds - low priority, so every demand read goes first.  la was the layer cache two layers back:
+    // that layer's items are all computed by now (this layer's first chunk computes after its last).
+    void lm_ahead(Chunk& c, int il) {
+        int il2 = -1;
+        for (size_t x = 0; x + 1 < c.fl_layers.size(); ++x)
+            if (c.fl_layers[x] == il) il2 = c.fl_layers[x + 1];
+        if (il2 < 0 || il2 >= g.nl) return;
+        const Layer& l = L[(size_t) il2];
+        if (l.nm != 1) return;
+        static const double aq = std::getenv("DS4_LM_AHEAD_Q") ? std::atof(std::getenv("DS4_LM_AHEAD_Q")) : 0.5;
+        const size_t stride = (l.blob + 63) & ~(size_t) 63;
+        const int cap = (int) std::min<size_t>({c.la_of.size(), c.lc_bytes / stride, (size_t) c.pf_slots});
+        const uint32_t* pr = (o.expert_cache ? prof : prof_load).data() + (size_t) il2 * g.n_exp;
+        double sum = 0;
+        for (int e = 0; e < l.n_exp; ++e) sum += pr[e];
+        int64_t rows = 0;
+        for (int T : c.fl_T) rows += T;
+        const double picks = (double) l.k_exp * (double) rows;
+        std::vector<std::pair<double, int>> cand;
+        for (int e : l.host_list) {
+            if (!l.ram.empty() && l.ram[(size_t) e] >= 0) continue;
+            if (store && store->find(l.il, e) >= 0) continue;
+            const double p = sum > 0 ? pr[e] / sum : 0.0;
+            const double q = p >= 1.0 ? 1.0 : 1.0 - std::exp(picks * std::log1p(-p));
+            if (q >= aq) cand.push_back({q, e});
+        }
+        std::stable_sort(cand.begin(), cand.end(), [](const std::pair<double, int>& a, const std::pair<double, int>& b) {
+            return a.first > b.first;
+        });
+        if ((int) cand.size() > cap) cand.resize((size_t) cap);
+        const int side = 1 - c.lc_side;
+        std::fill(c.la_of.begin(), c.la_of.end(), -1);
+        IoQueue::Job jobs[3];
+        int j = 0;
+        for (const auto& x : cand) {
+            const int e = x.second;
+            uint8_t* slot = c.la + (size_t) j * stride;
+            c.pf_left[side][(size_t) j].store(3, std::memory_order_relaxed);
+            c.pf_bad[side][(size_t) j].store(false, std::memory_order_relaxed);
+            for (int r = 0; r < 3; ++r) {
+                IoQueue::Job& jb = jobs[r];
+                jb = IoQueue::Job{};
+                const os::fd_t pf = pk.pfds.empty() ? os::kBadFd : pk.pfds[(size_t) l.mx_file[r]];
+                jb.fd = pf != os::kBadFd ? pf : pk.fds[(size_t) l.mx_file[r]];
+                jb.dfd = pk.dfds.empty() ? os::kBadFd : pk.dfds[(size_t) l.mx_file[r]];
+                jb.off = l.mx_off[r] + (uint64_t) e * l.mx_stride[r];
+                jb.len = mx_part_bytes(l, r);
+                jb.dst = slot + l.lay.trellis[r];
+                jb.exact = true;
+                jb.left = &c.pf_left[side][(size_t) j];
+                jb.bad = &c.pf_bad[side][(size_t) j];
+                jb.map = pk.at(l.mx_file[r], jb.off);
+            }
+            c.io->push(jobs, 3, true);
+            c.la_of[(size_t) e] = j++;
+        }
+        c.la_il = il2;
+        c.la_n = j;
+        c.la_experts += (uint64_t) j;
+    }
     // layer L0 of chunk k routed (bounds b, the device's copy d_bounds): its streamed experts as they land, the VRAM
     // ones in shares between them (the device works while the reads run)
     bool flow_layer(Dev& d, Chunk& c, Layer& L0, int mi, int k, int T, const std::vector<int>& b, std::string& err) {
@@ -4988,6 +5095,7 @@ struct Model::Impl {
             return false;
         }
         flow_rest(c, k, L0.il, b);
+        if (c.la != nullptr && k == 0) lm_ahead(c, L0.il);   // (local, LM_AHEAD)
         const size_t lb = c.spec_begin, le = c.base + c.items.size(), n_lay = le - lb;
         int k2 = 0, il2 = 0;
         if (flow_next(c, k, L0.il, k2, il2)) flow_spec(c, k2, il2, fl_rows(c, k2, il2));
@@ -12871,6 +12979,36 @@ struct Model::Impl {
         c.lc_bytes = lc_bytes;
         c.lc_of.assign(n_exp, -1);
         c.lc_writer.assign(n_exp, -1);
+        // (local) STRATA_DS4_LM_AHEAD=1: a second buffer for the next layer's read-ahead, where RAM allows it whole
+        static const bool lm_ahead_on = std::getenv("STRATA_DS4_LM_AHEAD") != nullptr &&
+                                        std::atoi(std::getenv("STRATA_DS4_LM_AHEAD")) != 0;
+        // (DS4_LM_AHEAD_CHUNKS, 4: a run of fewer chunks keeps the disk busy anyway - 2 chunks, 4.6K tokens: the
+        //  read-ahead's unpicked experts cost 20 GB of reads and 151 -> 118 tok/s; 7 chunks, 29K: 389 -> 446)
+        static const int ahead_chunks = std::getenv("DS4_LM_AHEAD_CHUNKS") ? std::atoi(std::getenv("DS4_LM_AHEAD_CHUNKS")) : 4;
+        if (lm_ahead_on && c.io && lc_bytes == need && (int) run.T.size() >= ahead_chunks) {
+            const uint64_t avail = ram_avail();
+            if (avail == ~uint64_t{0} || avail > kRamMargin + lc_bytes)
+                c.la = (uint8_t*) os::anon_alloc(lc_bytes, -1, 1);
+            if (c.la != nullptr) {
+                c.pf_slots = (int) n_exp;
+                for (int sd = 0; sd < 2; ++sd) {
+                    c.pf_left[sd].reset(new std::atomic<int>[n_exp]);
+                    c.pf_bad[sd].reset(new std::atomic<bool>[n_exp]);
+                    for (size_t x = 0; x < n_exp; ++x) {
+                        c.pf_left[sd][x].store(0);
+                        c.pf_bad[sd][x].store(false);
+                    }
+                }
+                c.la_of.assign(n_exp, -1);
+                c.lc_pf.assign(n_exp, 0);
+                c.la_il = -1;
+                c.la_n = 0;
+                c.lc_side = 0;
+                c.la_experts = c.it_la = 0;
+            } else
+                std::fprintf(stderr, "ds4: (local) the next layer's read-ahead is off for this run: no RAM for a second "
+                                     "%.1f GB layer cache\n", (double) lc_bytes / 1e9);
+        }
         c.lm = true;
         lm_layers.store(0);
         return true;
@@ -12884,6 +13022,16 @@ struct Model::Impl {
             cudaStreamSynchronize(c.cs);          // copies done, every read the run issued done - a failed run's too)
             for (size_t i = c.base; i < c.n_read; ++i)
                 while (fit(c, i).left.load(std::memory_order_acquire) != 0) c.io->wait_any(500);
+            if (c.la != nullptr) {   // (local, LM_AHEAD: its reads all done before the buffers go)
+                for (int sd = 0; sd < 2; ++sd)
+                    for (int x = 0; x < c.pf_slots; ++x)
+                        while (c.pf_left[sd][(size_t) x].load(std::memory_order_acquire) != 0) c.io->wait_any(500);
+                std::fprintf(stderr, "ds4: (local) next-layer read-ahead: %llu experts read ahead, %llu items took one\n",
+                             (unsigned long long) c.la_experts, (unsigned long long) c.it_la);
+                os::anon_free(c.la, c.lc_bytes);
+                c.la = nullptr;
+                c.la_il = -1;
+            }
             if (c.lm_pinned) cudaFreeHost(c.lm_state);
             else os::anon_free(c.lm_state, c.lm_state_bytes);
             os::anon_free(c.lc, c.lc_bytes);
