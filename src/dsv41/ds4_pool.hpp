@@ -231,7 +231,7 @@ private:
                     std::memcpy(j.dst, bp + lead, (size_t) j.len);
                     ok = true;
                     direct_.fetch_add(j.len, std::memory_order_relaxed);
-                } else if (os::pread_par(j.fd, j.dst, j.len, j.off)) {
+                } else if (j.fd != os::kBadFd && os::pread_par(j.fd, j.dst, j.len, j.off)) {
                     ok = true;
                     buffered_.fetch_add(j.len, std::memory_order_relaxed);
                 }
@@ -239,9 +239,14 @@ private:
                        os::pread_direct(j.dfd, j.dst, j.len, j.off)) {   // (the page cache's ones: buffered, below)
                 ok = true;
                 direct_.fetch_add(j.len, std::memory_order_relaxed);
-            } else if (os::pread_par(j.fd, j.dst + lead, j.len, j.off)) {
+            } else if (j.fd != os::kBadFd && os::pread_par(j.fd, j.dst + lead, j.len, j.off)) {
                 ok = true;
                 buffered_.fetch_add(j.len, std::memory_order_relaxed);
+            } else if (j.fd == os::kBadFd) {   // (local) a dropped file (STRATA_DS4_DROP_SHARDS): no buffered fallback
+                static std::atomic<bool> warned{false};
+                if (!warned.exchange(true))
+                    std::fprintf(stderr, "ds4: WARNING (local): an unbuffered read failed and its file keeps no buffered handle - "
+                                         "the read is reported failed (further ones not reported)\n");
             }
             const auto t_rd = std::chrono::steady_clock::now();
             if (ok && j.keep != nullptr && j.mem == nullptr) std::memmove(j.keep, j.exact ? j.dst : j.dst + lead, (size_t) j.len);   // (keep may overlap dst: the store reads in place and moves up)

@@ -364,6 +364,8 @@ struct Pack {
     std::vector<std::pair<uint8_t*, size_t>> maps;   // file -> its read-only mapping (map(): the experts in place)
     std::vector<os::fd_t> dfds;   // (gguf) file -> unbuffered (os::open_direct; kBadFd: buffered reads only)
     std::vector<os::fd_t> pfds;   // (gguf) file -> for reads from many threads at once (os::open_par)
+    std::vector<uint64_t> fsz;    // file -> its size (read at the load: the session id's, after drop_files closed fds)
+    std::vector<char> dropped;    // (local) file -> drop_files() unmapped it and closed its buffered handles
 
     ~Pack() {
         for (auto& m : maps) os::unmap(m.first, m.second);
@@ -443,6 +445,7 @@ struct Pack {
                 return false;
             }
             fds.push_back(fd);
+            fsz.push_back(os::file_size(fd));
         }
         gguf = str("format") == "gguf";
         if (gguf)
@@ -506,7 +509,8 @@ struct Pack {
     }
     bool direct_reads = false;   // (after drop_views: the reads go unbuffered, the cached ones are what the slow path is)
     bool read_at(int file, uint64_t off, uint64_t n, void* dst) const {   // (any thread; side by side where pfds is)
-        if (direct_reads && (size_t) file < dfds.size() && dfds[(size_t) file] != os::kBadFd) {
+        const bool gone = (size_t) file < dropped.size() && dropped[(size_t) file] != 0;
+        if ((direct_reads || gone) && (size_t) file < dfds.size() && dfds[(size_t) file] != os::kBadFd) {
             thread_local std::vector<uint8_t> bounce;
             const uint64_t span = os::direct_span(off, n);
             if (bounce.size() < span + 2 * os::kDirectAlign) bounce.resize((size_t) span + 2 * os::kDirectAlign);
@@ -515,6 +519,17 @@ struct Pack {
                 std::memcpy(dst, bp + off % os::kDirectAlign, (size_t) n);
                 return true;
             }
+        }
+        if (gone) {   // (local) no buffered handle is kept on a dropped file: one just for this read, closed at once
+            static std::atomic<bool> warned{false};
+            if (!warned.exchange(true))
+                std::fprintf(stderr, "ds4: WARNING (local): an unbuffered read of %s failed - read through the page cache "
+                                     "with a handle closed right after (further ones not reported)\n", files[(size_t) file].c_str());
+            const os::fd_t t = os::open_ro(model_dir + "/" + files[(size_t) file]);
+            if (t == os::kBadFd) return false;
+            const bool ok = os::pread_full(t, dst, n, off);
+            os::close_fd(t);
+            return ok;
         }
         if ((size_t) file < pfds.size() && pfds[(size_t) file] != os::kBadFd)
             return os::pread_par(pfds[(size_t) file], dst, n, off);
@@ -546,6 +561,31 @@ struct Pack {
             }
         }
         direct_reads = true;
+    }
+    // (local) Windows, measured on this box (2026-11-12, diskspd 3.2 MB unbuffered reads at 8 x 1 on one shard): ANY
+    // buffered handle held open on a file whose pages were ever cached - even a fresh one never read from - holds the
+    // drive at 3.05 GB/s against 4.13-4.25 with none (a view does the same). drop_views()' fresh handles therefore do
+    // not help here; drop_files() unmaps the files in `which` and closes their buffered handles outright (kBadFd), so
+    // only the unbuffered dfds stay - read_at's rare fallback opens a buffered handle for one read and closes it.
+    int drop_files(const std::vector<char>& which) {
+        if (dropped.size() < fds.size()) dropped.resize(fds.size(), 0);
+        int n = 0;
+        for (size_t i = 0; i < fds.size() && i < which.size(); ++i) {
+            if (!which[i] || i >= dfds.size() || dfds[i] == os::kBadFd) continue;   // (no unbuffered handle: keep it)
+            if (i < maps.size() && maps[i].first != nullptr) {
+                os::unmap(maps[i].first, maps[i].second);
+                maps[i] = {nullptr, 0};
+            }
+            os::close_fd(fds[i]);
+            fds[i] = os::kBadFd;
+            if (i < pfds.size()) {
+                os::close_fd(pfds[i]);
+                pfds[i] = os::kBadFd;
+            }
+            dropped[i] = 1;
+            ++n;
+        }
+        return n;
     }
 };
 
@@ -3907,6 +3947,28 @@ struct Model::Impl {
             store->set_pfds(pk.pfds);
             views = false;
             std::fprintf(stderr, "ds4: no view of the model's files after the load: unbuffered reads at the drive's rate\n");
+        }
+        // (local) STRATA_DS4_DROP_SHARDS=1: the files that hold the main layers' routed experts (no drafter, no Engram
+        // table) unmapped and left with no buffered handle (Pack::drop_files); the DSpark drafter's and Engram's files
+        // keep their views (the drafter's CPU-lane experts are read from its view: the store holds the main layers only)
+        static const bool drop_shards = std::getenv("STRATA_DS4_DROP_SHARDS") != nullptr &&
+                                        std::atoi(std::getenv("STRATA_DS4_DROP_SHARDS")) != 0;
+        if (drop_shards && !no_view && store && pk.gguf) {
+            std::vector<char> drop(pk.files.size(), 0), keep(pk.files.size(), 0);
+            for (const auto& kt : pk.t) {
+                const int f = kt.second.file;
+                if (f < 0 || (size_t) f >= pk.files.size()) continue;
+                const std::string& nm = kt.first;
+                if (nm.rfind("mtp.", 0) == 0 || nm.find(".engram.embed.") != std::string::npos) keep[(size_t) f] = 1;
+                else if (nm.rfind("layers.", 0) == 0 && nm.find(".ffn.experts.") != std::string::npos) drop[(size_t) f] = 1;
+            }
+            for (size_t i = 0; i < drop.size(); ++i) drop[i] = drop[i] && !keep[i];
+            const int n = pk.drop_files(drop);
+            if (n > 0) {
+                store->set_pfds(pk.pfds);
+                views = false;
+            }
+            std::fprintf(stderr, "ds4: (local) %d expert file(s) unmapped, their buffered handles closed: unbuffered reads only\n", n);
         }
         if (o.verbose) std::fprintf(stderr, "ds4: loaded in %.1f s\n%s", (now_ms() - t0) / 1000.0, describe().c_str());
         if (chunk > 0) (void) pick_flow_min();   // (the startup line)
@@ -7843,7 +7905,7 @@ struct Model::Impl {
         id << " ds4.txt:" << size_of(pk.dir + "/ds4.txt") << " engram.bin:" << size_of(pk.dir + "/engram.bin")
            << " tensors.txt:" << size_of(pk.dir + "/tensors.txt");
         for (size_t i = 0; i < pk.files.size(); ++i)
-            id << " " << pk.files[i] << ":" << os::file_size(pk.fds[i]);
+            id << " " << pk.files[i] << ":" << (i < pk.fsz.size() ? pk.fsz[i] : os::file_size(pk.fds[i]));
         return id.str();
     }
 
@@ -8507,6 +8569,7 @@ struct Model::Impl {
         // (no view of the files is left to fall back on: an expert without a slot is read again, one at a time, until it has one)
         void rescue(int a, int b) {
             if (!m || m->views) return;
+            if (layer >= m->g.nl) return;   // (local) the drafter's layers: never in the store, their file keeps its view
             for (int i = a; i < b; ++i) {
                 for (int tries = 0; !ok[(size_t) i]; ++tries) {
                     std::vector<char> o2;
