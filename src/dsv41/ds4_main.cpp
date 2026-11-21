@@ -31,6 +31,7 @@
 #include "ds4_evt.hpp"
 #include "ds4_marks.hpp"
 #include "ds4_model.hpp"
+#include "ds4_draft_cut.hpp"   // draft_cut_keep: the same confidence cut the lazy drafter's row loop applies
 #include "ds4_experts_rule.hpp"
 #include "ds4_os.hpp"
 #include "strata/platform/io_priority.hpp"
@@ -293,6 +294,8 @@ bool round(strata::ds4::Model& m, int tok, int room, bool spec, float conf_min, 
         tl_gate(true);
         const double rt0 = rt_now();
         const unsigned long long rs0 = rt_seq();
+        if (cum_min < 0) cum_min = dspark_cum_default(m);
+        m.set_draft_cut(conf_min, cum_min, std::min(room - 1, g_spec_depth));   // (local: STRATA_DS4_DSPARK_LAZY)
         if (!m.draft(tok, drafts, conf, err, temperature, top_p, top_k, min_p, seed, counter)) return false;
         g_rt.draft += rt_now() - rt0;
         tl_gate(false);
@@ -302,9 +305,8 @@ bool round(strata::ds4::Model& m, int tok, int room, bool spec, float conf_min, 
         int keep = 0;
         if (cum_min < 0) cum_min = dspark_cum_default(m);
         float cum = 1.0f;
-        while (keep < (int) drafts.size() && keep < room - 1 && keep < g_spec_depth && conf[(size_t) keep] >= conf_min &&
-               (cum *= conf[(size_t) keep]) >= cum_min)
-            ++keep;
+        keep = strata::ds4::draft_cut_keep(conf.data(), keep,
+                                           std::min(std::min(room - 1, g_spec_depth), (int) drafts.size()), cum, conf_min, cum_min);
         if (keep > 0) {
             drafts.resize((size_t) keep);
             int acc = 0, next = -1;

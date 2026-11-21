@@ -162,6 +162,9 @@ public:
     int draft_block() const;
     /// every GPU the engine uses is a gfx1200 / gfx1201 (RDNA4: R9700, RX 9000) in a HIP build, false anywhere else (decided once)
     bool gpus_are_gfx12() const;
+    /// (local, STRATA_DS4_DSPARK_LAZY) the next draft()'s cut, as round() will apply it: the drafter's head, markov
+    /// steps and confidences then run only for the rows the cut can still keep (the same drafts and tokens)
+    void set_draft_cut(float conf_min, float cum_min, int max_keep);
     bool draft(int y, std::vector<int>& drafts, std::vector<float>& conf, std::string& err, float temperature = 0.0f,
                float top_p = 1.0f, int top_k = 0, float min_p = 0.0f, uint64_t seed = 0, uint64_t counter = 0);
     bool verify(int y, const std::vector<int>& drafts, float temperature, float top_p, int top_k, float min_p,
