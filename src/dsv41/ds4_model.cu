@@ -6624,8 +6624,8 @@ struct Model::Impl {
         if (std::getenv("DS4_AHEAD") == nullptr) ahead_mode = 0;
         for (Layer& l : L)
             if (l.il < g.nl && want_zc) l.zc.assign((size_t) l.n_exp, 0);
-        std::fprintf(stderr, "ds4: RAM store: up to %zu slots of %.1f MB (%.1f GB), policy %d, %d reader threads, %s reads\n",
-                     store->slots_max(), store->slot_bytes() / 1e6, store->slots_max() * (double) store->slot_bytes() / 1e9,
+        std::fprintf(stderr, "ds4: RAM store: about %zu slots in %zu size classes (up to %.1f MB) in %.1f GB, policy %d, %d reader threads, %s reads\n",
+                     store->slots_max(), store->classes(), store->slot_bytes() / 1e6, store->budget() / 1e9,
                      (int) cfg.policy, cfg.threads, direct ? "unbuffered" : "BUFFERED (no direct handle)");
         if (want_zc) {
             if (!store->gpu_mapped()) {
@@ -6705,8 +6705,8 @@ struct Model::Impl {
                                  : std::min(list.size(), (size_t) (48e9 / (double) std::max<size_t>(1, L[0].blob)));
         const std::vector<std::pair<int, int>> head(list.begin(), list.begin() + (long) first), tail(list.begin() + (long) first, list.end());
         const size_t n = store->preload(head, leave);
-        std::fprintf(stderr, "ds4: RAM store: %zu of the profile's hottest experts read in (%.1f GB) in %.1f s%s\n", n,
-                     (double) n * (double) L[0].blob / 1e9, (now_ms() - t0) / 1000.0,
+        std::fprintf(stderr, "ds4: RAM store: %zu of the profile's hottest experts read in (%.1f GB of slots committed) in %.1f s%s\n", n,
+                     (double) store->used_bytes() / 1e9, (now_ms() - t0) / 1000.0,
                      tail.empty() ? "" : "; the rest is read in the background");
         if (tail.empty()) return;
         store_bg = std::thread([this, tail, leave] {
