@@ -21,6 +21,7 @@
 #include "ds4_vram_plan.hpp"   // plan_group_vram: the VRAM expert split, shared with tests/dsv41/ds4_vram_plan_test.cpp
 #include "ds4_draft_cut.hpp"   // draft_cut_keep: the confidence cut, shared with main.cpp's verify and the 8.5 test
 #include "ds4_defer_policy.hpp"   // defer_window / lane_splits / the light split: shared with tests/dsv41/ds4_defer_policy_test.cpp
+#include "ds4_identity_knobs.hpp"   // SessionKnobs / emit_session_knobs: the fingerprint section, shared with its test
 #include "ds4_engram_io.hpp"
 
 #include "ds4_gguf.cuh"
@@ -1391,6 +1392,7 @@ struct Model::Impl {
         unsigned epoch = 0;   // (local) the forward that created it (see begin_forward)
     } q4[4];
     int q4_stride = 0;   // (floats between two pending parts' weights in def_c: W x 8)
+    int experts_used = 1 << 20;   // (local) the effective experts a word takes (--experts / the faster-mode rule), for the session identity
     unsigned fwd_epoch = 0;   // (local) bumped at every forward's entry: a deferred part belongs to its own forward only
     /// (local) A deferred part belongs to the residual stream of the forward that made it and must never be added
     /// to a later one (a new request, another session, a dropped draft). A forward that finishes normally leaves
@@ -2998,7 +3000,7 @@ struct Model::Impl {
         if (o.dspark_block > 0 && std::getenv("DS4_DSPARK_MAX") == nullptr) max_drafts = o.dspark_block;   // (--dspark-block N: at most N drafts a round)
         L.resize((size_t) (g.nl + g.n_mtp));
         int last_src = -1;
-        int experts_used = 1 << 20;
+        experts_used = 1 << 20;   // (the member: the --experts / faster-mode result, read again by slot_identity)
         for (int il = 0; il < g.nl + g.n_mtp; ++il) {
             Layer& l = L[(size_t) il];
             l.il = il;
@@ -7911,7 +7913,7 @@ struct Model::Impl {
             return ec ? 0ull : (unsigned long long) s;
         };
         std::ostringstream id;
-        id << "strata-ds4-session-4 engine=" << STRATA_VERSION << " mtp=" << g.n_mtp << " dim=" << g.dim << " hd=" << g.hd
+        id << "strata-ds4-session-5 engine=" << STRATA_VERSION << " mtp=" << g.n_mtp << " dim=" << g.dim << " hd=" << g.hd
            << " win=" << g.win << " ratios=";
         for (int r : g.ratios) id << r << ",";
         id << " kv=";
@@ -7922,20 +7924,35 @@ struct Model::Impl {
            << " tensors.txt:" << size_of(pk.dir + "/tensors.txt");
         for (size_t i = 0; i < pk.files.size(); ++i)
             id << " " << pk.files[i] << ":" << (i < pk.fsz.size() ? pk.fsz[i] : os::file_size(pk.fds[i]));
-        // (local, task spec 6) Expert Deferral changes what a layer adds to the state a session keeps: with a defer
-        // mode on, its effective knobs join the identity, so a file computed under one defer setup can never mount
-        // unnoticed on a run under another. Only what the mode actually uses: W splits light from heavy in modes
-        // 2-4 (mode 1 defers the whole CPU lane, so W cannot change it), K lands the part late in mode 4, COLD
-        // redefines light in every splitting mode (2, 3 and 4: light = not in RAM), MAX caps the layers any mode
-        // defers at. Parsed values, so "0.20" and "0.2" name one state. With DEFER unset the string is byte-
-        // identical to the pre-port build's.
-        if (const int df = defer_mode(); df != 0) {
-            id << " defer=" << df;
-            if (df >= 2) id << " w=" << env_f("STRATA_DS4_DEFER_W", 0.2f);
-            if (df == 4) id << " k=" << defer_k();
-            if (df >= 2 && defer_cold()) id << " cold";
-            if (std::getenv("STRATA_DS4_DEFER_EARLY") != nullptr) id << " early";
-            if (std::getenv("STRATA_DS4_DEFER_MAX") != nullptr) id << " max=" << std::atoi(std::getenv("STRATA_DS4_DEFER_MAX"));
+        // (local, task spec 6 + hostile review 2) Everything that changes what a layer adds to the state this file
+        // holds goes into the identity, as the ENGINE resolved it - parsed (so "0.20" and "0.2" name one state),
+        // effective (DS4_YOCO's precedence over STRATA_DS4_PROMPT_SKIP, the clamps, whether the skip actually runs
+        // in this geometry, the --experts result), and only where the mode in use lets the knob matter. The
+        // emission itself is ds4_identity_knobs.hpp, checked without a model by tests/dsv41/ds4_identity_knobs_test.cpp.
+        // The format number went to 5 with this: a session-4 file carries no trace of the skip knobs that were
+        // then un-fingerprinted, so it cannot be proven compatible and is refused rather than trusted.
+        {
+            SessionKnobs kn;
+            kn.defer = defer_mode();
+            kn.defer_w = env_f("STRATA_DS4_DEFER_W", 0.2f);
+            kn.defer_k = defer_k();
+            kn.defer_cold = defer_cold();
+            kn.defer_early = std::getenv("STRATA_DS4_DEFER_EARLY") != nullptr;
+            kn.defer_max_set = std::getenv("STRATA_DS4_DEFER_MAX") != nullptr;
+            kn.defer_max = kn.defer_max_set ? std::atoi(std::getenv("STRATA_DS4_DEFER_MAX")) : 0;
+            kn.disk_skip_w = disk_skip_w;
+            kn.disk_skip_from = disk_skip_from;
+            kn.disk_skip_auto = disk_skip_auto;
+            kn.disk_skip_window = disk_skip_window;
+            kn.disk_skip_settle = disk_skip_settle;
+            kn.disk_skip_budget = disk_skip_budget;
+            kn.ram_skip_w = ram_skip_w;
+            const int yl = yoco_layer();   // -1: the skip does not run here (off, too short a chunk, split model)
+            kn.yoco = yl >= 0 ? yoco_mode() : 0;
+            kn.yoco_keep = yl >= 0 ? yoco_keep(yl) : 0;
+            kn.experts_used = experts_used;
+            kn.k_exp = g.k_exp;
+            emit_session_knobs(id, kn);
         }
         return id.str();
     }
