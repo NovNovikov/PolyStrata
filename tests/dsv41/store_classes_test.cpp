@@ -230,6 +230,67 @@ int main() {
                     stored[0], stored[1]);
         check(stored[0] > stored[1], "the class store keeps more experts held under the same budget");
     }
+    // 5. residency (task spec 8.4) on the store side of the in_ram() fix: an expert the store does not hold is
+    // not findable; a held one is findable and its slot reports loaded; find() never names an unfinished slot;
+    // after eviction the gone experts are unfindable while every still-held one reads right. (The RAM tier and
+    // the model's in_ram() proper live in ds4_model.cu and need the loader; the fix line is store->find()
+    // >= 0, so these are the states that line answers for.)
+    {
+        ExpertStore::Cfg c;
+        c.threads = 2;
+        c.floor_bytes = 0;
+        c.budget_bytes = 64u << 20;
+        ExpertStore st;
+        check(st.init(c, fx.geo, fx.dfds, fx.pfds), "residency store inits");
+        for (int l = 0; l < kNLay; ++l)
+            for (int e = 0; e < kNExp; ++e)
+                check(st.find(l, e) < 0, "an expert nothing asked for is not held");
+        check(load(st, 1, 5) >= 0, "expert loaded");
+        check(st.find(1, 5) >= 0, "a held expert is findable");
+        check(st.loaded(st.find(1, 5)), "a findable slot reports loaded (find never names an unfinished read)");
+        // begin without waiting: whatever the state, find() and loaded() may not disagree
+        {
+            const int es[1] = {9};
+            std::vector<char> ok;
+            std::vector<int> sl;
+            st.begin(0, es, 1, ok, sl);
+            const int f = st.find(0, 9);
+            check(f < 0 || st.loaded(f), "mid-read: a slot find() hands over is already loaded");
+            st.wait_slots(sl, ok, 0, 1);
+            check(st.loaded(sl[0]) && st.find(0, 9) >= 0, "after the wait the slot is loaded and held");
+            st.release(0, es, 1, ok);
+        }
+        check(st.find(kNLay + 3, 0) < 0, "a layer the store does not cover is never held");
+        // eviction: hammer layer 0 with a budget that cannot hold everything, then every gone expert is unfindable
+        {
+            ExpertStore::Cfg c2;
+            c2.threads = 2;
+            c2.floor_bytes = 0;
+            c2.budget_bytes = 12u << 20;   // layer 0 alone needs ~4.5 MB; layers 0+1+2 need ~10 MB of classes
+            ExpertStore st2;
+            check(st2.init(c2, fx.geo, fx.dfds, fx.pfds), "eviction store inits");
+            for (int round = 0; round < 10; ++round)
+                for (int e = 0; e < kNExp; ++e)
+                    load(st2, 0, e);
+            int held = 0, gone = 0, good = 0;
+            for (int e = 0; e < kNExp; ++e) {
+                const int s = st2.find(0, e);
+                if (s < 0) { ++gone; continue; }
+                ++held;
+                if (!st2.loaded(s)) continue;
+                const ExpertStore::LayerGeo& g = fx.geo[0];
+                bool right = true;
+                for (int r = 0; r < 3; ++r) {
+                    const uint8_t* m = st2.mat(s, r);
+                    for (uint64_t i = 0; i < g.bytes[r]; i += (g.bytes[r] / 64 ? g.bytes[r] / 64 : 1))
+                        if (m[i] != want_byte(0, e, r, i)) right = false;
+                }
+                if (right) ++good;
+            }
+            check(st2.stats().evictions.load() > 0, "hammering a full class evicted");
+            check(gone + held == kNExp && held > 0 && good == held, "after eviction: held experts read right, gone ones are unfindable");
+        }
+    }
     set_env("DS4_STORE_UNIFORM=");
     fx.close();
     std::printf("store_classes_test: %d checks, %d failures\n", checks, failures);
