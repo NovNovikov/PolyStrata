@@ -20,6 +20,7 @@
 #include "ds4_experts_rule.hpp"
 #include "ds4_vram_plan.hpp"   // plan_group_vram: the VRAM expert split, shared with tests/dsv41/ds4_vram_plan_test.cpp
 #include "ds4_draft_cut.hpp"   // draft_cut_keep: the confidence cut, shared with main.cpp's verify and the 8.5 test
+#include "ds4_defer_policy.hpp"   // defer_window / lane_splits / the light split: shared with tests/dsv41/ds4_defer_policy_test.cpp
 #include "ds4_engram_io.hpp"
 
 #include "ds4_gguf.cuh"
@@ -1376,6 +1377,7 @@ struct Model::Impl {
     bool pend_on = false;
     int pend_il = -1, pend_slot = 0, pend_T = 0;
     unsigned pend_sq = 0;
+    unsigned pend_epoch = 0;   // (local) the forward that created the pending part (see begin_forward)
     Resp* pend_src = nullptr;
     Resp* resps_late = nullptr;
     Resp* late_ans = nullptr;
@@ -1386,8 +1388,22 @@ struct Model::Impl {
         bool on = false;
         int il = -1, slot = 0, T = 0;
         unsigned sq = 0;
+        unsigned epoch = 0;   // (local) the forward that created it (see begin_forward)
     } q4[4];
     int q4_stride = 0;   // (floats between two pending parts' weights in def_c: W x 8)
+    unsigned fwd_epoch = 0;   // (local) bumped at every forward's entry: a deferred part belongs to its own forward only
+    /// (local) A deferred part belongs to the residual stream of the forward that made it and must never be added
+    /// to a later one (a new request, another session, a dropped draft). A forward that finishes normally leaves
+    /// nothing pending: defer_ok() requires the landing layer to exist inside the same forward, and a layer that
+    /// this forward skipped is served by the in-forward late drain. So whatever still stands at a forward's entry
+    /// belongs to a forward that was aborted (an error, a cancel, a rollback) between its deferring layer and its
+    /// landing one: it is dropped here, not carried. No wait: the lane writes its ring slot in request order and
+    /// each consumer waits for its own seq, so a dropped write lands on a slot nobody reads anymore.
+    void begin_forward() {
+        ++fwd_epoch;
+        pend_on = false;
+        for (int i = 0; i < 4; ++i) q4[i].on = false;
+    }
     static int defer_k() {
         static const int k = std::max(1, std::min(3, std::getenv("STRATA_DS4_DEFER_K") ? std::atoi(std::getenv("STRATA_DS4_DEFER_K")) : 1));
         return k;
@@ -7907,12 +7923,19 @@ struct Model::Impl {
         for (size_t i = 0; i < pk.files.size(); ++i)
             id << " " << pk.files[i] << ":" << (i < pk.fsz.size() ? pk.fsz[i] : os::file_size(pk.fds[i]));
         // (local, task spec 6) Expert Deferral changes what a layer adds to the state a session keeps: with a defer
-        // mode on, the mode and its knobs join the identity, so a file computed under deferral can never mount on a
-        // run without it (or under other knobs) unnoticed. With DEFER unset the string is byte-identical to before.
+        // mode on, its effective knobs join the identity, so a file computed under one defer setup can never mount
+        // unnoticed on a run under another. Only what the mode actually uses: W splits light from heavy in modes
+        // 2-4 (mode 1 defers the whole CPU lane, so W cannot change it), K lands the part late in mode 4, COLD
+        // redefines light in every splitting mode (2, 3 and 4: light = not in RAM), MAX caps the layers any mode
+        // defers at. Parsed values, so "0.20" and "0.2" name one state. With DEFER unset the string is byte-
+        // identical to the pre-port build's.
         if (const int df = defer_mode(); df != 0) {
-            id << " defer=" << df << " w=" << (std::getenv("STRATA_DS4_DEFER_W") ? std::getenv("STRATA_DS4_DEFER_W") : "0.2");
-            if (df == 4) id << " k=" << defer_k() << (defer_cold() ? " cold" : "");
+            id << " defer=" << df;
+            if (df >= 2) id << " w=" << env_f("STRATA_DS4_DEFER_W", 0.2f);
+            if (df == 4) id << " k=" << defer_k();
+            if (df >= 2 && defer_cold()) id << " cold";
             if (std::getenv("STRATA_DS4_DEFER_EARLY") != nullptr) id << " early";
+            if (std::getenv("STRATA_DS4_DEFER_MAX") != nullptr) id << " max=" << std::atoi(std::getenv("STRATA_DS4_DEFER_MAX"));
         }
         return id.str();
     }
@@ -9826,8 +9849,10 @@ struct Model::Impl {
                     po = ord;
                 }
                 static const bool lane_skip = std::getenv("DS4_LANE_SKIP") != nullptr;   // (timing oracle: the lane's compute left out; rp.cpu stays 0)
-                // (local) STRATA_DS4_DEFER=2: the heavy entries answered first (rp), the light ones after into resps_late
-                const bool split2 = defer_mode() >= 2 && defer_ok(l);
+                // (local) STRATA_DS4_DEFER=2: the heavy entries answered first (rp), the light ones after into resps_late.
+                // The decision is the publisher's, read from the request (Req::defer): the lane splits exactly when the
+                // forward that published this request will consume the late part - never on its own reading of the layer.
+                const bool split2 = lane_splits(r.defer, defer_mode());
                 if (split2) {
                     late_ans = &resps_late[next % kRing];
                     for (int t = 0; t < kWin; ++t) late_ans->cpu[t] = 0;
@@ -9841,13 +9866,9 @@ struct Model::Impl {
                     }
                     std::vector<Ent> hv, lg;
                     for (const Ent& en : ents) {
-                        bool light = true;
-                        if (defer_cold()) light = !in_ram(l, en.e);   // (STRATA_DS4_DEFER_COLD: the ones the SSD has to bring)
-                        else
-                            for (int q = 0; q < en.n; ++q) {
-                                const int sl = en.slot0 + q;
-                                light = light && wv[sl] < dw * wsum[tok_of[sl]];
-                            }
+                        bool light;
+                        if (defer_cold()) light = defer_light_entry_cold(in_ram(l, en.e));   // (STRATA_DS4_DEFER_COLD: the ones the SSD has to bring, weights aside)
+                        else light = defer_light_entry(wv + en.slot0, tok_of + en.slot0, en.n, wsum, dw);
                         (light ? lg : hv).push_back(en);
                     }
                     const int D = g.dim;
@@ -11152,6 +11173,7 @@ struct Model::Impl {
         return ok;
     }
     bool draft_(int y, std::vector<int>& out, std::vector<float>& conf, std::string& err) {
+        begin_forward();   // (local) the drafter's layers are a forward too: an aborted step's deferred part must not land here
         out.clear();
         conf.clear();
         const int T = g.d_block, D = g.dim, H = g.hc, V = g.vocab, R = g.d_rank;
@@ -11414,6 +11436,7 @@ struct Model::Impl {
     }
     bool draft_multi_(const int* sv, const int* ys, int n, std::vector<std::vector<int>>& out,
                       std::vector<std::vector<float>>& conf, std::string& err) {
+        begin_forward();   // (local) as in draft_(): the drafter's rows are a forward of their own
         const int T = g.d_block, D = g.dim, H = g.hc, V = g.vocab, R = g.d_rank, NR = n * T;
         WinPlan dp;   // (the rows: conversation sv[c]'s block at rows c * T .., its positions pos ..)
         dp.nrow = NR;
@@ -13934,6 +13957,7 @@ struct Model::Impl {
         std::fprintf(stderr, "DBG hmax %s T=%d max=%.4g nonfinite=%zu h0=%g\n", tag, T, mx, nf, hp[0]);
     }
     bool forward_serial(int64_t p0, int T, std::string& err) {
+        begin_forward();   // (local) a forward of its own: whatever deferral part an aborted one left is dropped
         const int D = g.dim, H = g.hc;
         int cur = L[0].dev;
         if (ds4_dbg("DS4_SYNC_WIN")) cudaDeviceSynchronize();
@@ -14001,6 +14025,7 @@ struct Model::Impl {
     // threads: each device's thread enqueues its layers (a group's members each their share) at once, the
     // devices waiting on each other through host-mapped flags (the window's seq)
     bool forward_par(int64_t p0, int T, std::string& err) {
+        begin_forward();   // (local) one forward: drop any part an aborted earlier one left (its devices' threads read the epoch set here)
         wplan.win = ++win_seq;
         std::vector<std::string> errs(devs.size());
         for (size_t di = 0; di < devs.size(); ++di)
@@ -14450,14 +14475,16 @@ struct Model::Impl {
         const ArGroup& ag = groups[(size_t) L0.grp].ar;
         const float* freqs = l.ratio ? d.freqs_comp : d.freqs_win;
         static const bool defer_early = std::getenv("STRATA_DS4_DEFER_EARLY") != nullptr;   // (local) test: add it before the attention
-        if (pend_on && mi == 0 && (l.il != pend_il + 1 || defer_early)) {   // (local) a deferred part not taken by its next layer: add it as it was
+        if (pend_on && mi == 0 && !defer_part_still_ours(pend_epoch, fwd_epoch)) pend_on = false;   // (local) a part of an earlier forward (an entry begin_forward() missed): drop it, never add it here
+        if (pend_on && mi == 0 && (l.il != pend_il + 1 || defer_early)) {   // (local) its forward skipped this part's landing layer: add it as it was, late
             pend_on = false;
             wait_seq(&pend_src[pend_slot].seq, pend_sq, s);
             defer_add(d.h, pend_src + pend_slot, d.def_post, nullptr, D, H, pend_T, s);
         }
         if (mi == 0 && defer_mode() == 4)   // (local) mode 4: a part whose landing layer this forward will not reach in order
             for (int i = 0; i < 4; ++i)
-                if (q4[i].on && (l.il <= q4[i].il || l.il > q4[i].il + defer_k())) {
+                if (q4[i].on && !defer_part_still_ours(q4[i].epoch, fwd_epoch)) q4[i].on = false;   // (local) an earlier forward's (see begin_forward): drop it
+                else if (q4[i].on && (l.il <= q4[i].il || l.il > q4[i].il + defer_k())) {   // (local) its forward skipped the landing layer: add it late
                     q4[i].on = false;
                     wait_seq(&resps_late[q4[i].slot].seq, q4[i].sq, s);
                     defer_add(d.h, resps_late + q4[i].slot, d.def_c + (size_t) i * q4_stride, nullptr, D, H, q4[i].T, s);
@@ -14643,6 +14670,14 @@ struct Model::Impl {
             const unsigned sq = wp.seq[l.il];
             const int slot = (int) (sq % kRing);
             const bool lead = mi == 0;
+            // (local) STRATA_DS4_DEFER: the verdict is made here, once, and travels to the CPU lane inside the
+            // published request (Req::defer).  A window that cannot land a deferred part (not the lead device, a
+            // step with KV rows to write, a window past kWin, a layer whose next ones are not plain trunk layers)
+            // never defers; the lane splits its answer if and only if this flag says so.  Before, the lane applied
+            // its own defer_ok() check without lead / wp.nrow / T, so a layer the publisher refused to defer (KV
+            // rows pending, say) still got split, and its light part sat unread in the late ring: silently lost.
+            const bool defer = defer_window(lead, nm == 1, wp.nrow != 0, T, kWin, defer_ok(l));   // (local) STRATA_DS4_DEFER
+            const bool defer_all = defer && defer_mode() == 1;   // (modes 2/3: the heavy part waited for and summed here as before)
             int na[2] = {0, 0};   // lookahead: the next layers' guesses (their gate on this FFN input), published below
             for (int a = 1; lead && a <= std::min(2, ahead_mode); ++a) {
                 const Layer* nx = ahead_layer(L0, a);
@@ -14656,14 +14691,12 @@ struct Model::Impl {
             }
             route_publish(d.glog, l.gate_bias, l.n_exp, l.k_exp, T, g.route_scale, l.vram_tab, d.x, D, d.ridx, d.rw,
                           d.plan_ptr, lead ? reqs + slot : nullptr, sq, s, l.gate_bias_vl, l.mtp ? 0u : wp.vl, na[0],
-                          na[1]);
+                          na[1], defer ? 1 : 0);
             if (!mv(d, {job(l.s1, d.x, d.sg, T, D, FF), job(l.s3, d.x, d.su, T, D, FF)}, err)) return false;
             swiglu(d.sg, d.su, T * FF, g.lim, d.sh, s);
             if (!mv(d, {job(l.s2, d.sh, d.sh_out, T, FF, D)}, err)) return false;
             prof_mark(d, 2);
             const x3::ExpertLayout& lay = nm > 1 ? l.hlay : l.lay;
-            const bool defer = lead && nm == 1 && wp.nrow == 0 && T <= kWin && defer_ok(l);   // (local) STRATA_DS4_DEFER
-            const bool defer_all = defer && defer_mode() == 1;   // (modes 2/3: the heavy part waited for and summed here as before)
             if (T == 1 && moe_token_path) {
                 x3::MoeArgs ma;
                 ma.plan_ptr = d.plan_ptr;
@@ -14797,6 +14830,7 @@ struct Model::Impl {
                         q4[i].slot = slot;
                         q4[i].sq = sq;
                         q4[i].T = T;
+                        q4[i].epoch = fwd_epoch;   // (local) belongs to this forward
                     } else {   // (cannot happen with K <= 3; the part is added now so nothing is lost)
                         wait_seq(&resps_late[slot].seq, sq, s);
                         defer_add(d.h, resps_late + slot, d.f_post, nullptr, D, H, T, s);
@@ -14818,6 +14852,7 @@ struct Model::Impl {
                 pend_slot = slot;
                 pend_sq = sq;
                 pend_T = T;
+                pend_epoch = fwd_epoch;   // (local) belongs to this forward (see begin_forward)
             }
             prof_mark(d, 5);
             return true;
