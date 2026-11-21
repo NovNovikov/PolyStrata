@@ -1417,6 +1417,9 @@ struct Model::Impl {
     bool zc_copy = true;               // DS4_STORE_STAGE=0: the expert kernels read the arena over PCIe themselves
     bool in_ram(const Layer& l, int e) const {   // (DISK_SKIP_W) expert e's pages in RAM now
         if (!l.ram.empty() && l.ram[(size_t) e] >= 0) return true;
+        // (local) the RAM store's slot counts as RAM: its reads are unbuffered, so the file's pages are never cached
+        // and without this every store-held expert looked cold - DISK_SKIP_W then skipped as RAM_SKIP_W does
+        if (store && store->find(l.il, e) >= 0) return true;
         if (l.lay.fmt == gg::kFmtMXFP4) {
             for (int r = 0; r < 3; ++r)
                 if (!os::in_ram(mx_mat(l, e, r), mx_part_bytes(l, r))) return false;
