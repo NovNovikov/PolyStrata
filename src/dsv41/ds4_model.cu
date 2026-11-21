@@ -18,6 +18,7 @@
 #include "ds4_model.hpp"
 #include "ds4_pick_rule.hpp"
 #include "ds4_experts_rule.hpp"
+#include "ds4_vram_plan.hpp"   // plan_group_vram: the VRAM expert split, shared with tests/dsv41/ds4_vram_plan_test.cpp
 #include "ds4_engram_io.hpp"
 
 #include "ds4_gguf.cuh"
@@ -5524,37 +5525,28 @@ struct Model::Impl {
                 budget = capped;
                 room = std::max(0.0, room - std::min(budget, all) * nm);
             }
-            double budget_t = budget;   // the drafter's experts first, all of them (every draft uses its blocks)
-            for (Layer& l : L)
-                if (l.grp == (int) gi && l.mtp) {
-                    l.n_vram = std::min(l.n_exp, (int) std::floor(budget_t / (double) ucount(l)));
-                    budget_t -= (double) l.n_vram * ucount(l);
-                }
-            double want = 0;
+            // (local: DS4_MTP_VRAM_GB caps the drafter's VRAM experts, split evenly over its blocks; the rest stream
+            // like the trunk's.  On a 12 GB card the drafter otherwise takes every slot and the prompt path falls to
+            // windows of 16)  The split itself is ds4_vram_plan.hpp (tested without a device by ds4_vram_plan_test).
+            double mtp_cap = kNoCap;
+            if (const char* v = std::getenv("DS4_MTP_VRAM_GB")) {
+                int n_m = 0;
+                for (const Layer& l : L)
+                    if (l.grp == (int) gi && l.mtp) ++n_m;
+                if (n_m > 0) mtp_cap = std::max(0.0, std::atof(v)) * 1e9 / n_m;
+            }
+            std::vector<VramPlanLayer> plan;
             for (const Layer& l : L)
-                if (l.grp == (int) gi && !l.mtp && !l.cpu_only) want += (double) ucount(l) * l.n_exp;
-            const double frac = want > 0 ? std::min(1.0, std::max(0.0, budget_t) / want) : 0.0;
-            for (Layer& l : L) {
-                if (l.grp != (int) gi || l.mtp) continue;
-                if (l.cpu_only) {   // (its type has no device kernel: the CPU lane reads every expert of it)
-                    l.n_vram = 0;
-                    continue;
-                }
-                l.n_vram = std::min(l.n_exp, (int) std::floor(frac * l.n_exp));
-                // never more than fits: the floor of each layer's share can still round up the total
-                while (l.n_vram > 0 && (double) ucount(l) * l.n_vram > budget) --l.n_vram;
-            }
-            double used = 0;
+                if (l.grp == (int) gi) plan.push_back({l.mtp, l.cpu_only, l.n_exp, (size_t) ucount(l), 0});
+            plan_group_vram(plan, budget, mtp_cap);
+            size_t pi = 0;
             for (Layer& l : L)
-                if (l.grp == (int) gi) used += (double) ucount(l) * l.n_vram;
-            // what the floors left: whole experts, layer by layer
-            for (Layer& l : L) {
-                if (l.grp != (int) gi || l.cpu_only) continue;
-                while (l.n_vram < l.n_exp && used + (double) ucount(l) <= budget) {
-                    ++l.n_vram;
-                    used += (double) ucount(l);
+                if (l.grp == (int) gi) {
+                    l.n_vram = plan[pi++].n_vram;
+                    if (l.mtp && mtp_cap < kNoCap && o.verbose)
+                        std::fprintf(stderr, "ds4: DS4_MTP_VRAM_GB: drafter %s keeps %d of %d experts in VRAM\n", l.name.c_str(),
+                                     l.n_vram, l.n_exp);
                 }
-            }
         }
         if (kept > 0) {   // the commit kept experts off the GPU: say so, and the page file that keeps them on it
             const os::Commit c = os::commit();
