@@ -132,6 +132,44 @@ private:
     std::condition_variable cv_;
 };
 
+/// One readable file handle that may be swapped while readers live. A queued job points at one instead of carrying a
+/// copy of the handle: the worker resolves it at dispatch, so a handle closed after the job was queued can never be
+/// read through. (A closed Windows handle value is recycled by the OS - often to another of the model's own files -
+/// and a stale copy would then read another file's bytes into an expert slot, silently.) replace() swaps in the new
+/// handle and waits for every read that had acquired the old one to finish, and returns it: closing it is safe only
+/// after replace() returned.
+class FdRef {
+public:
+    void set(os::fd_t f) { fd_.store(f, std::memory_order_release); }
+    os::fd_t get() const { return fd_.load(std::memory_order_acquire); }
+    os::fd_t acquire() const {   // the read's side: counted before the load, so a closer that takes the handle back counts it
+        live_.fetch_add(1, std::memory_order_seq_cst);
+        return fd_.load(std::memory_order_seq_cst);
+    }
+    void release() const {
+        if (live_.fetch_sub(1, std::memory_order_seq_cst) != 1) return;
+        if (!closing_.load(std::memory_order_relaxed)) return;
+        std::lock_guard<std::mutex> lk(m_);
+        cv_.notify_all();
+    }
+    os::fd_t replace(os::fd_t f) {
+        std::unique_lock<std::mutex> lk(m_);
+        const os::fd_t old = fd_.exchange(f, std::memory_order_seq_cst);
+        if (old == os::kBadFd) return old;   // (nothing to wait for: nobody can have acquired a bad handle)
+        closing_.store(true, std::memory_order_relaxed);
+        cv_.wait(lk, [&] { return live_.load(std::memory_order_seq_cst) == 0; });
+        closing_.store(false, std::memory_order_relaxed);
+        return old;
+    }
+
+private:
+    mutable std::mutex m_;
+    mutable std::condition_variable cv_;
+    std::atomic<os::fd_t> fd_{os::kBadFd};
+    mutable std::atomic<int> live_{0};
+    std::atomic<bool> closing_{false};
+};
+
 /// File reads on threads of their own, in the order they were pushed, the pusher never waiting: the prompt path's
 /// streamed experts (each part of an expert a job), unbuffered where the job has a direct descriptor and its range is
 /// not all in the page cache already (the disk straight into dst, the cache neither used nor disturbed), buffered
@@ -141,6 +179,8 @@ class IoQueue {
 public:
     struct Job {
         os::fd_t fd = os::kBadFd, dfd = os::kBadFd;
+        const FdRef* bref = nullptr;   // set: the buffered handle resolved at dispatch (the store's files swap while reads queue)
+        const FdRef* dref = nullptr;   // ... and the unbuffered one
         uint64_t off = 0, len = 0;
         uint8_t* dst = nullptr;
         std::atomic<int>* left = nullptr;
@@ -217,6 +257,12 @@ private:
             const auto t0 = std::chrono::steady_clock::now();
             const uint64_t lead = j.off % os::kDirectAlign;
             bool ok = false;
+            // (local) resolve the job's handles now, not when it was queued: a model load may close or reopen a
+            // file's handles while its reads sit in this queue, and a copied value could then be dead - or, the
+            // OS recycling handle values, another file's live handle. The FdRef keeps the read counted until its
+            // bytes are here, so the swapper closes the old handle only after this read ends.
+            os::fd_t fd = j.bref ? j.bref->acquire() : j.fd;
+            os::fd_t dfd = j.dref ? j.dref->acquire() : j.dfd;
             if (j.mem != nullptr) {
                 std::memcpy(j.dst, j.mem, (size_t) j.len);
                 ok = true;
@@ -226,28 +272,30 @@ private:
                 const uint64_t span = os::direct_span(j.off, j.len);
                 if (bounce.size() < span + os::kDirectAlign) bounce.resize((size_t) span + 2 * os::kDirectAlign);
                 uint8_t* bp = (uint8_t*) (((uintptr_t) bounce.data() + os::kDirectAlign - 1) & ~(uintptr_t) (os::kDirectAlign - 1));
-                if (j.dfd != os::kBadFd && !(j.map != nullptr && os::resident(j.map, (size_t) j.len)) &&
-                    os::pread_direct(j.dfd, bp, j.len, j.off)) {
+                if (dfd != os::kBadFd && !(j.map != nullptr && os::resident(j.map, (size_t) j.len)) &&
+                    os::pread_direct(dfd, bp, j.len, j.off)) {
                     std::memcpy(j.dst, bp + lead, (size_t) j.len);
                     ok = true;
                     direct_.fetch_add(j.len, std::memory_order_relaxed);
-                } else if (j.fd != os::kBadFd && os::pread_par(j.fd, j.dst, j.len, j.off)) {
+                } else if (fd != os::kBadFd && os::pread_par(fd, j.dst, j.len, j.off)) {
                     ok = true;
                     buffered_.fetch_add(j.len, std::memory_order_relaxed);
                 }
-            } else if (j.dfd != os::kBadFd && !(j.map != nullptr && os::resident(j.map, (size_t) j.len)) &&
-                       os::pread_direct(j.dfd, j.dst, j.len, j.off)) {   // (the page cache's ones: buffered, below)
+            } else if (dfd != os::kBadFd && !(j.map != nullptr && os::resident(j.map, (size_t) j.len)) &&
+                       os::pread_direct(dfd, j.dst, j.len, j.off)) {   // (the page cache's ones: buffered, below)
                 ok = true;
                 direct_.fetch_add(j.len, std::memory_order_relaxed);
-            } else if (j.fd != os::kBadFd && os::pread_par(j.fd, j.dst + lead, j.len, j.off)) {
+            } else if (fd != os::kBadFd && os::pread_par(fd, j.dst + lead, j.len, j.off)) {
                 ok = true;
                 buffered_.fetch_add(j.len, std::memory_order_relaxed);
-            } else if (j.fd == os::kBadFd) {   // (local) a dropped file (STRATA_DS4_DROP_SHARDS): no buffered fallback
+            } else if (fd == os::kBadFd) {   // (local) a dropped file (STRATA_DS4_DROP_SHARDS): no buffered fallback
                 static std::atomic<bool> warned{false};
                 if (!warned.exchange(true))
                     std::fprintf(stderr, "ds4: WARNING (local): an unbuffered read failed and its file keeps no buffered handle - "
                                          "the read is reported failed (further ones not reported)\n");
             }
+            if (j.dref) j.dref->release();
+            if (j.bref) j.bref->release();
             const auto t_rd = std::chrono::steady_clock::now();
             if (ok && j.keep != nullptr && j.mem == nullptr) std::memmove(j.keep, j.exact ? j.dst : j.dst + lead, (size_t) j.len);   // (keep may overlap dst: the store reads in place and moves up)
             {

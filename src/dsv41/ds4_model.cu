@@ -547,7 +547,10 @@ struct Pack {
     // A file with cached (buffered) reads and a handle still open is slow the same way (probe: 3.3 GB/s with a buffered
     // handle held open after one read, 6.5 once it is closed), so the load's buffered handles are closed and fresh ones
     // (never read from) stand in for the fallbacks; the reads that remain go unbuffered (direct_reads).
-    void drop_views() {
+    // keep_pfds (the RAM store is up): the parallel handles are NOT closed here - the store's background fill may
+    // have reads queued through them, and a closed handle value is recycled by the OS, possibly to another shard.
+    // store->set_pfds(pk.pfds) takes them over instead and closes each one once its last read has landed.
+    void drop_views(bool keep_pfds = false) {
         for (auto& m : maps)
             if (m.first != nullptr) {
                 os::unmap(m.first, m.second);
@@ -558,7 +561,7 @@ struct Pack {
             os::close_fd(fds[i]);
             fds[i] = os::open_ro(path);
             if (i < pfds.size()) {
-                os::close_fd(pfds[i]);
+                if (!keep_pfds) os::close_fd(pfds[i]);
                 pfds[i] = os::open_par(path);
             }
         }
@@ -569,7 +572,7 @@ struct Pack {
     // drive at 3.05 GB/s against 4.13-4.25 with none (a view does the same). drop_views()' fresh handles therefore do
     // not help here; drop_files() unmaps the files in `which` and closes their buffered handles outright (kBadFd), so
     // only the unbuffered dfds stay - read_at's rare fallback opens a buffered handle for one read and closes it.
-    int drop_files(const std::vector<char>& which) {
+    int drop_files(const std::vector<char>& which, bool keep_pfds = false) {
         if (dropped.size() < fds.size()) dropped.resize(fds.size(), 0);
         int n = 0;
         for (size_t i = 0; i < fds.size() && i < which.size(); ++i) {
@@ -581,7 +584,7 @@ struct Pack {
             os::close_fd(fds[i]);
             fds[i] = os::kBadFd;
             if (i < pfds.size()) {
-                os::close_fd(pfds[i]);
+                if (!keep_pfds) os::close_fd(pfds[i]);   // (keep_pfds: the store closes it once its queued reads are done)
                 pfds[i] = os::kBadFd;
             }
             dropped[i] = 1;
@@ -3961,7 +3964,7 @@ struct Model::Impl {
         }
 #endif
         if (no_view && store && pk.gguf) {
-            pk.drop_views();
+            pk.drop_views(store->fd_live());
             store->set_pfds(pk.pfds);
             views = false;
             std::fprintf(stderr, "ds4: no view of the model's files after the load: unbuffered reads at the drive's rate\n");
@@ -3981,7 +3984,7 @@ struct Model::Impl {
                 else if (nm.rfind("layers.", 0) == 0 && nm.find(".ffn.experts.") != std::string::npos) drop[(size_t) f] = 1;
             }
             for (size_t i = 0; i < drop.size(); ++i) drop[i] = drop[i] && !keep[i];
-            const int n = pk.drop_files(drop);
+            const int n = pk.drop_files(drop, store->fd_live());
             if (n > 0) {
                 store->set_pfds(pk.pfds);
                 views = false;
@@ -5045,7 +5048,10 @@ struct Model::Impl {
                     IoQueue::Job& j = jobs[nj++];
                     const os::fd_t pf = pk.pfds.empty() ? os::kBadFd : pk.pfds[(size_t) l.mx_file[r]];
                     j.fd = pf != os::kBadFd ? pf : pk.fds[(size_t) l.mx_file[r]];
-                    j.dfd = pk.dfds.empty() || c.buffered ? os::kBadFd : pk.dfds[(size_t) l.mx_file[r]];
+                    // (local) DS4_FLOW_BUFFERED on a file DROP_SHARDS closed: there is no buffered handle to read
+                    // through - forcing it would fail every read of that file; the direct one still works
+                    const bool f_drop = (size_t) l.mx_file[r] < pk.dropped.size() && pk.dropped[(size_t) l.mx_file[r]] != 0;
+                    j.dfd = pk.dfds.empty() || (c.buffered && !f_drop) ? os::kBadFd : pk.dfds[(size_t) l.mx_file[r]];
                     j.off = l.mx_off[r] + (uint64_t) it.e * l.mx_stride[r] + mx_read_off(l, it.mi, r);
                     j.len = mx_read_len(l, r);
                     j.dst = sb;

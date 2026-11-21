@@ -71,12 +71,37 @@ public:
         int vis_percent = 100;             // the share of experts the GPU may take (by a fixed hash): the rest stay the CPU lane's, so both lanes work
     };
 
-    void set_pfds(const std::vector<os::fd_t>& pfds) { pfds_ = pfds; }   // (the fallback handles were reopened)
+    void set_pfds(const std::vector<os::fd_t>& pfds) {   // (the fallback handles reopened or closed: swaps them into the
+        // live table and closes an old one only once every read that had acquired it is done (hostile review 4): the
+        // load may close a file's handles while the background store fill queues reads through them, and a closed
+        // handle value gets recycled by the OS - to another shard, whose bytes would land in an expert slot.
+        for (size_t i = 0; i < pfds_r_.size(); ++i) {
+            const os::fd_t f = i < pfds.size() ? pfds[i] : os::kBadFd;
+            if (pfds_r_[i].get() == f) continue;
+            if (i < pfds_.size()) pfds_[i] = f;
+            os::close_fd(pfds_r_[i].replace(f));   // (replace waits for the reads in flight; then the value is dead weight)
+        }
+        if (pfds_r_.empty()) pfds_ = pfds;   // (before init: no table yet, nothing queued, nothing to close)
+    }   // (the fallback handles were reopened)
+    bool fd_live() const { return !pfds_r_.empty(); }   // (the store owns the swap-and-close of the parallel handles)
     bool init(const Cfg& c, const std::vector<LayerGeo>& layers, const std::vector<os::fd_t>& dfds, const std::vector<os::fd_t>& pfds) {
         cfg_ = c;
         geo_ = layers;
         dfds_ = dfds;
         pfds_ = pfds;
+        // (local) the handle tables a queued read points at instead of carrying a copy (FdRef): set_pfds swaps them
+        // while the reader queue runs, so a load closing or reopening a file's handles can never strand one
+        size_t nf = 0;
+        for (const LayerGeo& g : geo_)
+            for (int r = 0; r < 3; ++r) nf = std::max(nf, (size_t) g.file[r] + 1);
+        pfds_r_.clear();
+        pfds_r_.resize(nf);
+        dfds_r_.clear();
+        dfds_r_.resize(nf);
+        for (size_t i = 0; i < nf; ++i) {
+            pfds_r_[i].set(i < pfds_.size() ? pfds_[i] : os::kBadFd);
+            dfds_r_[i].set(i < dfds_.size() ? dfds_[i] : os::kBadFd);
+        }
         size_t blob = 0;
         for (const LayerGeo& g : geo_) blob = std::max<size_t>(blob, g.blob);
         slot_bytes_ = (blob + 2 * kSlack + os::kDirectAlign - 1) & ~(size_t) (os::kDirectAlign - 1);
@@ -526,8 +551,8 @@ private:
             // under 4096 bytes either way into the blob's gaps), the matrix is then moved up to fin
             uint8_t* dst = (uint8_t*) ((uintptr_t) (fin - lead) & ~(uintptr_t) (os::kDirectAlign - 1));
             IoQueue::Job& j = jobs[r];
-            j.fd = pfds_[(size_t) g.file[r]];
-            j.dfd = dfds_[(size_t) g.file[r]];
+            j.bref = &pfds_r_[(size_t) g.file[r]];   // (handles resolved at dispatch: see FdRef)
+            j.dref = &dfds_r_[(size_t) g.file[r]];
             j.off = off;
             j.len = g.bytes[r];
             j.dst = dst;
@@ -702,6 +727,7 @@ private:
     Cfg cfg_;
     std::vector<LayerGeo> geo_;
     std::vector<os::fd_t> dfds_, pfds_;
+    std::deque<FdRef> dfds_r_, pfds_r_;   // (local) the handles the reader queue resolves at dispatch (set_pfds swaps them live)
     size_t slot_bytes_ = 0, nmax_ = 0, nalloc_ = 0, arena_bytes_ = 0;
     size_t budget_ = 0, used_ = 0, cap_ = 0;          // (local) the byte budget, the bytes committed, the slot table's size
     std::vector<int> cls_of_;                         // (local) a layer's size class
