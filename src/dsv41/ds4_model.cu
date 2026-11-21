@@ -743,6 +743,9 @@ struct Chunk {
     // pinned, two chunks in flight: the embedding rows (the first layer's device), the Engram rows (an Engram layer's)
     uint16_t* emb_host[2] = {nullptr, nullptr};
     uint8_t* eg_host[2] = {nullptr, nullptr};
+    std::vector<uint8_t*> eg_ring;           // (local) STRATA_DS4_EG_RING=n: n slots of one (Engram layer, chunk) unit each
+    std::vector<cudaEvent_t> eg_ring_ev;     //   (C rows), filled by one reader thread as far ahead as the slots allow
+    size_t eg_ring_bytes = 0;                //   (each slot's size: made again when the chunk grows - C is the run's)
     cudaEvent_t emb_ev[2] = {nullptr, nullptr}, eg_ev[2] = {nullptr, nullptr};
     double stream_bytes = 0;     // the experts streamed in, in all
     // the flow (a GGUF's in-place experts, every layer of the device on it alone; DS4_FLOW=0: the batches above): a
@@ -1041,6 +1044,7 @@ struct WinPlan {
     int snap_n = 0;
     int snap_t[kSnapN] = {}, snap_ix[kSnapN] = {};
     int eg_slot = -1;       // (a run of chunks, layer-major) the Engram rows' slot (-1: k % 2)
+    int eg_ring = -1;       // (local, STRATA_DS4_EG_RING) the ring slot holding this unit's rows (-1: eg_slot's way)
     unsigned vl = 0;        // (a window) bit t: token t is inside a picture's span (routed with the image bias)
     // (--parallel, Impl::step_multi) rows of nrow conversations instead of a window of one: row t is conversation
     // rseq[t]'s token at position rpos[t] (0: a window of the bound conversation from p0)
@@ -11600,9 +11604,9 @@ struct Model::Impl {
             const int cols = (pk.eg_ngram - 1) * pk.eg_heads, ehd = pk.eg_hd;
             const size_t per = (size_t) cols * (ehd + ehd / 32);
             const int slot = wp.eg_slot >= 0 ? wp.eg_slot : wp.k % 2;   // (read ahead by the run: two in flight)
-            uint8_t* host = c.eg_host[slot] + (size_t) l.eg * c.C * per;
+            uint8_t* host = wp.eg_ring >= 0 ? c.eg_ring[(size_t) wp.eg_ring] : c.eg_host[slot] + (size_t) l.eg * c.C * per;
             CK(cudaMemcpyAsync(c.eg_rows, host, (size_t) T * per, cudaMemcpyHostToDevice, s));
-            CK(cudaEventRecord(c.eg_ev[slot], s));
+            CK(cudaEventRecord(wp.eg_ring >= 0 ? c.eg_ring_ev[(size_t) wp.eg_ring] : c.eg_ev[slot], s));
             for (int s0 = 0; s0 < T; s0 += 256) {
                 const int ns = std::min(256, T - s0);
                 engram_dequant_tok(c.eg_rows + (size_t) s0 * per, per, cols, ns, ehd, c.eg_x, s, (int) eg_fmt[(size_t) l.eg]);
@@ -12140,7 +12144,70 @@ struct Model::Impl {
         };
         size_t eg_u = 0;
         std::future<void> eg_next;
-        if (!egu.empty()) eg_next = std::async(std::launch::async, read_eg, (size_t) 0);
+        // (local) STRATA_DS4_EG_RING=n (n >= 2; 0 = off): the units' rows read by one thread into n slots, as far ahead as
+        // the slots allow (unit u into slot u % n once unit u - n's copy to the device is done) - the rows depend on the
+        // tokens alone, so the second Engram layer's are read while the layers between run.  The same rows, the same sums.
+        static const int eg_nr = std::getenv("STRATA_DS4_EG_RING") ? std::max(0, std::atoi(std::getenv("STRATA_DS4_EG_RING"))) : 0;
+        const bool eg_ring = eg_nr >= 2 && !egu.empty();
+        std::atomic<size_t> eg_done{0}, eg_used{0};
+        std::atomic<bool> eg_stop{false};
+        std::thread eg_th;
+        struct EgJoin {
+            std::atomic<bool>& stop;
+            std::thread& th;
+            ~EgJoin() {
+                stop.store(true);
+                if (th.joinable()) th.join();
+            }
+        } eg_join{eg_stop, eg_th};
+        if (eg_ring) {
+            if (c.eg_ring_bytes < c.C * eg_per) {   // (slots made for a smaller chunk: made again at the new size)
+                // the donor left the old slots pinned until exit; they are released here instead, after their last
+                // H2D copy is done (the events say so), and taken out of the teardown list so nothing frees twice
+                for (cudaEvent_t ev : c.eg_ring_ev) {
+                    cudaEventSynchronize(ev);
+                    cudaEventDestroy(ev);
+                }
+                for (uint8_t* p : c.eg_ring) {
+                    auto it = std::find(host_allocs.begin(), host_allocs.end(), (void*) p);
+                    if (it != host_allocs.end()) host_allocs.erase(it);
+                    cudaFreeHost(p);
+                }
+                c.eg_ring.clear();
+                c.eg_ring_ev.clear();
+                c.eg_ring_bytes = c.C * eg_per;
+            }
+            while ((int) c.eg_ring.size() < eg_nr) {
+                uint8_t* p = nullptr;
+                if (!halloc(p, c.C * eg_per, err)) return false;
+                cudaEvent_t ev = nullptr;
+                CK(cudaEventCreateWithFlags(&ev, cudaEventDisableTiming));
+                c.eg_ring.push_back(p);
+                c.eg_ring_ev.push_back(ev);
+            }
+            static bool eg_said = false;
+            if (!eg_said) {
+                eg_said = true;
+                std::fprintf(stderr, "ds4: Engram ring (local): %d slots of %.1f MB pinned\n", eg_nr, (double) (c.C * eg_per) / 1e6);
+            }
+            eg_th = std::thread([this, &c, &run, &egu, &eg_done, &eg_used, &eg_stop, di] {
+                cudaSetDevice(devs[(size_t) di].id);
+                const size_t nr = (size_t) eg_nr;
+                for (size_t u = 0; u < egu.size() && !eg_stop.load(); ++u) {
+                    const size_t r = u % nr;
+                    if (u >= nr) {   // (the slot's last unit copied to the device first)
+                        while (eg_used.load(std::memory_order_acquire) <= u - nr && !eg_stop.load())
+                            std::this_thread::sleep_for(std::chrono::microseconds(100));
+                        if (eg_stop.load()) break;
+                        cudaEventSynchronize(c.eg_ring_ev[r]);
+                    }
+                    const int li = egu[u].first, k = egu[u].second;
+                    (void) li;
+                    engram_rows(run.p0[(size_t) k], run.T[(size_t) k], egu[u].first, c.eg_ring[r]);
+                    eg_done.store(u + 1, std::memory_order_release);
+                }
+            });
+        } else if (!egu.empty()) eg_next = std::async(std::launch::async, read_eg, (size_t) 0);
         for (size_t li = 0; li < c.fl_layers.size(); ++li) {
             const int il = c.fl_layers[li];
             Layer& L0 = L[(size_t) il];
@@ -12157,7 +12224,15 @@ struct Model::Impl {
                 wp.win = run.seq[(size_t) k];
                 wp.k = k;
                 run.snaps(p0, T, wp);
-                if (L0.eg >= 0) {   // this unit's rows ready, the next one's on their way
+                size_t eg_mark = (size_t) -1;
+                if (L0.eg >= 0 && eg_ring) {   // (local) this unit's rows from the ring
+                    const double te = now_ms();
+                    while (eg_done.load(std::memory_order_acquire) <= eg_u)
+                        std::this_thread::sleep_for(std::chrono::microseconds(50));
+                    st.engram_ms += now_ms() - te;
+                    wp.eg_ring = (int) (eg_u % (size_t) eg_nr);
+                    eg_mark = eg_u++;
+                } else if (L0.eg >= 0) {   // this unit's rows ready, the next one's on their way
                     const double te = now_ms();
                     eg_next.get();
                     st.engram_ms += now_ms() - te;
@@ -12198,6 +12273,7 @@ struct Model::Impl {
                 }
                 const bool kvo = run.kv_only(k, il);
                 if (!run_layer(L0, 0, p0, T, wp, S, err, run, k, il)) return false;
+                if (eg_mark != (size_t) -1) eg_used.store(eg_mark + 1, std::memory_order_release);   // (its copy is recorded)
                 if (dump_l != nullptr) dump_layer(d, c.h, il, p0, T);
                 if (kvo) continue;   // (no layer after it reads this chunk's state)
                 if (!last_l) {   // the chunk's state kept for the next layer
