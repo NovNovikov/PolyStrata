@@ -1935,6 +1935,32 @@ __global__ void __launch_bounds__(kThreads) ar_sum_kernel(float* x, int n4, cons
 
 
 // a thread a (token, value): every stream's value read before any is written
+// (local) STRATA_DS4_DEFER: a layer's CPU-lane part y (Resp::part[t], when Resp::cpu[t]) added late into h.  The layer
+// would have added post[k] * y to stream k; comb (non-null) is the mixing the attention's hc_post applied since, so the
+// late add is sum_j comb[j][k] * post[j] * y - what the on-time add would have become; comb null: post[k] * y as is.
+__global__ void defer_add_kernel(float* h, const Resp* r, const float* __restrict__ post, const float* __restrict__ comb,
+                                 const float* __restrict__ comb2, int dim, int hc) {
+    const int e = blockIdx.x * blockDim.x + threadIdx.x, t = blockIdx.y;
+    if (e >= dim) return;
+    if (!((volatile const int*) r->cpu)[t]) return;
+    const float y = ((volatile const float*) r->part[t])[e];
+    float* hr = h + (size_t) t * hc * dim;
+    for (int k = 0; k < hc; ++k) {
+        float c;
+        if (comb != nullptr && comb2 != nullptr) {   // (STRATA_DS4_DEFER=3: through the next layer's attention and FFN mixing)
+            c = 0.0f;
+            for (int j = 0; j < hc; ++j) {
+                float m = 0.0f;
+                for (int i = 0; i < hc; ++i) m = __fmaf_rn(comb[(size_t) t * 64 + i * hc + j], post[(size_t) t * 8 + i], m);
+                c = __fmaf_rn(comb2[(size_t) t * 64 + j * hc + k], m, c);
+            }
+        } else if (comb != nullptr) {
+            c = 0.0f;
+            for (int j = 0; j < hc; ++j) c = __fmaf_rn(comb[(size_t) t * 64 + j * hc + k], post[(size_t) t * 8 + j], c);
+        } else c = post[(size_t) t * 8 + k];
+        hr[(size_t) k * dim + e] = __fmaf_rn(c, y, hr[(size_t) k * dim + e]);
+    }
+}
 __global__ void hc_post_inplace_kernel(const float* __restrict__ y, float* h, const float* __restrict__ post,
                                        const float* __restrict__ comb, int dim, int hc) {
     const int e = blockIdx.x * blockDim.x + threadIdx.x, t = blockIdx.y;
@@ -2321,6 +2347,35 @@ void hc_post_inplace(const float* y, float* h, const float* post, const float* c
     if (strata::dsv41::metal_host::hc_post(y, h, post, comb, dim, hc, T)) return;
 #endif
     strata_ds4_launch(hc_post_inplace_kernel, dim3(cdiv(dim, kThreads), T), kThreads, 0, s, y, h, post, comb, dim, hc);
+}
+// (local) STRATA_DS4_DEFER=4: c[t][k] <- sum_j comb[t][j][k] c[t][j] - a deferred part's weights on the hc streams after one
+// more mixing (the part is rank one: c x y), so it can land any number of layers late exactly where it would have gone
+__global__ void defer_mix_kernel(float* c, const float* __restrict__ comb, int hc) {
+    const int t = blockIdx.x;
+    if (threadIdx.x != 0) return;
+    float v[8];
+    for (int j = 0; j < hc; ++j) v[j] = c[(size_t) t * 8 + j];
+    for (int kk = 0; kk < hc; ++kk) {
+        float a = 0.0f;
+        for (int j = 0; j < hc; ++j) a = __fmaf_rn(comb[(size_t) t * 64 + j * hc + kk], v[j], a);
+        c[(size_t) t * 8 + kk] = a;
+    }
+}
+void defer_mix(float* c, const float* comb, int hc, int T, cudaStream_t s) {
+#if defined(STRATA_METAL)
+    (void) c; (void) comb; (void) hc; (void) T; (void) s;
+#else
+    strata_ds4_launch(defer_mix_kernel, T, 32, 0, s, c, comb, hc);
+#endif
+}
+void defer_add(float* h, const Resp* r, const float* post, const float* comb, int dim, int hc, int T, cudaStream_t s,
+               const float* comb2) {
+#if defined(STRATA_METAL)
+    (void) h; (void) r; (void) post; (void) comb; (void) dim; (void) hc; (void) T; (void) s; (void) comb2;
+    return;
+#else
+    strata_ds4_launch(defer_add_kernel, dim3(cdiv(dim, kThreads), T), kThreads, 0, s, h, r, post, comb, comb2, dim, hc);
+#endif
 }
 void hc_mix_scale(const float* h, int hcdim, int n_mix, int T, float eps, float* mixes, cudaStream_t s) {
 #if defined(STRATA_METAL)

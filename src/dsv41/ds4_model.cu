@@ -628,6 +628,8 @@ struct Dev {
           *cgr = nullptr, *latent = nullptr, *ikr = nullptr, *iq = nullptr, *iw = nullptr, *scores = nullptr,
           *bm = nullptr, *o = nullptr, *oa = nullptr, *ao = nullptr, *mix = nullptr, *a_pre = nullptr,
           *a_post = nullptr, *a_comb = nullptr, *f_pre = nullptr, *f_post = nullptr, *f_comb = nullptr, *pre = nullptr,
+          *def_post = nullptr,   // (local) STRATA_DS4_DEFER: the deferred layer's f_post
+          *def_c = nullptr,      // (local) STRATA_DS4_DEFER=4: up to 4 pending parts' stream weights, W x 8 each
           *glog = nullptr, *rw = nullptr, *moe_out = nullptr, *sg = nullptr, *su = nullptr, *sh = nullptr,
           *sh_out = nullptr, *cpu_part = nullptr, *eg_x = nullptr, *eg_kv = nullptr, *logits = nullptr,
           *freqs_win = nullptr, *freqs_comp = nullptr, *xe = nullptr, *xg = nullptr, *xu = nullptr, *xhh = nullptr,
@@ -1305,6 +1307,53 @@ struct Model::Impl {
     // answers in resps with the CPU lane's part, and the device waits for the answer only before the expert sum
     Req* reqs = nullptr;
     Resp* resps = nullptr;
+    // (local) STRATA_DS4_DEFER=1: a decode layer's CPU-lane part is not waited for at its own expert sum; the next layer adds
+    // it after its attention (through that attention's hc mixing), so the CPU lane computes while the GPU runs the next
+    // layer's attention.  Not for the layer before a drafter tap, the last trunk layer, a drafter layer or a split model.
+    // STRATA_DS4_DEFER=2: only the light CPU-lane experts (route weight under STRATA_DS4_DEFER_W x the token's route sum,
+    // default 0.2) are deferred: the lane answers the heavy ones as before, then computes the light ones into resps_late.
+    bool pend_on = false;
+    int pend_il = -1, pend_slot = 0, pend_T = 0;
+    unsigned pend_sq = 0;
+    Resp* pend_src = nullptr;
+    Resp* resps_late = nullptr;
+    Resp* late_ans = nullptr;
+    std::atomic<int64_t> n_deferred{0};   // (light entries deferred, for the log)   // (the lane thread's: this request's late answer, its seq written after the heavy one)
+    // STRATA_DS4_DEFER=4: the deferred part (the light experts by DEFER_W, or with STRATA_DS4_DEFER_COLD=1 the ones not in
+    // RAM) lands STRATA_DS4_DEFER_K layers late (1-3), its stream weights carried through every mixing in between
+    struct Pend4 {
+        bool on = false;
+        int il = -1, slot = 0, T = 0;
+        unsigned sq = 0;
+    } q4[4];
+    int q4_stride = 0;   // (floats between two pending parts' weights in def_c: W x 8)
+    static int defer_k() {
+        static const int k = std::max(1, std::min(3, std::getenv("STRATA_DS4_DEFER_K") ? std::atoi(std::getenv("STRATA_DS4_DEFER_K")) : 1));
+        return k;
+    }
+    static bool defer_cold() {
+        static const bool c = std::getenv("STRATA_DS4_DEFER_COLD") != nullptr && std::atoi(std::getenv("STRATA_DS4_DEFER_COLD")) != 0;
+        return c;
+    }
+    static int defer_mode() {
+        static const int m = std::getenv("STRATA_DS4_DEFER") != nullptr ? std::atoi(std::getenv("STRATA_DS4_DEFER")) : 0;
+        return m;
+    }
+    bool defer_ok(const Layer& l) const {
+        const int on = defer_mode();
+        if (on >= 2 && resps_late == nullptr) return false;
+        if (l.nm != 1) return false;
+        static const int mx = std::getenv("STRATA_DS4_DEFER_MAX") != nullptr ? std::atoi(std::getenv("STRATA_DS4_DEFER_MAX")) : 1 << 20;
+        if (!on || l.mtp || l.il > mx || l.il + 1 >= g.nl) return false;
+        const int K = on == 4 ? defer_k() : 1;   // (mode 4: every layer up to the landing one must be a plain trunk layer)
+        for (int m = l.il; m < l.il + K; ++m) {
+            if (m + 1 >= g.nl) return false;
+            const Layer& nx = L[(size_t) m + 1];
+            if (nx.mtp || nx.dev != l.dev || nx.grp != l.grp || nx.nm != 1) return false;
+            if (std::find(g.d_targets.begin(), g.d_targets.end(), m + 1) != g.d_targets.end()) return false;
+        }
+        return true;
+    }
     unsigned seq_issued = 0;
     std::atomic<int> layer_of[kRing];
     std::thread service;
@@ -3204,7 +3253,7 @@ struct Model::Impl {
                       dalloc(d, d.oa, W * g.o_groups * g.o_lora, err) && dalloc(d, d.ao, W * D, err) &&
                       dalloc(d, d.mix, W * 32, err) && dalloc(d, d.a_pre, W * 8, err) && dalloc(d, d.a_post, W * 8, err) &&
                       dalloc(d, d.a_comb, W * 64, err) && dalloc(d, d.f_pre, W * 8, err) &&
-                      dalloc(d, d.f_post, W * 8, err) && dalloc(d, d.f_comb, W * 64, err) && dalloc(d, d.pre, W * 8, err) &&
+                      dalloc(d, d.f_post, W * 8, err) && dalloc(d, d.def_post, W * 8, err) && dalloc(d, d.def_c, (size_t) 4 * kWin * 8, err) && dalloc(d, d.f_comb, W * 64, err) && dalloc(d, d.pre, W * 8, err) &&
                       dalloc(d, d.glog, W * 1024, err) && dalloc(d, d.glog_a, 2 * W * 1024, err) &&
                       dalloc(d, d.rw, W * kPicks, err) &&
                       dalloc(d, d.ridx, W * kPicks, err) && dalloc(d, d.ridx_a, 2 * kPicks, err) && dalloc(d, d.rw_a, 2 * kPicks, err) &&
@@ -3753,6 +3802,15 @@ struct Model::Impl {
             resps = (Resp*) m;
             std::memset((void*) reqs, 0, sizeof(Req) * kRing);
             std::memset((void*) resps, 0, sizeof(Resp) * kRing);
+            if (defer_mode() >= 2) {   // (local) STRATA_DS4_DEFER=2/3: the light experts' answers, a ring of their own
+                if (cudaHostAlloc(&m, sizeof(Resp) * kRing, cudaHostAllocMapped | cudaHostAllocPortable) != cudaSuccess) {
+                    err = "host-mapped memory for the deferred answers";
+                    return false;
+                }
+                host_allocs.push_back(m);
+                resps_late = (Resp*) m;
+                std::memset((void*) resps_late, 0, sizeof(Resp) * kRing);
+            }
             for (auto& x : layer_of) x.store(-1);
             ahead_fl.assign(L.size() * 1024, 0);
             ahead_rank.assign(L.size() * 1024, 0);
@@ -9572,7 +9630,63 @@ struct Model::Impl {
                     po = ord;
                 }
                 static const bool lane_skip = std::getenv("DS4_LANE_SKIP") != nullptr;   // (timing oracle: the lane's compute left out; rp.cpu stays 0)
-                if (!ents.empty() && lane_skip) { for (int t = 0; t < T; ++t) rp.cpu[t] = 0; }
+                // (local) STRATA_DS4_DEFER=2: the heavy entries answered first (rp), the light ones after into resps_late
+                const bool split2 = defer_mode() >= 2 && defer_ok(l);
+                if (split2) {
+                    late_ans = &resps_late[next % kRing];
+                    for (int t = 0; t < kWin; ++t) late_ans->cpu[t] = 0;
+                }
+                if (split2 && !lane_skip && !ents.empty()) {
+                    static const float dw = env_f("STRATA_DS4_DEFER_W", 0.2f);
+                    float wsum[kWin];
+                    for (int t = 0; t < T; ++t) {
+                        wsum[t] = 0.0f;
+                        for (int i = 0; i < l.k_exp; ++i) wsum[t] += r.w[t][i];
+                    }
+                    std::vector<Ent> hv, lg;
+                    for (const Ent& en : ents) {
+                        bool light = true;
+                        if (defer_cold()) light = !in_ram(l, en.e);   // (STRATA_DS4_DEFER_COLD: the ones the SSD has to bring)
+                        else
+                            for (int q = 0; q < en.n; ++q) {
+                                const int sl = en.slot0 + q;
+                                light = light && wv[sl] < dw * wsum[tok_of[sl]];
+                            }
+                        (light ? lg : hv).push_back(en);
+                    }
+                    const int D = g.dim;
+                    auto sum_into = [&](Resp& out, const std::vector<Ent>& es) {
+                        for (int t = 0; t < T; ++t) {
+                            bool any = false;
+                            for (const Ent& en : es)
+                                for (int q = 0; q < en.n; ++q) any = any || tok_of[en.slot0 + q] == t;
+                            out.cpu[t] = 0;
+                            if (!any) continue;
+                            float* o = out.part[t];
+                            for (int e = 0; e < D; ++e) o[e] = 0.0f;
+                            for (const Ent& en : es)
+                                for (int q = 0; q < en.n; ++q) {
+                                    const int sl = en.slot0 + q;
+                                    if (tok_of[sl] != t) continue;
+                                    const float* y = c_yd.data() + (size_t) sl * D;
+                                    for (int e = 0; e < D; ++e) o[e] += wv[sl] * y[e];
+                                }
+                            out.cpu[t] = 1;
+                        }
+                    };
+                    const double tc = now_ms();
+                    if (!hv.empty()) cpu_experts(l, &r.x[0][0], hv, (size_t) kMaxDim, nullptr);
+                    sum_into(rp, hv);
+                    std::atomic_thread_fence(std::memory_order_release);
+                    *(volatile unsigned*) &rp.seq = next;   // (the device goes on with the heavy part)
+                    if (!lg.empty()) cpu_experts(l, &r.x[0][0], lg, (size_t) kMaxDim, nullptr);
+                    sum_into(*late_ans, lg);
+                    lt.c_ms = now_ms() - tc;
+                    lt.n_cpu = (int) ents.size();
+                    st.cpu_ms += now_ms() - tc;
+                    st.cpu_experts += nslots;
+                    n_deferred += (int64_t) lg.size();
+                } else if (!ents.empty() && lane_skip) { for (int t = 0; t < T; ++t) rp.cpu[t] = 0; }
                 else if (!ents.empty()) {
                     const double tc = now_ms();
                     cpu_experts(l, &r.x[0][0], ents, (size_t) kMaxDim, po);
@@ -9599,6 +9713,11 @@ struct Model::Impl {
             }
             std::atomic_thread_fence(std::memory_order_release);
             *(volatile unsigned*) &rp.seq = next;
+            if (late_ans != nullptr) {   // (local) STRATA_DS4_DEFER=2: the light part (cpu flags 0 when there was none)
+                std::atomic_thread_fence(std::memory_order_release);
+                *(volatile unsigned*) &late_ans->seq = next;
+                late_ans = nullptr;
+            }
             ++next;
             last = std::chrono::steady_clock::now();
         }
@@ -13957,6 +14076,19 @@ struct Model::Impl {
         const int D = g.dim, H = g.hc, HD = g.hd, NHL = l.ahn, HQ = NHL * HD, OG = l.ogn, FF = l.ffn;
         const ArGroup& ag = groups[(size_t) L0.grp].ar;
         const float* freqs = l.ratio ? d.freqs_comp : d.freqs_win;
+        static const bool defer_early = std::getenv("STRATA_DS4_DEFER_EARLY") != nullptr;   // (local) test: add it before the attention
+        if (pend_on && mi == 0 && (l.il != pend_il + 1 || defer_early)) {   // (local) a deferred part not taken by its next layer: add it as it was
+            pend_on = false;
+            wait_seq(&pend_src[pend_slot].seq, pend_sq, s);
+            defer_add(d.h, pend_src + pend_slot, d.def_post, nullptr, D, H, pend_T, s);
+        }
+        if (mi == 0 && defer_mode() == 4)   // (local) mode 4: a part whose landing layer this forward will not reach in order
+            for (int i = 0; i < 4; ++i)
+                if (q4[i].on && (l.il <= q4[i].il || l.il > q4[i].il + defer_k())) {
+                    q4[i].on = false;
+                    wait_seq(&resps_late[q4[i].slot].seq, q4[i].sq, s);
+                    defer_add(d.h, resps_late + q4[i].slot, d.def_c + (size_t) i * q4_stride, nullptr, D, H, q4[i].T, s);
+                }
         if (ds4_dbg("DS4_DBG_SLOTS") && l.il < 2 && l.lay.fmt == gg::kFmtMXFP4) {   // DBG: a resident expert's bytes against its file's
             ds4_metal_flush();
             int shown = 0;
@@ -14106,6 +14238,14 @@ struct Model::Impl {
         if (nm > 1) allreduce(d.ao, T * D, ag, mi, ++d.ar_seq, d.xcnt, s);
         hc_post(d.ao, d.h, d.a_post, d.a_comb, D, H, T, d.h2, s);
         std::swap(d.h, d.h2);
+        if (mi == 0 && defer_mode() == 4)   // (local) mode 4: the pending parts' weights through this attention's mixing
+            for (int i = 0; i < 4; ++i)
+                if (q4[i].on) defer_mix(d.def_c + (size_t) i * q4_stride, d.a_comb, H, q4[i].T, s);
+        if (pend_on && mi == 0 && defer_mode() != 3) {   // (local) STRATA_DS4_DEFER: the previous layer's CPU-lane part, through this attention's mixing
+            pend_on = false;
+            wait_seq(&pend_src[pend_slot].seq, pend_sq, s);
+            defer_add(d.h, pend_src + pend_slot, d.def_post, pend_il + 1 == l.il ? d.a_comb : nullptr, D, H, pend_T, s);
+        }
         if (dump_l != nullptr && mi == 0) dump_layer(d, d.h, 1000 + l.il, p0, T);   // (DS4_DUMP_L: after the attention)
         dump_sub(d, "h_attn", l.il, p0, T, d.h, (size_t) T * H * D * 4);
         prof_mark(d, 1);
@@ -14149,6 +14289,8 @@ struct Model::Impl {
             if (!mv(d, {job(l.s2, d.sh, d.sh_out, T, FF, D)}, err)) return false;
             prof_mark(d, 2);
             const x3::ExpertLayout& lay = nm > 1 ? l.hlay : l.lay;
+            const bool defer = lead && nm == 1 && wp.nrow == 0 && T <= kWin && defer_ok(l);   // (local) STRATA_DS4_DEFER
+            const bool defer_all = defer && defer_mode() == 1;   // (modes 2/3: the heavy part waited for and summed here as before)
             if (T == 1 && moe_token_path) {
                 x3::MoeArgs ma;
                 ma.plan_ptr = d.plan_ptr;
@@ -14192,9 +14334,13 @@ struct Model::Impl {
                     m2.plan_ptr = LD.plan2;
                     gg::moe_gate_up(m2, d.x, d.xg, s);
                 }
-                if (lead) wait_seq(&resps[slot].seq, sq, s);
+                if (lead && !defer_all) wait_seq(&resps[slot].seq, sq, s);
                 const double m2 = tlog2 ? now_ms() : 0.0;
                 prof_mark(d, 4);
+                if (defer_all) {   // (local) the CPU lane's part comes in at the next layer
+                    ma.cpu_part = nullptr;
+                    ma.cpu_flag = nullptr;
+                }
                 if (mx) gg::moe_down(ma, d.xg, d.sh_out, d.moe_out, s);
                 else x3::moe_down(ma, d.xg, d.sh_out, d.moe_out, s);
                 if (tlog2) { t_moe_gu += m1 - m0; t_moe_wait += m2 - m1; t_moe_dn += now_ms() - m2; ++t_moe_n; }
@@ -14228,6 +14374,11 @@ struct Model::Impl {
                 wa.cpu_flag = lead ? resps[slot].cpu : nullptr;
                 wa.wait_ptr = lead ? &resps[slot].seq : nullptr;
                 wa.wait_val = sq;
+                if (defer_all) {   // (local) STRATA_DS4_DEFER: no wait, no CPU part here; the next layer adds it
+                    wa.cpu_part = nullptr;
+                    wa.cpu_flag = nullptr;
+                    wa.wait_ptr = nullptr;
+                }
                 wa.x = d.x;
                 wa.x_stride = (size_t) D;
                 wa.h = d.xg;
@@ -14251,6 +14402,50 @@ struct Model::Impl {
             hc_post(d.moe_out, d.h, d.f_post, d.f_comb, D, H, T, d.h2, s);
             std::swap(d.h, d.h2);
             CK(cudaMemcpyAsync(d.pre, d.f_pre, (size_t) T * 8 * 4, cudaMemcpyDeviceToDevice, s));
+            if (mi == 0 && defer_mode() == 4) {   // (local) mode 4
+                for (int i = 0; i < 4; ++i) {
+                    if (!q4[i].on) continue;
+                    float* ci = d.def_c + (size_t) i * q4_stride;
+                    defer_mix(ci, d.f_comb, H, q4[i].T, s);
+                    if (q4[i].il + defer_k() == l.il) {
+                        q4[i].on = false;
+                        wait_seq(&resps_late[q4[i].slot].seq, q4[i].sq, s);
+                        defer_add(d.h, resps_late + q4[i].slot, ci, nullptr, D, H, q4[i].T, s);
+                    }
+                }
+                if (defer) {
+                    int i = 0;
+                    while (i < 4 && q4[i].on) ++i;
+                    if (i < 4) {
+                        q4_stride = kWin * 8;
+                        CK(cudaMemcpyAsync(d.def_c + (size_t) i * q4_stride, d.f_post, (size_t) T * 8 * 4, cudaMemcpyDeviceToDevice, s));
+                        q4[i].on = true;
+                        q4[i].il = l.il;
+                        q4[i].slot = slot;
+                        q4[i].sq = sq;
+                        q4[i].T = T;
+                    } else {   // (cannot happen with K <= 3; the part is added now so nothing is lost)
+                        wait_seq(&resps_late[slot].seq, sq, s);
+                        defer_add(d.h, resps_late + slot, d.f_post, nullptr, D, H, T, s);
+                    }
+                }
+            }
+            if (pend_on && mi == 0 && defer_mode() == 3 && pend_il + 1 == l.il) {
+                // (local) STRATA_DS4_DEFER=3 (KTransformers' Expert Deferral): the previous layer's light experts, after this
+                // layer's MoE - through this layer's attention mixing and its FFN mixing (both since the part would have landed)
+                pend_on = false;
+                wait_seq(&pend_src[pend_slot].seq, pend_sq, s);
+                defer_add(d.h, pend_src + pend_slot, d.def_post, d.a_comb, D, H, pend_T, s, d.f_comb);
+            }
+            if (defer && defer_mode() != 4) {   // (local) STRATA_DS4_DEFER: remember where this layer's CPU part lands and its f_post
+                CK(cudaMemcpyAsync(d.def_post, d.f_post, (size_t) T * 8 * 4, cudaMemcpyDeviceToDevice, s));
+                pend_on = true;
+                pend_src = defer_all ? resps : resps_late;
+                pend_il = l.il;
+                pend_slot = slot;
+                pend_sq = sq;
+                pend_T = T;
+            }
             prof_mark(d, 5);
             return true;
         }
