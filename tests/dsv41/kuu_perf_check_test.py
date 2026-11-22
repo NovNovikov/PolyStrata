@@ -99,9 +99,13 @@ def main():
         ("eg_ring", "Engram ring: 12.0 MB of pinned slots would not fit (1 of 8 got)", "SKIP"),
         ("eg_ring", "Engram ring armed: the chunked pass owns it", "SKIP"),
         ("eg_ring", "none", "FAIL"),
+        ("ring_mmap", "requested slots of 8 slots", "PASS"),
+        ("ring_mmap", "none", "FAIL"),
         ("lm_ahead", "next-layer read-ahead: 4 chunks ahead", "PASS"),
         ("lm_ahead", "read-ahead armed: the chunked pass owns it", "SKIP"),
         ("lm_ahead", "none", "FAIL"),
+        ("ahead_mmap", "next-layer read-ahead: 8 chunks ahead", "PASS"),
+        ("ahead_mmap", "read-ahead is off for this run: no RAM", "SKIP"),
         ("store_base", "RAM store: about 400 slots in 7 size classes", "PASS"),
         ("uniform", "the store runs in 1 size classes", "PASS"),
         ("uniform", "RAM store: about 400 slots in 7 size classes", "FAIL"),   # built in classes: no took

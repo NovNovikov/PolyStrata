@@ -34,7 +34,15 @@ WIT = {
     "defer3":     [("PASS", "STRATA_DS4_DEFER=3 is armed")],
     "eg_ring":    [("PASS", "requested slots of"), ("SKIP", "would not fit"),
                    ("SKIP", "Engram ring armed")],
+    # ring and read-ahead only DO something where the chunked pass streams experts from the files
+    # (--mmap-experts on): in the copy-into-RAM geometry the layer-major path never runs and they
+    # idle. The _mmap runs carry the switches into the geometry that has work for them; store_base
+    # is their control.
+    "ring_mmap":  [("PASS", "requested slots of"), ("SKIP", "would not fit"),
+                   ("SKIP", "Engram ring armed")],
     "lm_ahead":   [("PASS", "next-layer read-ahead:"), ("SKIP", "read-ahead is off"),
+                   ("SKIP", "read-ahead armed")],
+    "ahead_mmap": [("PASS", "next-layer read-ahead:"), ("SKIP", "read-ahead is off"),
                    ("SKIP", "read-ahead armed")],
     "store_base": [("PASS", "RAM store: about")],
     "uniform":    [("PASS", "in 1 size classes"), ("FAIL", "RAM store:")],   # built but in classes: no took

@@ -11,15 +11,19 @@ rem against measured GEN - the first GEN of any load is warm-up and never compar
 rem baseline climbed 10 -> 19 tok/s across its own GENs).
 rem
 rem   baseline / defer3 / eg_ring / lm_ahead / all_exact   controls: baseline (the usual geometry)
-rem   store_base / uniform / drop_shards                   controls: store_base (--mmap-experts on +
-rem                                                        DS4_STORE_GB=32 - without a store, drop and
-rem                                                        uniform have nothing to act on)
+rem   store_base / ring_mmap / ahead_mmap / uniform / drop_shards
+rem                                                        controls: store_base (--mmap-experts on +
+rem                                                        DS4_STORE_GB=32). The _mmap pair matters:
+rem                                                        the ring and the read-ahead work only where
+rem                                                        the chunked pass streams experts from the
+rem                                                        files - in the copy-into-RAM geometry they
+rem                                                        idle, and only the named SKIP would show it.
 rem On the IQ1_S pack router_bf16 / mtp_cap / lazy_dspark are provably idle (F32 router, quantized
 rem drafter) - all_exact still carries them and their named reasons show in its note.
 rem
 rem It loads the WHOLE PACK PER RUN (minutes and ~103 GB of RAM each time): wants the GPU and the RAM to
-rem itself, every other server stopped. Eight runs plan for an hour. Gibberish ids: this is a load, not
-rem a quality test - quality is a conversation test, this one counts tokens per second.
+rem itself, every other server stopped. Ten runs plan for well over an hour. Gibberish ids: this is a
+rem load, not a quality test - quality is a conversation test, this one counts tokens per second.
 rem
 rem usage:  kuu_perf_test.bat [exe] [pack] [run ...]   no run names: all eight
 rem         kuu_perf_test.bat defer3 eg_ring           run names first: exe and pack take their defaults
@@ -84,6 +88,8 @@ call :run eg_ring     "STRATA_DS4_EG_RING=8"
 call :run lm_ahead    "STRATA_DS4_LM_AHEAD=1"
 call :run all_exact   "STRATA_DS4_ROUTER_BF16=1" "DS4_MTP_VRAM_GB=0.5" "STRATA_DS4_DSPARK_LAZY=1" "STRATA_DS4_EG_RING=8" "STRATA_DS4_LM_AHEAD=1" "STRATA_DS4_DROP_SHARDS=1"
 call :run store_base  "DS4_STORE_GB=32" -- --mmap-experts on
+call :run ring_mmap   "DS4_STORE_GB=32" "STRATA_DS4_EG_RING=8" -- --mmap-experts on
+call :run ahead_mmap  "DS4_STORE_GB=32" "STRATA_DS4_LM_AHEAD=1" -- --mmap-experts on
 call :run uniform     "DS4_STORE_GB=32" "DS4_STORE_UNIFORM=1" -- --mmap-experts on
 call :run drop_shards "DS4_STORE_GB=32" "STRATA_DS4_DROP_SHARDS=1" -- --mmap-experts on
 
