@@ -239,14 +239,15 @@ int main() {
                 std::vector<uint8_t> buf(4096);
                 uint64_t i = (uint64_t) t * 977 + 13;
                 while (!stop.load(std::memory_order_relaxed)) {
-                    const os::fd_t f = r.acquire();
+                    int gen = 0;
+                    const os::fd_t f = r.acquire(gen);
                     if (f != os::kBadFd) {
                         i = i * 6364136223846793005ull + 1442695040888963407ull;
                         const uint64_t off = (i >> 13) % (fx.first.size() - 4096);
                         if (!os::pread_par(f, buf.data(), 4096, off)) ++bad_reads;
                         else if (std::memcmp(buf.data(), fx.first.data() + off, 4096) != 0) ++mismatches;
                     }
-                    r.release();
+                    r.release(gen);
                 }
             });
         int replaced = 0;
@@ -266,6 +267,106 @@ int main() {
         const os::fd_t last = r.replace(os::kBadFd);
         check(last != os::kBadFd, "replace reports the handle it took over (the closer closes that one)");
         if (last != os::kBadFd) os::close_fd(last);
+    }
+
+    // 4. (hostile review, second round 3.1) what the generation counters promise, each with a bounded time:
+    // a swap waits for the readers of the handle it replaced and NOT for readers of the one it swapped in,
+    // and a last release racing a swap wakes it - every round, always, no sleeping forever.
+    {
+        FdRef r;
+        os::fd_t f0 = os::open_par(fx.path[0]);
+        check(f0 != os::kBadFd, "the generation test handle opens");
+        r.set(f0);
+        // (a) the old generation IS waited for: a holder that acquired f0 keeps the swap waiting (bounded: it lets go)
+        std::atomic<bool> held{false};
+        std::thread holder([&] {
+            int gen = 0;
+            const os::fd_t f = r.acquire(gen);
+            held.store(true);
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            r.release(gen);
+            (void) f;
+        });
+        while (!held.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        const auto ta = std::chrono::steady_clock::now();
+        const os::fd_t f1v = os::open_par(fx.path[0]);   // (the handle the swap installs: (b) names it below)
+        const os::fd_t old_a = r.replace(f1v);
+        const double wa_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - ta).count();
+        holder.join();
+        check(old_a == f0, "the swap took over the handle the holder had");
+        check(wa_ms > 50.0 && wa_ms < 5000.0, "a swap waits its own generation's readers out, and returns");
+        // (b) readers that arrive after the swap - and so hold the handle it swapped IN - must not be waited for:
+        // a slow reader of the OLD handle keeps the swap busy 150 ms (it must be waited out), while a stream of
+        // readers spins for the new handle and one then HOLDS it 400 ms. The single old counter would have let
+        // that 400 ms holder extend the swap past 300 ms; the generation-scoped wait ends when the slow one lets go.
+        std::atomic<bool> held2{false}, held3{false}, stop3{false};
+        std::thread old_slow([&] {
+            int gen = 0;
+            r.acquire(gen);   // (f1: the generation the next swap will replace)
+            held2.store(true);
+            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            r.release(gen);
+        });
+        while (!held2.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        std::thread new_long([&] {
+            for (;;) {   // (spin until the acquire hands out the swapped-IN handle: then sit on it)
+                int gen = 0;
+                const os::fd_t f = r.acquire(gen);
+                if (f != f1v) {
+                    held3.store(true);
+                    for (int i = 0; i < 160 && !stop3.load(std::memory_order_relaxed); ++i)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                    r.release(gen);
+                    return;
+                }
+                r.release(gen);
+            }
+        });
+        const auto tb = std::chrono::steady_clock::now();
+        const os::fd_t old_b = r.replace(os::open_par(fx.path[1]));
+        const double wb_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tb).count();
+        old_slow.join();
+        while (!held3.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));   // (the swap returned WHILE this holder sat on the new handle)
+        stop3.store(true);
+        new_long.join();
+        check(old_b != os::kBadFd, "the second swap took its handle over");
+        check(wb_ms > 50.0 && wb_ms < 400.0, "the swap waited its old generation out (150 ms) and not the new handle's 800 ms holder");
+        os::close_fd(old_b);
+        // (c) the lost wakeup, driven for real: a last release and a swap at the same moment, 500 rounds. The
+        // swap runs behind a watchdog: a lost notify would hang it, and the test says so by name and leaves.
+        int hung = 0;
+        for (int it = 0; it < 500; ++it) {
+            const os::fd_t fresh = os::open_par(fx.path[0]);
+            std::atomic<bool> acq{false}, done{false};
+            std::thread last([&] {
+                int gen = 0;
+                const os::fd_t f = r.acquire(gen);
+                acq.store(true, std::memory_order_release);
+                r.release(gen);
+                (void) f;
+            });
+            while (!acq.load(std::memory_order_acquire)) std::this_thread::sleep_for(std::chrono::microseconds(1));
+            std::atomic<bool> swapped{false};
+            std::thread swapper([&] {
+                const os::fd_t old = r.replace(fresh);
+                if (old != os::kBadFd) os::close_fd(old);
+                swapped.store(true);
+            });
+            last.join();
+            const auto t0w = std::chrono::steady_clock::now();
+            while (!swapped.load() &&
+                   std::chrono::duration<double>(std::chrono::steady_clock::now() - t0w).count() < 5.0)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            if (!swapped.load()) {   // (a hung swap is the defect itself: name it and leave - joining it would hang the box)
+                check(false, "500 rounds of last-release-against-swap: no swap ever lost its wakeup");
+                std::fflush(stdout);
+                std::exit(3);
+            }
+            swapper.join();
+        }
+        check(hung == 0, "500 rounds of last-release-against-swap: no swap ever lost its wakeup");
+        const os::fd_t last_c = r.replace(os::kBadFd);
+        if (last_c != os::kBadFd) os::close_fd(last_c);
     }
 
     fx.close();

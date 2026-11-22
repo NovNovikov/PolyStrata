@@ -7,6 +7,7 @@
 #pragma once
 
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -135,39 +136,61 @@ private:
 /// One readable file handle that may be swapped while readers live. A queued job points at one instead of carrying a
 /// copy of the handle: the worker resolves it at dispatch, so a handle closed after the job was queued can never be
 /// read through. (A closed Windows handle value is recycled by the OS - often to another of the model's own files -
-/// and a stale copy would then read another file's bytes into an expert slot, silently.) replace() swaps in the new
-/// handle and waits for every read that had acquired the old one to finish, and returns it: closing it is safe only
-/// after replace() returned.
+/// and a stale copy would then read another file's bytes into an expert slot, silently.)
+///
+/// Generation counters (hostile review, second round 3.1). Two fixes at once:
+///  - replace() waits for the readers of the handle it replaced, not for every reader. One shared counter made a
+///    swap wait for reads that had acquired the NEW handle too: with a stream of reads queued, a swap could chase
+///    readers unrelated to the old handle for as long as the queue kept work. acquire() names the generation it
+///    read and release() gives it back; a waiter's predicate counts only the generation whose handle went away,
+///    so a fresh reader bumps only its own counter and is never waited for.
+///  - the lost wakeup. The old code guarded the notify with a relaxed `closing_` flag: a last reader that read it
+///    too early stayed silent while the swapper's predicate - evaluated after that reader's decrement had already
+///    landed - saw the count alive, and slept with nobody left to wake it (x86 TSO hid it; a relaxed store of the
+///    flag pairs with a relaxed load on a weaker machine). The guard here is seq_cst on both sides and the same
+///    ordering argument is written down below, so it survives the memory model too: a reader that did not see
+///    `waiting_` set necessarily decremented before the swapper's predicate read, and then the predicate is true
+///    and there is no sleep to lose.
+/// acquire()'s seq_cst pair (counter bump before the handle load) is what makes a read of the OLD handle always
+/// count before the swapper's predicate: if its load saw the old value, the bump precedes the exchange precedes
+/// the predicate; a read that loads the new handle may bump late - it never touches the closed value, and its
+/// release balances the counter again. The counters are a ring of four indexed by the generation: replaces of
+/// one FdRef serialize on its mutex, and the only late bump a slot can see is one read long.
 class FdRef {
 public:
     void set(os::fd_t f) { fd_.store(f, std::memory_order_release); }
     os::fd_t get() const { return fd_.load(std::memory_order_acquire); }
-    os::fd_t acquire() const {   // the read's side: counted before the load, so a closer that takes the handle back counts it
-        live_.fetch_add(1, std::memory_order_seq_cst);
+    os::fd_t acquire(int& gen) const {   // the read's side: counted before the load, so a closer that takes the handle back counts it
+        const int g = gen_.load(std::memory_order_seq_cst);
+        live_[(size_t) (g & kMask)].fetch_add(1, std::memory_order_seq_cst);
+        gen = g;
         return fd_.load(std::memory_order_seq_cst);
     }
-    void release() const {
-        if (live_.fetch_sub(1, std::memory_order_seq_cst) != 1) return;
-        if (!closing_.load(std::memory_order_relaxed)) return;
+    void release(int gen) const {
+        if (live_[(size_t) (gen & kMask)].fetch_sub(1, std::memory_order_seq_cst) != 1) return;
+        if (!waiting_.load(std::memory_order_seq_cst)) return;
         std::lock_guard<std::mutex> lk(m_);
-        cv_.notify_all();
+        cv_.notify_all();   // (under the mutex: the swapper is between its predicate and its sleep only while holding it)
     }
     os::fd_t replace(os::fd_t f) {
         std::unique_lock<std::mutex> lk(m_);
+        const int old_gen = gen_.fetch_add(1, std::memory_order_seq_cst);
         const os::fd_t old = fd_.exchange(f, std::memory_order_seq_cst);
         if (old == os::kBadFd) return old;   // (nothing to wait for: nobody can have acquired a bad handle)
-        closing_.store(true, std::memory_order_relaxed);
-        cv_.wait(lk, [&] { return live_.load(std::memory_order_seq_cst) == 0; });
-        closing_.store(false, std::memory_order_relaxed);
+        waiting_.store(true, std::memory_order_seq_cst);
+        cv_.wait(lk, [&] { return live_[(size_t) (old_gen & kMask)].load(std::memory_order_seq_cst) == 0; });
+        waiting_.store(false, std::memory_order_seq_cst);
         return old;
     }
 
 private:
+    static constexpr int kMask = 3;
     mutable std::mutex m_;
     mutable std::condition_variable cv_;
     std::atomic<os::fd_t> fd_{os::kBadFd};
-    mutable std::atomic<int> live_{0};
-    std::atomic<bool> closing_{false};
+    std::atomic<int> gen_{0};
+    std::atomic<bool> waiting_{false};
+    mutable std::array<std::atomic<int>, (size_t) (kMask + 1)> live_{};
 };
 
 /// File reads on threads of their own, in the order they were pushed, the pusher never waiting: the prompt path's
@@ -261,8 +284,10 @@ private:
             // file's handles while its reads sit in this queue, and a copied value could then be dead - or, the
             // OS recycling handle values, another file's live handle. The FdRef keeps the read counted until its
             // bytes are here, so the swapper closes the old handle only after this read ends.
-            os::fd_t fd = j.bref ? j.bref->acquire() : j.fd;
-            os::fd_t dfd = j.dref ? j.dref->acquire() : j.dfd;
+            os::fd_t fd = j.fd, dfd = j.dfd;
+            int bgen = 0, dgen = 0;
+            if (j.bref) fd = j.bref->acquire(bgen);
+            if (j.dref) dfd = j.dref->acquire(dgen);
             if (j.mem != nullptr) {
                 std::memcpy(j.dst, j.mem, (size_t) j.len);
                 ok = true;
@@ -294,8 +319,8 @@ private:
                     std::fprintf(stderr, "ds4: WARNING (local): an unbuffered read failed and its file keeps no buffered handle - "
                                          "the read is reported failed (further ones not reported)\n");
             }
-            if (j.dref) j.dref->release();
-            if (j.bref) j.bref->release();
+            if (j.dref) j.dref->release(dgen);
+            if (j.bref) j.bref->release(bgen);
             const auto t_rd = std::chrono::steady_clock::now();
             if (ok && j.keep != nullptr && j.mem == nullptr) std::memmove(j.keep, j.exact ? j.dst : j.dst + lead, (size_t) j.len);   // (keep may overlap dst: the store reads in place and moves up)
             {
