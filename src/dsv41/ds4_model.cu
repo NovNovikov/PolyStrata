@@ -3048,13 +3048,30 @@ struct Model::Impl {
             for (const auto& kt : pk.t)
                 if (kt.first.rfind("layers.", 0) == 0 && kt.first.find(".ffn.experts.") != std::string::npos) exp_b += (double) kt.second.bytes;
             for (const Dev& d : devs) room_b += std::max(0.0, (double) d.free0 - (double) ((size_t) o.reserve_mib << 20));
-            if (exp_b > 1.5 * room_b) {
+            // (second review 8.1) ordering against the drafter's VRAM cap: an explicit DS4_MTP_VRAM_GB is the user
+            // shaping the drafter's VRAM for exactly the tight box this rule rejects - and the cap is applied only
+            // while the drafter is loaded, so refusing here made the cap unreadable. With the cap set, the auto-fit
+            // rule stands down and says so; the cap's own line (placement time) then carries the decision.
+            const char* mtp_cap_env = std::getenv("DS4_MTP_VRAM_GB");
+            if (exp_b > 1.5 * room_b && mtp_cap_env != nullptr && std::atof(mtp_cap_env) >= 0.0) {
+                std::fprintf(stderr, "ds4: DSpark kept despite the fit (routed experts %.0f GB vs %.0f GB the GPUs hold): "
+                                     "DS4_MTP_VRAM_GB=%s caps the drafter's VRAM, so the auto rule stands down\n",
+                             exp_b / 1e9, room_b / 1e9, mtp_cap_env);
+            } else if (exp_b > 1.5 * room_b) {
                 o.dspark = false;
                 std::fprintf(stderr, "ds4: DSpark not loaded: the routed experts (%.0f GB) are far more than the GPU holds (%.0f GB), where its verify "
                                      "rounds read 3.3x a token's bytes and gain nothing (--dspark on loads it anyway)\n", exp_b / 1e9, room_b / 1e9);
+            } else if (o.verbose) {
+                // (second review 8.2) the activation witness: a log that says DSpark is ON says why - the same two
+                // numbers the refusal names, so an auto-kept box reads as measured, not as luck
+                std::fprintf(stderr, "ds4: DSpark kept (auto): the routed experts are %.0f GB, the GPUs hold %.0f GB free "
+                                     "(under the 1.5x fit)\n", exp_b / 1e9, room_b / 1e9);
             }
         }
         if (!o.dspark) g.n_mtp = 0;
+        if (g.n_mtp == 0 && std::getenv("DS4_MTP_VRAM_GB") != nullptr)   // (second review 8.2) a cap set for a
+            std::fprintf(stderr, "ds4: DS4_MTP_VRAM_GB is set but no drafter is loaded - the cap does nothing\n");   //   drafter that
+                                                                                                                      //   never came
         if (o.dspark_block > 0 && std::getenv("DS4_DSPARK_MAX") == nullptr) max_drafts = o.dspark_block;   // (--dspark-block N: at most N drafts a round)
         L.resize((size_t) (g.nl + g.n_mtp));
         int last_src = -1;
@@ -5855,9 +5872,13 @@ struct Model::Impl {
             for (Layer& l : L)
                 if (l.grp == (int) gi) {
                     l.n_vram = plan[pi++].n_vram;
-                    if (l.mtp && mtp_cap < kNoCap && o.verbose)
-                        std::fprintf(stderr, "ds4: DS4_MTP_VRAM_GB: drafter %s keeps %d of %d experts in VRAM\n", l.name.c_str(),
-                                     l.n_vram, l.n_exp);
+                    if (l.mtp && mtp_cap < kNoCap) {   // (second review 8.2) the cap's activation witness: the
+                        static bool cap_said = false;  //   first block says it to every log, further ones on -v
+                        if (!cap_said || o.verbose)
+                            std::fprintf(stderr, "ds4: DS4_MTP_VRAM_GB: drafter %s keeps %d of %d experts in VRAM\n",
+                                         l.name.c_str(), l.n_vram, l.n_exp);
+                        cap_said = true;
+                    }
                 }
         }
         if (kept > 0) {   // the commit kept experts off the GPU: say so, and the page file that keeps them on it
