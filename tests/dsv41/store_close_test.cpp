@@ -125,10 +125,10 @@ static bool load_and_check(ExpertStore& st, int layer, int e, const std::vector<
         st.begin(layer, es, 1, ok, sl);
         st.wait_slots(sl, ok, 0, 1);
         good = ok.size() && ok[0] && check_held(st, layer, e, geo);
-        if (sl.size() && sl[0] >= 0) st.release(layer, es, 1, ok);   // (a real slot: unpin before the retry)
+        if (sl.size() && sl[0] >= 0) st.release(sl, ok);   // (a real slot: unpin before the retry; by slot, second review 1.1)
         else if (t < 1999) std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    if (good) st.release(layer, es, 1, ok);   // (checked while pinned; the pin goes only now)
+    if (good) st.release(sl, ok);   // (checked while pinned; the pin goes only now)
     if (!good)
         std::printf("  dbg load l%d e%d: ok %d sl %d find %d fails %lld no_slot %lld\n", layer, e,
                     ok.empty() ? -1 : (int) ok[0], sl.empty() ? -9 : sl[0], st.find(layer, e),

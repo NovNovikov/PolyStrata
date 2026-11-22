@@ -179,17 +179,79 @@ public:
     double busy_ms() const { return io_ ? io_->busy_ms() : 0.0; }
     static constexpr size_t kSlack = 8192;
 
-    /// The slot holding (layer, e) ready to read, or -1.  (Any thread; a slot found stays valid while it is pinned or visible.)
+    /// The slot holding (layer, e) ready to read, or -1.  ADVISORY: it answers "a slot for this expert is here now"
+    /// for residency probes (in_ram, the read-ahead's skip).  The slot can be evicted, rebalanced or shrunk the
+    /// moment find() returns - never read its bytes from this.  Data access goes through acquire_ready()/unpin(),
+    /// or through ensure()/StoreHold, which pin.  mu_ is held for the lookup: where_/state/layer/expert are
+    /// written under it elsewhere, and an unsynchronized read of them could pair a fresh layer with an old slot
+    /// (hostile review, second round 1.1).
     int find(int layer, int e) const {
         if (layer < 0 || layer >= (int) where_.size()) return -1;   // (a layer the store does not cover: the DSpark drafter's)
+        std::lock_guard<std::mutex> lk(mu_);
         const int s = where_[(size_t) layer][(size_t) e];
         if (s < 0) return -1;
         Slot& sp = slots_[(size_t) s];
         try_ready(sp);
         return sp.state.load(std::memory_order_acquire) == kReady && sp.layer == layer && sp.expert == e ? s : -1;
     }
+    /// Data access: the ready slot holding (layer, e), atomically verified to belong to it and PINNED for the
+    /// caller - no eviction, no rebalance, no shrink can touch it until unpin().  -1 when it is not here ready
+    /// (the caller reads it another way: a demand fill, or the demand_read fallback).  A slot found ready and
+    /// GPU-visible is safe to read either way (a visible slot is only ever taken back by sync(), which waits for
+    /// the GPU's use; the caller still holds the pin across its own).
+    int acquire_ready(int layer, int e) {
+        if (layer < 0 || layer >= (int) where_.size() || e < 0 || e >= geo_[(size_t) layer].n_exp) return -1;
+        std::lock_guard<std::mutex> lk(mu_);
+        const int s = where_[(size_t) layer][(size_t) e];
+        if (s < 0) return -1;
+        Slot& sp = slots_[(size_t) s];
+        try_ready(sp);
+        if (sp.state.load(std::memory_order_acquire) != kReady || sp.layer != layer || sp.expert != e) return -1;
+        sp.pin++;
+        sp.tick = ++clock_;
+        sp.prefetch = false;
+        return s;
+    }
+    /// Give back a slot from acquire_ready (or begin/wait_slots: those pin the same way and release through
+    /// release(), which decrements under the same mutex).
+    void unpin(int s) {
+        if (s < 0) return;
+        std::lock_guard<std::mutex> lk(mu_);
+        if ((size_t) s < nalloc_ && slots_[(size_t) s].pin > 0) slots_[(size_t) s].pin--;
+    }
+    /// A slot's pin count > 0 (host tests, diagnostics): a pin held by acquire_ready/begin.  (Second review 1.1:
+    /// the tests must see that a recast waits for the holder.)
+    bool pinned(int s) const {
+        std::lock_guard<std::mutex> lk(mu_);
+        return s >= 0 && (size_t) s < nalloc_ && slots_[(size_t) s].pin > 0;
+    }
+    /// Slot entries still part of a size class (host tests, diagnostics): dead leftovers of a narrower recast
+    /// (cls -1) are not counted, cannot be handed out, and must not be mistaken for free space.
+    size_t live_slots() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        size_t n = 0;
+        for (size_t i = 0; i < nalloc_; ++i)
+            if (slots_[i].cls >= 0) ++n;
+        return n;
+    }
+    /// The demand fallback's read (hostile review, second round 1.2): the cache is starved and there is no mapped
+    /// view to read through - the expert's bytes go into a caller-owned blob in the store's blob layout, through
+    /// the caller's own synchronous read (at(file, off, len, dst): the engine hands its Pack::read_at, which works
+    /// with the buffered handles closed - DROP_SHARDS - through the direct ones).  Independent of cache slots:
+    /// this succeeds whenever the file is readable, which is exactly what rescue() needed and exit(3) replaced.
+    /// False on a read failure - a real IO error the caller must report, not a starvation to retry.
+    template <class ReadAt>
+    bool demand_read(int layer, int e, uint8_t* blob, ReadAt&& at) {
+        if (layer < 0 || layer >= (int) geo_.size() || e < 0 || e >= geo_[(size_t) layer].n_exp) return false;
+        const LayerGeo& g = geo_[(size_t) layer];
+        bool ok = true;
+        for (int r = 0; r < 3 && ok; ++r) ok = at(g.file[r], g.off[r] + (uint64_t) e * g.stride[r], g.bytes[r], blob + g.tr[r]);
+        if (ok) st_.bytes_read.fetch_add((int64_t) (g.bytes[0] + g.bytes[1] + g.bytes[2]), std::memory_order_relaxed);
+        return ok;
+    }
+    size_t blob_bytes(int layer) const { return layer >= 0 && layer < (int) geo_.size() ? (size_t) geo_[(size_t) layer].blob : 0; }
     const uint8_t* mat(int slot, int r) const { return slots_[(size_t) slot].base + geo_[(size_t) slots_[(size_t) slot].layer].tr[r]; }
-    const uint8_t* blob(int slot) const { return slots_[(size_t) slot].base; }
+    const uint8_t* blob(int slot) const { return slots_[(size_t) slot].base; }   // (only while the slot is pinned or visible: see acquire_ready)
     /// The device address of the slot's blob (0: the arena is not mapped for the GPU)
     unsigned long long dev_blob(int slot) const {
         const size_t c = (size_t) slots_[(size_t) slot].chunk;
@@ -258,20 +320,21 @@ public:
                               std::memory_order_relaxed);
         return all;
     }
-    void release(int layer, const int* es, int n, const std::vector<char>& ok) {
-        if (layer < 0 || layer >= (int) geo_.size()) return;
+    /// Give back the pins held on sl[i] by begin()/ensure() (ok[i]: it was kept; sl[i] == -1: none was held -
+    /// a demand fallback).  Releasing through the slot list, not a where_ lookup (second review 1.1): the expert
+    /// may have got a new slot in the meantime, and decrementing that one would cut short another holder's pin.
+    void release(const std::vector<int>& sl, const std::vector<char>& ok) {
         std::lock_guard<std::mutex> lk(mu_);
-        for (int i = 0; i < n; ++i)
-            if (ok[(size_t) i]) {
-                const int s = where_[(size_t) layer][(size_t) es[i]];
-                if (s >= 0 && slots_[(size_t) s].pin > 0) slots_[(size_t) s].pin--;
+        for (size_t i = 0; i < sl.size(); ++i)
+            if (ok[(size_t) i] && sl[(size_t) i] >= 0) {
+                Slot& sp = slots_[(size_t) sl[(size_t) i]];
+                if (sp.pin > 0) sp.pin--;
             }
     }
     /// Starts reading (layer, e) if it is neither here nor on its way (a guess: unpinned, may be given up before it is used).
     void prefetch(int layer, int e) {
         if (layer < 0 || layer >= (int) geo_.size() || e < 0 || e >= geo_[(size_t) layer].n_exp) return;
-        if (where_[(size_t) layer][(size_t) e] >= 0) return;
-        std::lock_guard<std::mutex> lk(mu_);
+        std::lock_guard<std::mutex> lk(mu_);   // (the earlier residency peek was an unsynchronized where_ read - the same race the second review's 1.1 named; the locked check is just as cheap)
         if (where_[(size_t) layer][(size_t) e] >= 0) return;
         if (start_fill(layer, e, false) >= 0) st_.prefetched.fetch_add(1, std::memory_order_relaxed);
     }
@@ -741,7 +804,7 @@ private:
     std::vector<std::vector<float>> heat_;
     std::vector<uint64_t> hits_in_layer_;
     uint64_t clock_ = 0;
-    std::mutex mu_;
+    mutable std::mutex mu_;   // (find() is a const advisory probe and takes it too - the metadata it reads is written under this lock)
     std::unique_ptr<IoQueue> io_;
     Stats st_;
 };

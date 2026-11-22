@@ -69,7 +69,7 @@ static int load(ExpertStore& st, int layer, int e) {
     st.begin(layer, es, 1, ok, sl);
     st.wait_slots(sl, ok, 0, 1);
     int found = ok.size() && ok[0] ? st.find(layer, e) : -1;
-    st.release(layer, es, 1, ok);
+    st.release(sl, ok);
     return found;
 }
 
@@ -260,7 +260,7 @@ int main() {
             check(f < 0 || st.loaded(f), "mid-read: a slot find() hands over is already loaded");
             st.wait_slots(sl, ok, 0, 1);
             check(st.loaded(sl[0]) && st.find(0, 9) >= 0, "after the wait the slot is loaded and held");
-            st.release(0, es, 1, ok);
+            st.release(sl, ok);
         }
         check(st.find(kNLay + 3, 0) < 0, "a layer the store does not cover is never held");
         // eviction: hammer layer 0 with a budget that cannot hold everything, then every gone expert is unfindable
@@ -354,7 +354,7 @@ int main() {
             check(got < 0, "with its only chunk pinned, the store gives no slot rather than recasting a live one");
             const int s7 = st.find(1, 7);
             check(s7 >= 0 && st.loaded(s7) && check_held(st, 1, 7, fx.geo), "the pinned expert is intact through the refused recast");
-            st.release(1, es, 1, ok);
+            st.release(sl, ok);   // (second review: by slot, not by (layer, e) - a fresh slot in between keeps its own count)
             // the starved narrow class: the engine's rescue retries until the store can serve; do the same
             int got2 = -1;
             for (int t = 0; t < 500 && (got2 = load(st, 2, 5)) < 0; ++t)
@@ -404,6 +404,67 @@ int main() {
             }
         check(any && sweep, "the dead-entry store's whole sweep: every held expert right, no ghosts");
     }
+    // 6c. (hostile review, second round 1.1-1.3) the pin that data access must hold, and the demand fallback
+    // that replaces the engine's exit(3): acquire_ready's pin survives the very recast that would forget the
+    // expert; the read that answers for a starved lane goes through the caller's handles and never needs a slot.
+    {
+        const size_t sb0c = sb_of(0), sb2c = sb_of(2);
+        ExpertStore::Cfg c;
+        c.threads = 2;
+        c.floor_bytes = 0;
+        c.budget_bytes = 8 * sb0c + 6 * sb2c + 300000;   // (the 6b shape: a later class-1 demand recasts the narrow chunk)
+        ExpertStore st;
+        check(st.init(c, fx.geo, fx.dfds, fx.pfds), "pin store inits");
+        int held = 0;
+        for (int e = 0; e < 8; ++e)
+            if (load(st, 0, e) >= 0) ++held;
+        check(held == 8, "the wide chunk fills");
+        const int ea = 3;
+        const int s = st.acquire_ready(0, ea);
+        check(s >= 0 && st.pinned(s), "acquire_ready answers with the ready slot, pinned");
+        check(st.blob(s) != nullptr && st.live_slots() > 0, "the slot's blob is there, live entries counted");
+        // the recast 6b used to forget a chunk with: this chunk's expert ea is pinned now, so the recast either
+        // leaves this chunk alone (findings: the pin is what rescue waited 2000 ms for and then exited on)
+        for (int e = 0; e < 4; ++e) load(st, 2, e);
+        for (int e = 0; e < 8; ++e) st.touch(0, e);
+        load(st, 1, 0);   // (the middle class asks: it may recast the narrow chunk, never this pinned expert's slot)
+        check(st.find(0, ea) == s && st.pinned(s), "the pinned expert survives the rebalance storm: find names the same slot");
+        bool intact = true;
+        {   // read it through the pin exactly as the lane does: mat(), sampled against the file
+            const ExpertStore::LayerGeo& g = fx.geo[0];
+            for (int r = 0; r < 3 && intact; ++r) {
+                const uint8_t* m = st.mat(s, r);
+                for (uint64_t i = 0; i < g.bytes[r]; i += (g.bytes[r] / 64 ? g.bytes[r] / 64 : 1))
+                    if (m[i] != want_byte(0, ea, r, i)) intact = false;
+            }
+        }
+        check(intact, "the pinned blob still holds its expert's bytes across the storm");
+        st.unpin(s);
+        check(!st.pinned(s), "unpin gives the slot back");
+        // demand_read: the starved lane's read with no slot at all - straight through the caller's handles,
+        // in the store's blob layout, counted; and a failing handle reports false (the error, not a hang)
+        std::vector<uint8_t> blob(st.blob_bytes(2));
+        const int ed = 11;
+        const bool got = st.demand_read(2, ed, blob.data(),
+                                        [&](int f, uint64_t o, uint64_t n, void* d) { return os::pread_full(fx.pfds[f], d, n, o); });
+        check(got, "demand_read fills the blob with no slot in the store");
+        bool right = true;
+        {   // (the lane reads matrices at the trellis places: check those, sampled)
+            const ExpertStore::LayerGeo& g = fx.geo[2];
+            for (int r = 0; r < 3 && right; ++r) {
+                const uint8_t* m = blob.data() + g.tr[r];
+                for (uint64_t i = 0; i < g.bytes[r]; i += (g.bytes[r] / 64 ? g.bytes[r] / 64 : 1))
+                    if (m[i] != want_byte(2, ed, r, i)) right = false;
+                if (m[g.bytes[r] - 1] != want_byte(2, ed, r, g.bytes[r] - 1)) right = false;
+            }
+        }
+        check(right, "the demand blob reads exactly like a slot at the trellis places");
+        const bool fail = st.demand_read(2, ed, blob.data(),
+                                         [](int, uint64_t, uint64_t, void*) { return false; });
+        check(!fail, "a demand_read whose read fails says false (the rescue reports it; it never loops)");
+        check(st.demand_read(kNLay + 5, 0, blob.data(), [&](int, uint64_t, uint64_t, void*) { return true; }) == false,
+              "demand_read of a layer the store does not cover: false");
+    }
     set_env("DS4_STORE_CHUNK_SLOTS=");
 
     set_env("DS4_STORE_UNIFORM=");
@@ -411,3 +472,4 @@ int main() {
     std::printf("store_classes_test: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }
+

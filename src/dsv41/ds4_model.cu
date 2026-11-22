@@ -811,6 +811,7 @@ struct Chunk {
         int64_t after = -1;                            // (layer-major) the items up to this one read first
         std::atomic<int>* pf = nullptr;                // (local, LM_AHEAD) its layer-cache slot's read-ahead, still reading
         std::atomic<bool>* pf_bad = nullptr;
+        int store_slot = -1;                           // (local, review 2) the RAM store slot acquired for it, PINNED until the io copies it to staging (unpin at its DMA, sweep at the run's end)
         std::atomic<int> left{0};                      // parts still being read
         std::atomic<bool> bad{false};
     };
@@ -1113,6 +1114,21 @@ struct WinPlan {
     int topk[kMaxL][kWin] = {}, cand[kMaxL][kWin] = {};
 };
 
+// (local, review 2 item 1.2) demand-fallback blobs: an expert's bytes read straight from the model's files into a
+// temporary blob when the RAM store could not give it a slot and the Pack offers no mapped view to read through
+// (DROP_SHARDS). The lane computes from them through an explicit pointer (cpu_experts* thread the `dmd` context
+// into the pool jobs): the blob carries the store's blob layout, so a slot and a fallback blob read identically.
+// No ambient lookup on purpose: the compute runs on pool workers, not on the thread that read the blob.
+struct DemandBlobs {
+    std::vector<std::pair<uint64_t, const uint8_t*>> v;   // ((layer << 32) | expert) -> the blob
+    const uint8_t* find(int layer, int e) const {
+        const uint64_t key = ((uint64_t) (uint32_t) layer << 32) | (uint32_t) e;
+        for (const auto& x : v)
+            if (x.first == key) return x.second;
+        return nullptr;
+    }
+};
+
 }  // namespace
 
 // ------------------------------------------------------------------ the model
@@ -1171,6 +1187,35 @@ struct Model::Impl {
     std::mutex halt_mu;
     int halt_k = INT_MAX, halt_seen = -1;
     bool halted = false;                      // the last run ended early on a Stop
+    // (local, review 2) a CPU-lane demand read that failed for real (starved store AND failing files): the forward
+    // reports it as its error; cleared at every run's start. A flag + guarded string: the lane and the copy thread
+    // both note, only the API thread reads, the hot paths check the relaxed flag alone.
+    std::atomic<bool> lane_err_set{false};
+    std::mutex lane_err_mu;
+    std::string lane_err;
+    void note_lane_err(const std::string& msg) {
+        std::lock_guard<std::mutex> lk(lane_err_mu);
+        if (lane_err.empty()) lane_err = msg;
+        lane_err_set.store(true, std::memory_order_relaxed);
+    }
+    std::string take_lane_err() {
+        std::lock_guard<std::mutex> lk(lane_err_mu);
+        return lane_err;
+    }
+    // (local, review 2 item 1.2) the one check every public call makes on a run's outcome: a CPU lane that noted a
+    // real demand-read failure (the store had no slot AND reading the files failed too) must not hand back an
+    // answer computed on missing bytes, whatever the GPUs did with the rest of the token.
+    bool api_ok(bool ok, std::string& err) {
+        if (!ok) return false;
+        if (!lane_err_set.load(std::memory_order_relaxed)) return true;
+        err = "CPU lane: " + take_lane_err();
+        return false;
+    }
+    void clear_lane_err() {
+        std::lock_guard<std::mutex> lk(lane_err_mu);
+        lane_err.clear();
+        lane_err_set.store(false, std::memory_order_relaxed);
+    }
     // a yield (Model::set_yield, asked while forward_chunks waits): the run ends at a chunk every device reaches, as on
     // a Stop, but the chunks before it stay read - feed() returns true with fed() the tokens it took.  One GPU too ends
     // at a chunk there, never mid-chunk (halt_now), unless a Stop follows (Project Maya #587)
@@ -2632,8 +2677,16 @@ struct Model::Impl {
         }
         return true;
     }
-    const uint8_t* mx_mat(const Layer& l, int e, int r) const {   // expert e's matrix r: its RAM-tier slot, else the file's
-        if (store) {
+    const uint8_t* mx_mat(const Layer& l, int e, int r, const DemandBlobs* dmd = nullptr, bool stable = false) const {   // expert e's matrix r: its RAM-tier slot, else the file's
+        if (dmd != nullptr) {   // (review 2 item 1.2) demand fallback: this call's starved expert, read to a temporary blob
+            const uint8_t* fb = dmd->find(l.il, e);
+            if (fb != nullptr) return fb + l.lay.trellis[r];
+        }
+        // (local, review 2 item 1.1) `stable`: the answer must outlive this call - a resident slot is a lease, not a
+        // promise: evicted, rebalanced or shrunk between now and the caller's use, its bytes are another expert's
+        // (or decommitted). Callers that CACHE the pointer (the layer's host table) or DMA from it asynchronously
+        // ask for stable sources only: the file's mapping or a RAM copy, never the store's transient slot.
+        if (store && !stable) {
             const int s = store->find(l.il, e);
             if (s >= 0) return store->mat(s, r);
         }
@@ -2650,10 +2703,10 @@ struct Model::Impl {
     int mx_n(int r) const { return r < 2 ? g.ff : g.dim; }
     size_t mx_row_b(const Layer& l, int r) const { return mx_part_bytes(l, r) / (size_t) mx_n(r); }
     // part X's rows [X n / NH, ..) of expert e's matrix r: its copy's part on node X, else where the file has them
-    const uint8_t* mx_part_ptr(const Layer& l, int e, int r, int X) const {
+    const uint8_t* mx_part_ptr(const Layer& l, int e, int r, int X, const DemandBlobs* dmd = nullptr) const {
         if (copy_mode && l.ram[(size_t) e] >= 0)
             return ram_part[(size_t) l.ram[(size_t) e]][(size_t) X] + cp_lay[(size_t) l.il][(size_t) r];
-        return mx_mat(l, e, r) + (size_t) X * (size_t) (mx_n(r) / NH) * mx_row_b(l, r);
+        return mx_mat(l, e, r, dmd) + (size_t) X * (size_t) (mx_n(r) / NH) * mx_row_b(l, r);
     }
     // a copy's NH parts -> the blob, and back (each matrix's rows of part X at X n / NH rows into the blob's matrix)
     void ram_to_blob(const Layer& l, int s, uint8_t* blob) const {
@@ -3692,6 +3745,7 @@ struct Model::Impl {
                     cudaFreeHost(host_allocs.back());
                     host_allocs.pop_back();
                 }
+                for (auto& cp : chunks) if (cp) flow_release_pins(*cp);   // (review 2) the rebuilt chunks must not inherit the old items' store pins
                 chunks.clear();
                 if (slab_auto_grew_) {   // the automatic slab did not fit: the 0.2.6 slab first, the chunk only if that does not fit either
                     slab_auto_grew_ = false;
@@ -4496,6 +4550,11 @@ struct Model::Impl {
                        const uint8_t* src = nullptr) {
         if (l.lay.fmt == gg::kFmtMXFP4) {   // the blob, or member m's rows / blocks: from `src` (the expert read into
             // pinned staging as its blob) or from the file's mapping
+            // (local, review 2 item 1.1 finding, fixed under item 10: when `src` is null and the store holds the
+            // expert, these ASYNC memcpys read the store's slot without a pin - eviction during the copy streams
+            // another expert's bytes. Not switched to `stable` here: with the store up and the views dropped the
+            // mapping is null, and rc_fill passes no src - the resolution (always stage through `src` when the
+            // store covers the layer) needs the lane-residency trace of item 10, with the call paths mapped.)
             auto mat_r = [&](int r) { return src != nullptr ? src + l.lay.trellis[r] : mx_mat(l, e, r); };
             bool ok = true;
             if (l.nm == 1) {
@@ -4770,9 +4829,13 @@ struct Model::Impl {
         bool in_ram = !l.ram.empty() && l.ram[(size_t) e] >= 0;
         const uint8_t* store_blob = nullptr;   // (the RAM store holds it: copied into staging like a RAM-tier slot, no read)
         if (!in_ram && store && l.nm == 1) {
-            const int ss = store->find(l.il, e);
+            // (local, review 2) acquire_ready, not find: the io worker copies this blob asynchronously, and a slot
+            // merely FOUND could be evicted, rebalanced or shrunk between here and that copy - the worker would
+            // read another expert's bytes (or a decommitted page). The pin lives until the copies land (flow_pump).
+            const int ss = store->acquire_ready(l.il, e);
             if (ss >= 0) {
                 store_blob = store->blob(ss);
+                it.store_slot = ss;
                 in_ram = true;
             }
         }
@@ -4959,6 +5022,14 @@ struct Model::Impl {
         }
         return false;
     }
+    // (local, review 2) Give back the store pins the chunk's items still hold. The normal path releases each pin as
+    // the item's copies land (flow_pump); a chunk abandoned mid-run - read error, STOP, unload - never reaches
+    // those points, and its slots would stay pinned outliving the run that took them.
+    void flow_release_pins(Chunk& c) {
+        if (!store) return;
+        for (auto& it : c.items)
+            if (it.store_slot >= 0) { store->unpin(it.store_slot); it.store_slot = -1; }
+    }
     // the reads (in order, each into its staging slot once that slot's last DMA is done) and the DMAs (in order, each
     // into its ring slot once that slot's last use is queued: the copy stream waits for it) as far as they can go now
     bool flow_pump(Chunk& c, std::string& err) {
@@ -5091,6 +5162,10 @@ struct Model::Impl {
         while (c.n_dma < c.n_read && c.n_dma < c.n_comp + R) {
             Chunk::Item& it = fit(c, c.n_dma);
             if (it.left.load(std::memory_order_acquire) != 0) break;
+            if (it.store_slot >= 0) {   // (review 2) its copies out of the store slot are all done: the slot is the cache's again (bad or not - the pin is what it was held for)
+                store->unpin(it.store_slot);
+                it.store_slot = -1;
+            }
             if (it.bad.load(std::memory_order_acquire)) {
                 err = "reading layer " + std::to_string(it.il) + " expert " + std::to_string(it.e) +
                       " from the model's files failed";
@@ -5894,7 +5969,7 @@ struct Model::Impl {
             l.hh.assign((size_t) l.n_exp, {nullptr, nullptr, nullptr, nullptr});
             if (l.lay.fmt == gg::kFmtMXFP4) {   // a GGUF's: read in place from the file's mapping
                 for (int e = 0; e < l.n_exp; ++e)
-                    if (l.slot[(size_t) e] < 0) l.host[(size_t) e] = (uint8_t*) mx_mat(l, e, 0);
+                    if (l.slot[(size_t) e] < 0) l.host[(size_t) e] = (uint8_t*) mx_mat(l, e, 0, nullptr, true);   // (review 2 item 1.1) a table the swap updates lives beyond the call: stable sources only, never a store lease
             } else if (file_experts) {   // every expert's file mapped (the cache's swaps hand VRAM experts back to the files)
                 for (int e = 0; e < l.n_exp; ++e)
                     if (pk.map(l.region_file[(size_t) e]) == nullptr) {
@@ -8292,8 +8367,9 @@ struct Model::Impl {
     // them, exact integer sums a block; every CPU tier the same bits): each token's input quantized once, whatever
     // number of entries take it, and each job its band of h straight into the down's int8 input.
     // (ord: the order the entries are computed in - their slots, so the sums, stay the same; null: as they are)
-    void cpu_experts_mx(const Layer& l, const float* x, const std::vector<Ent>& ents, size_t ldx, const int* ord) {
-        if (!gg::mx_experts(l.lay)) return cpu_experts_iq(l, x, ents, ldx, ord);
+    void cpu_experts_mx(const Layer& l, const float* x, const std::vector<Ent>& ents, size_t ldx, const int* ord,
+                        const DemandBlobs* dmd = nullptr) {
+        if (!gg::mx_experts(l.lay)) return cpu_experts_iq(l, x, ents, ldx, ord, dmd);
         constexpr int RB = 64;   // rows a job (whole blocks of h: RB % 32 == 0)
         const int E = g.dim, FF = g.ff, FFh = FF / NH, Eh = E / NH;
         const int GB = (FFh + RB - 1) / RB, DB = (Eh + RB - 1) / RB, ne = (int) ents.size();
@@ -8345,8 +8421,8 @@ struct Model::Impl {
                     up[i] = yu[i];
                 }
                 // (part X's rows, from where they are: a copy's part on node X, or the file's)
-                gg::mx_rows(mx_part_ptr(l, en.e, 0, X), gr, E, r0 - X * FFh, r1 - X * FFh, ap, en.n, gp);
-                gg::mx_rows(mx_part_ptr(l, en.e, 1, X), gr, E, r0 - X * FFh, r1 - X * FFh, ap, en.n, up);
+                gg::mx_rows(mx_part_ptr(l, en.e, 0, X, dmd), gr, E, r0 - X * FFh, r1 - X * FFh, ap, en.n, gp);
+                gg::mx_rows(mx_part_ptr(l, en.e, 1, X, dmd), gr, E, r0 - X * FFh, r1 - X * FFh, ap, en.n, up);
                 for (int i = 0; i < en.n; ++i) {
                     float* h = band_q ? yg[i] : c_xhd.data() + (size_t) (en.slot0 + i) * FF + r0;
                     for (int r = r0; r < r1; ++r) {
@@ -8375,7 +8451,7 @@ struct Model::Impl {
                     ap[i] = hq + (size_t) (en.slot0 + i) * ha;
                     yp[i] = c_yd.data() + (size_t) (en.slot0 + i) * E + r0;
                 }
-                gg::mx_rows(mx_part_ptr(l, en.e, 2, X), dr, FF, r0 - X * Eh, r1 - X * Eh, ap, en.n, yp);
+                gg::mx_rows(mx_part_ptr(l, en.e, 2, X, dmd), dr, FF, r0 - X * Eh, r1 - X * Eh, ap, en.n, yp);
             };
         run_nodes(ne * DB, f);
     }
@@ -8463,7 +8539,8 @@ struct Model::Impl {
         }
     }
 #endif
-    void cpu_experts_iq(const Layer& l, const float* x, const std::vector<Ent>& ents, size_t ldx, const int* ord) {
+    void cpu_experts_iq(const Layer& l, const float* x, const std::vector<Ent>& ents, size_t ldx, const int* ord,
+                        const DemandBlobs* dmd = nullptr) {
         constexpr int RB = 64;   // rows a job
         const int E = g.dim, FF = g.ff, FFh = FF / NH, Eh = E / NH;
         const int GB = (FFh + RB - 1) / RB, DB = (Eh + RB - 1) / RB, ne = (int) ents.size();
@@ -8554,7 +8631,7 @@ struct Model::Impl {
                 }
                 // (part X's rows, from where they are: a copy's part on node X, or the file's - whole rows, so any
                 // block size of the type)
-                gg::iq_cpu_gate_up(fm, mx_part_ptr(l, en.e, 0, X), mx_part_ptr(l, en.e, 1, X), ap, en.n, hp,
+                gg::iq_cpu_gate_up(fm, mx_part_ptr(l, en.e, 0, X, dmd), mx_part_ptr(l, en.e, 1, X, dmd), ap, en.n, hp,
                                    r0 - X * FFh, r1 - X * FFh, lim);
             };
         run_nodes(ne * GB, f);
@@ -8574,7 +8651,7 @@ struct Model::Impl {
                     hp[i] = aq + (size_t) (kWin + en.slot0 + i) * E * 4;
                     yp[i] = c_yd.data() + (size_t) (en.slot0 + i) * E + (size_t) X * Eh;   // (part X's rows of it)
                 }
-                gg::iq_cpu_down(fm, mx_part_ptr(l, en.e, 2, X), hp, en.n, yp, r0 - X * Eh, r1 - X * Eh);
+                gg::iq_cpu_down(fm, mx_part_ptr(l, en.e, 2, X, dmd), hp, en.n, yp, r0 - X * Eh, r1 - X * Eh);
             };
         run_nodes(ne * DB, f);
         if (cpulog) t_r2 += now_ms() - tq2;
@@ -8596,6 +8673,9 @@ struct Model::Impl {
         int layer = 0;
         std::vector<int> es, sl;
         std::vector<char> ok;
+        bool bad = false;                        // (local, review 2) a demand fallback failed too: a real IO error, in m->lane_err
+        DemandBlobs db;                          // fallback blobs the compute of these experts resolves through
+        std::vector<std::pair<uint8_t*, size_t>> tmps;   // the fallback blobs, freed here
         // lazy: the reads are started here and waited for by wait_all() / wait_expert(); the destructor releases
         StoreHold(Impl* m_, const Layer& l, const std::vector<Ent>& ents) {
             if (!m_->store) return;
@@ -8605,6 +8685,8 @@ struct Model::Impl {
                 if ((l.ram.empty() || l.ram[(size_t) en.e] < 0) && std::find(es.begin(), es.end(), en.e) == es.end()) es.push_back(en.e);
             m->store->begin(layer, es.data(), (int) es.size(), ok, sl);
         }
+        // the demand-fallback context the compute of this hold's experts must resolve through (null: none yet)
+        const DemandBlobs* dmd() const { return db.v.empty() ? nullptr : &db; }
         int idx(int e) const {
             for (size_t i = 0; i < es.size(); ++i)
                 if (es[i] == e) return (int) i;
@@ -8616,42 +8698,63 @@ struct Model::Impl {
             const int i = idx(e);
             return i < 0 || m->store->loaded(sl[(size_t) i]);
         }
-        // (no view of the files is left to fall back on: an expert without a slot is read again, one at a time, until it has one)
-        void rescue(int a, int b) {
-            if (!m || m->views) return;
-            if (layer >= m->g.nl) return;   // (local) the drafter's layers: never in the store, their file keeps its view
+        // (local, review 2, was: retry ensure 2000 times and exit(3)) an expert with no slot and no mapped view is
+        // still readable: a demand read into a temporary blob (store->demand_read through the engine's own
+        // Pack::read_at, which survives DROP_SHARDS via the direct handles), and the lane computes from that
+        // (mx_mat answers with t_demand). The cache starvation ends the request no more than a full SSD would -
+        // and a demand read that fails too is reported to the caller, never looped on: the loop could never have
+        // been broken by waiting when every chunk holds a slot this budget cannot take back.
+        bool rescue(int a, int b) {
+            if (!m || m->views) return !bad;
+            if (layer >= m->g.nl) return !bad;   // (local) the drafter's layers: never in the store, their file keeps its view
             for (int i = a; i < b; ++i) {
-                for (int tries = 0; !ok[(size_t) i]; ++tries) {
+                if (ok[(size_t) i]) continue;
+                for (int tries = 0; !ok[(size_t) i] && tries < 8; ++tries) {   // (a slot may be on its way: rebalance just recast one, other lanes release pins)
                     std::vector<char> o2;
-                    m->store->ensure(layer, &es[(size_t) i], 1, o2);
-                    if (!o2.empty() && o2[0]) {
-                        ok[(size_t) i] = 1;
-                        break;
-                    }
-                    if (tries > 2000) {
-                        std::fprintf(stderr, "ds4: layer %d expert %d: no store slot and no view of the files\n", layer, es[(size_t) i]);
-                        std::exit(3);
-                    }
+                    std::vector<int> s2;
+                    m->store->begin(layer, &es[(size_t) i], 1, o2, s2);
+                    m->store->wait_slots(s2, o2, 0, 1);
+                    if (!o2.empty() && o2[0]) { ok[(size_t) i] = 1; sl[(size_t) i] = s2[0]; break; }   // (the pin joins sl: the destructor gives it back)
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
+                if (ok[(size_t) i]) continue;
+                const size_t bb = m->store->blob_bytes(layer);
+                uint8_t* tmp = (uint8_t*) os::anon_alloc(bb, -1, 0);
+                const bool got = tmp != nullptr &&
+                                 m->store->demand_read(layer, es[(size_t) i], tmp,
+                                                       [&](int f, uint64_t o, uint64_t n, void* d) { return m->pk.read_at(f, o, n, d); });
+                if (!got) {
+                    if (tmp != nullptr) os::anon_free(tmp, bb);
+                    m->note_lane_err("layer " + std::to_string(layer) + " expert " + std::to_string(es[(size_t) i]) +
+                                     ": the RAM store has no slot and reading the expert from the model's files failed");
+                    bad = true;
+                    return false;
+                }
+                db.v.push_back({((uint64_t) (uint32_t) layer << 32) | (uint32_t) es[(size_t) i], tmp});
+                tmps.push_back({tmp, bb});
+                ok[(size_t) i] = 1;   // (sl[i] stays -1: the fallback blob holds no pin)
             }
+            return true;
         }
-        void wait_expert(int e) {
-            if (!m) return;
+        bool wait_expert(int e) {
+            if (!m) return true;
             const int i = idx(e);
             if (i >= 0) {
                 m->store->wait_slots(sl, ok, i, i + 1);
-                rescue(i, i + 1);
+                if (!rescue(i, i + 1)) return false;
             }
+            return true;
         }
-        void wait_all() {
-            if (m) {
-                m->store->wait_slots(sl, ok, 0, (int) es.size());
-                rescue(0, (int) es.size());
-            }
+        bool wait_all() {
+            if (!m) return true;
+            m->store->wait_slots(sl, ok, 0, (int) es.size());
+            return rescue(0, (int) es.size());
         }
         ~StoreHold() {
-            if (m) m->store->release(layer, es.data(), (int) es.size(), ok);
+            if (m) {
+                m->store->release(sl, ok);
+                for (const auto& t : tmps) os::anon_free(t.first, t.second);
+            }
         }
     };
     // DS4_MISS_SPLIT=0: the old order (wait for every read, then compute); default: the entries whose reads are done
@@ -8663,16 +8766,17 @@ struct Model::Impl {
             StoreHold hold(this, l, ents);
             static const bool split = std::getenv("DS4_MISS_SPLIT") == nullptr || std::atoi(std::getenv("DS4_MISS_SPLIT")) != 0;
             if (!split || ord != nullptr || !hold.m || ents.size() < 2) {
-                hold.wait_all();
-                return cpu_experts_mx(l, x, ents, ldx, ord);
+                if (!hold.wait_all()) return;   // (review 2) a failed demand read is the caller's error (lane_err); computing on missing bytes is not an option
+                return cpu_experts_mx(l, x, ents, ldx, ord, hold.dmd());
             }
             std::vector<Ent> hot, cold;
             for (const Ent& en : ents) (hold.ready(en.e) ? hot : cold).push_back(en);
             if (cold.empty()) {
-                hold.wait_all();
-                return cpu_experts_mx(l, x, ents, ldx, ord);
+                if (!hold.wait_all()) return;
+                return cpu_experts_mx(l, x, ents, ldx, ord, hold.dmd());
             }
-            for (const Ent& en : hot) hold.wait_expert(en.e);   // (done reading: only the bookkeeping)
+            for (const Ent& en : hot)
+                if (!hold.wait_expert(en.e)) return;   // (review 2) real IO error: fail up through lane_err, never compute zeros
             if (!hot.empty()) cpu_experts_mx(l, x, hot, ldx, nullptr);
             // the ones that came in meanwhile first, then the rest in the order they land
             std::vector<char> done(cold.size(), 0);
@@ -8689,9 +8793,9 @@ struct Model::Impl {
                             pick = i;
                             break;
                         }
-                hold.wait_expert(cold[pick].e);
+                if (!hold.wait_expert(cold[pick].e)) return;   // (review 2) the error is lane_err's to report; the request dies at the caller's check
                 std::vector<Ent> one(1, cold[pick]);
-                cpu_experts_mx(l, x, one, ldx, nullptr);
+                cpu_experts_mx(l, x, one, ldx, nullptr, hold.dmd());
                 done[pick] = 1;
                 --left;
             }
@@ -9523,7 +9627,7 @@ struct Model::Impl {
             l.host[(size_t) sw.in] = nullptr;
             l.slot[(size_t) sw.out] = -1;
             if (l.lay.fmt == gg::kFmtMXFP4) {   // (the file has it)
-                l.host[(size_t) sw.out] = (uint8_t*) mx_mat(l, sw.out, 0);
+                l.host[(size_t) sw.out] = (uint8_t*) mx_mat(l, sw.out, 0, nullptr, true);   // (review 2: stable - the table outlives the call)
             } else if (file_experts) {   // (back to its pages in the file)
                 l.hh[(size_t) sw.out] = {file_part(l, sw.out), nullptr, nullptr, nullptr};
                 l.host[(size_t) sw.out] = l.hh[(size_t) sw.out][0];
@@ -9949,6 +10053,16 @@ struct Model::Impl {
             }
             std::atomic_thread_fence(std::memory_order_release);
             *(volatile unsigned*) &rp.seq = next;
+            if (late_ans != nullptr) {   // (local) STRATA_DS4_DEFER=2: the light part (cpu flags 0 when there was none)
+                std::atomic_thread_fence(std::memory_order_release);
+                *(volatile unsigned*) &late_ans->seq = next;
+                late_ans = nullptr;
+            }
+            if (lane_err_set.load(std::memory_order_relaxed)) {   // (local, review 2 item 1.2) a demand read failed for real:
+                halt.store(true);   // the flag is published (the GPU's wait ends), this request's numbers are zeros,
+                ++next;             // and the run stops here - the API reports lane_err as the request's error, so
+                break;              // an answer computed on missing bytes never leaves the engine as a success
+            }
             if (late_ans != nullptr) {   // (local) STRATA_DS4_DEFER=2: the light part (cpu flags 0 when there was none)
                 std::atomic_thread_fence(std::memory_order_release);
                 *(volatile unsigned*) &late_ans->seq = next;
@@ -11799,7 +11913,7 @@ struct Model::Impl {
         tok_ab_begin();
         const bool ok = forward(&token, 1, want_logits ? 1 : 0, err);
         tok_ab_end(1, ok);
-        return ok;
+        return api_ok(ok, err);   // (review 2) a lane demand read failed: the answer is not trusted
     }
 
 
@@ -12538,6 +12652,7 @@ struct Model::Impl {
         if (c.flow) {   // (the flow decides its streams as the layers route; nothing planned here)
             CK(cudaStreamSynchronize(s));
             CK(cudaStreamSynchronize(c.cs));
+            flow_release_pins(c);   // (review 2) pins from a run that ended early: released before its items are dropped
             c.items.clear();
             c.base = c.n_read = c.n_dma = c.n_comp = 0;
             c.n_file = 0;
@@ -13017,6 +13132,7 @@ struct Model::Impl {
     double pm_k(int c) const { return pm.flow.factor_for_size_class(c); }
     // n tokens through windows of 16, the last one's logits_rows rows of logits
     bool feed_windows(const int* tokens, int n, int logits_rows, std::string& err) {
+        clear_lane_err();   // (review 2)
         logits_all = false;
         for (int a = 0; a < n; a += kWin) {
             const int T = std::min(kWin, n - a);
@@ -13286,7 +13402,7 @@ struct Model::Impl {
             if (!bad[i] && !rf_stage.empty()) continue;
             ++n_bad;   // (to the CPU lane: the file has it)
             l.slot[(size_t) e] = -1;
-            l.host[(size_t) e] = (uint8_t*) mx_mat(l, e, 0);
+            l.host[(size_t) e] = (uint8_t*) mx_mat(l, e, 0, nullptr, true);   // (review 2: the swap's table: stable sources only)
             --l.n_vram;
             const unsigned long long zero = 0;
             cudaSetDevice(devs[(size_t) l.dev].id);
@@ -13522,6 +13638,7 @@ struct Model::Impl {
         } lm_end_{this, lm};
         std::vector<std::string> errs(devs.size());
         halted = false;
+        clear_lane_err();   // (review 2) a demand read that failed belongs to the run that saw it
         halt.store(false);
         yielding.store(false);
         {
@@ -13883,6 +14000,7 @@ struct Model::Impl {
     }
 
     bool forward(const int* tk, int T, int logits_rows, std::string& err, int seed_rows = -1) {
+        clear_lane_err();   // (review 2) decode's run: its lane errors start empty (feed_* clear their own)
 #if defined(STRATA_METAL)
         struct BusyAll {   // DS4_BUSY_ALL: the GPU is held busy for the whole step (the host gaps between its bursts too)
             bool on;
@@ -15477,6 +15595,7 @@ bool Model::feed(const int* tokens, int n, int logits_rows, std::string& err, in
     Impl& p = *p_;
     p.pm.last = -1;
     p.halted = false;
+    p.clear_lane_err();
     p.fed_n = n;
     if (ds4_dbg("DS4_DBG_CHUNK")) std::fprintf(stderr, "feed n %d chunk %d chunk_min %d\n", n, p.chunk, p.chunk_min);
     if (p.chunk > 0 && n >= p.chunk_min) {   // a long run - or one the flow could take, if it is the faster path here
@@ -15484,26 +15603,27 @@ bool Model::feed(const int* tokens, int n, int logits_rows, std::string& err, in
         const bool ok = logits_rows > kWin || p.pick_path(n) ? p.forward_chunks(tokens, n, logits_rows, err, -1, after)
                                                              : p.feed_windows(tokens, n, logits_rows, err);
         if (ok) p.path_done(now_ms() - t0);
-        return ok;
+        return p.api_ok(ok, err);
     }
-    return p.feed_windows(tokens, n, logits_rows, err);
+    return p.api_ok(p.feed_windows(tokens, n, logits_rows, err), err);
 }
 bool Model::feed_mark(const int* tokens, int n, int logits_rows, int slot, std::string& err) {
     Impl& p = *p_;
     p.pm.last = -1;
     p.halted = false;
+    p.clear_lane_err();   // (review 2)
     p.fed_n = n;
     const double t0 = now_ms();
     if (n >= 2 && p.chunk > 0 && n >= p.chunk_min && p.pick_path(n)) {   // (the last token rides along; its layers
         const bool ok = p.forward_chunks(tokens, n, logits_rows, err, slot);   // keep the state before it)
         if (ok) p.path_done(now_ms() - t0);
-        return ok;
+        return p.api_ok(ok, err);
     }
     if (n > 1 && !p.feed_windows(tokens, n - 1, 0, err)) return false;
     p.checkpoint(slot);
     const bool ok = n < 1 || p.feed_windows(tokens + n - 1, 1, logits_rows, err);
     if (ok) p.path_done(now_ms() - t0);   // (windows, when pick_path chose them)
-    return ok;
+    return p.api_ok(ok, err);
 }
 bool Model::feed_marks(const int* tokens, int n, int logits_rows, int slot,
                        const std::vector<std::pair<int64_t, bool>>& inner, std::string& err) {
@@ -15517,12 +15637,13 @@ bool Model::feed_marks(const int* tokens, int n, int logits_rows, int slot,
         }
     p.pm.last = -1;
     p.halted = false;
+    p.clear_lane_err();   // (review 2)
     p.fed_n = n;
     const double t0 = now_ms();
     if (n >= 2 && p.chunk > 0 && n >= p.chunk_min && inner.size() + 1 <= (size_t) kSnapN && p.pick_path(n)) {
         const bool ok = p.forward_chunks(tokens, n, logits_rows, err, slot, 0, &inner);
         if (ok) p.path_done(now_ms() - t0);
-        return ok;
+        return p.api_ok(ok, err);   // (review 2) a demand read failed: the row is not trusted
     }
     // windows: up to each point, the state kept there, then feed_mark's (a window of its own for the last token)
     int done = 0;
@@ -15536,7 +15657,7 @@ bool Model::feed_marks(const int* tokens, int n, int logits_rows, int slot,
     p.checkpoint(slot);
     const bool ok = p.feed_windows(tokens + n - 1, 1, logits_rows, err);
     if (ok) p.path_done(now_ms() - t0);   // (windows, when pick_path chose them)
-    return ok;
+    return p.api_ok(ok, err);   // (review 2)
 }
 bool Model::marks_inside(int n, const std::vector<int64_t>& rel) const {
     const Impl& p = *p_;
