@@ -1333,7 +1333,9 @@ struct Model::Impl {
     // the CPU lane's experts read in place from the model's files (one part, the files' layout; the page cache keeps
     // what fits) instead of copied into RAM, and how much of them the load reads ahead (the most-routed first)
     bool file_experts = false;
-    bool views = true;   // false: the shards' views are dropped after the load (DS4_NO_VIEW=1)
+    // (third round 12) the old `views` flag ("no shard is mapped any more") is gone: DROP_SHARDS keeps some files'
+    // mappings and dropping one no longer means none are, so every question about a mapping is asked of the file
+    // itself (Pack::at, null per dropped file). DS4_NO_VIEW=1 still drops them all, through pk.drop_views.
     uint64_t warm_bytes = 0;
     static constexpr uint64_t kRamMargin = 8ull << 30;   // RAM left to the rest (the system, the page cache's churn)
     uint8_t* file_part(const Layer& l, int e) const {
@@ -4049,9 +4051,8 @@ struct Model::Impl {
 #endif
         if (no_view && store && pk.gguf) {
             pk.drop_views(store->fd_live());
-            store->set_pfds(pk.pfds);
-            views = false;
-            std::fprintf(stderr, "ds4: no view of the model's files after the load: unbuffered reads at the drive's rate\n");
+            store->set_pfds(pk.pfds);   // (third round 12: no global views flag - the per-file truth is
+            std::fprintf(stderr, "ds4: no view of the model's files after the load: unbuffered reads at the drive's rate\n");   //   Pack::at, null per dropped file)
         }
         // (local) STRATA_DS4_DROP_SHARDS=1: the files that hold the main layers' routed experts (no drafter, no Engram
         // table) unmapped and left with no buffered handle (Pack::drop_files); the DSpark drafter's and Engram's files
@@ -4069,11 +4070,8 @@ struct Model::Impl {
             }
             for (size_t i = 0; i < drop.size(); ++i) drop[i] = drop[i] && !keep[i];
             const int n = pk.drop_files(drop, store->fd_live());
-            if (n > 0) {
-                store->set_pfds(pk.pfds);
-                views = false;
-            }
-            std::fprintf(stderr, "ds4: (local) %d expert file(s) unmapped, their buffered handles closed: unbuffered reads only\n", n);
+            if (n > 0) store->set_pfds(pk.pfds);   // (third round 12: kept files' mappings stay usable - rescue
+            std::fprintf(stderr, "ds4: (local) %d expert file(s) unmapped, their buffered handles closed: unbuffered reads only\n", n);   //   asks Pack::at per expert, not a global flag)
         }
         if (const int dm = defer_mode(); dm != 0)   // (second review 14) config witness: the approximate mode is
             std::fprintf(stderr, "ds4: (local) STRATA_DS4_DEFER=%d is armed: a deferred CPU-lane part lands in a "     //   armed in this process, and the
@@ -8806,11 +8804,30 @@ struct Model::Impl {
         // (mx_mat answers with t_demand). The cache starvation ends the request no more than a full SSD would -
         // and a demand read that fails too is reported to the caller, never looped on: the loop could never have
         // been broken by waiting when every chunk holds a slot this budget cannot take back.
+        // (third round 12) "no mapped view" is a PER-FILE fact and the code asked a global flag: DROP_SHARDS
+        // unmaps the files it picked and keeps the others' views (a file holding the drafter's or the Engram's
+        // tensors alongside layer experts keeps its mapping), yet one dropped file set views=false for every
+        // layer. The over-claim cost real bytes: an expert whose matrices are still mapped whole gets a demand
+        // read - a second full blob of file IO plus an anon allocation - where the ordinary path reads the
+        // mapping in place, zero-copy. The question now goes to the file (Pack::at answers null exactly for the
+        // dropped ones), once per starved expert, off any hot loop that has none. Same answers in the two
+        // uniform configurations: nothing dropped -> mapped -> no demand read, exactly as the flag said;
+        // everything dropped -> unmapped -> the demand rescue, as the flag said.
         bool rescue(int a, int b) {
-            if (!m || m->views) return !bad;
+            if (!m) return !bad;
+            if (!m->pk.gguf) return !bad;   // (third round 12) bin packs never dropped views and never rescued - unchanged
             if (layer >= m->g.nl) return !bad;   // (local) the drafter's layers: never in the store, their file keeps its view
+            const Layer& l = m->L[(size_t) layer];
             for (int i = a; i < b; ++i) {
                 if (ok[(size_t) i]) continue;
+                // (third round 12) the per-file question FIRST: every matrix of this expert still mapped
+                // (the file kept its view) -> the ordinary compute reads the mapping in place, exactly the
+                // shape the whole-mapped world always ran - no slot retry, no demand read, no stall
+                bool mapped = true;
+                for (int r = 0; r < 3 && mapped; ++r)
+                    mapped = m->pk.at(l.mx_file[r],
+                                      l.mx_off[r] + (uint64_t) es[(size_t) i] * l.mx_stride[r]) != nullptr;
+                if (mapped) continue;   // (ok stays 0: that is how the mapped world computed)
                 for (int tries = 0; !ok[(size_t) i] && tries < 8; ++tries) {   // (a slot may be on its way: rebalance just recast one, other lanes release pins)
                     std::vector<char> o2;
                     std::vector<int> s2;
