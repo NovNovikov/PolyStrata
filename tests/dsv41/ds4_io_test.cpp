@@ -13,6 +13,7 @@
 #include <malloc.h>   // _aligned_malloc: the direct reads need an aligned destination, as the pool's does
 #endif
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -178,6 +179,57 @@ int main() {
         check(good, "200 abandoned runs drained then freed: counters zero, bytes right, no job outlived its item");
         check(inflight_rounds > 100, "and the abandons caught jobs in flight (the scenario really drives the hazard)");
         os::close_fd(iofd);
+    }
+
+    // (hostile review, third round item 8) promotion out of the low queue. LM_AHEAD's speculative reads queue at
+    // LOW priority; the moment an item of that layer reaches the pump, the read is a DEMAND - the pump waits on
+    // it - and it must overtake the guesses nobody needs. Deterministic shape: ONE worker; a big host-copy job
+    // occupies it; five guesses (each a 16 MB copy, so the first completion can be OBSERVED, not guessed at)
+    // queue low; a second big high job re-occupies it; the third guess is promoted. The worker's order is then
+    // forced: big one, big two, the promoted one, the rest. So the FIRST guess to complete must be the promoted
+    // one - without a promote the guesses run in queue order and g0 finishes first.
+    {
+        const size_t BUSY = 128u << 20;   // (~15-30 ms an occupancy window; the promote fires microseconds in)
+        const size_t GUESS = 16u << 20;   // (~1-2 ms: the observation window for who finished first)
+        std::vector<uint8_t> big_src(BUSY, 7), big_dst_a(BUSY, 0), big_dst_b(BUSY, 0);
+        std::vector<uint8_t> guess_dst(5 * GUESS, 0);
+        IoQueue io(1);
+        std::atomic<int> g0{1}, g1{1}, g2{1}, g3{1}, g4{1};
+        std::atomic<int>* guesses[5] = {&g0, &g1, &g2, &g3, &g4};
+        IoQueue::Job busy = IoQueue::Job{};
+        busy.mem = big_src.data();
+        busy.dst = big_dst_a.data();
+        busy.len = BUSY;
+        io.push(&busy, 1);   // (the worker takes it at once: everything after this queues behind it)
+        for (int i = 0; i < 5; ++i) {
+            IoQueue::Job j = IoQueue::Job{};
+            j.mem = big_src.data();
+            j.dst = guess_dst.data() + (size_t) i * GUESS;
+            j.len = GUESS;
+            j.left = guesses[i];
+            io.push(&j, 1, true);   // (low: the LM_AHEAD shape)
+        }
+        busy.dst = big_dst_b.data();
+        io.push(&busy, 1);   // (a demand of its own in the high queue: it holds the worker past the promote)
+        io.promote(guesses[2]);   // (the pump's moment: this guess is needed NOW)
+        // the strict watch: the first guess whose counter lands - it must be the promoted one, and the others
+        // must be whole at that instant (the worker is single: whatever lands first also STARTED first)
+        const auto t0 = std::chrono::steady_clock::now();
+        bool first_was_promoted = false;
+        for (;;) {
+            const bool g2_done = g2.load(std::memory_order_acquire) == 0;
+            const bool other_done = g0.load(std::memory_order_acquire) == 0 || g1.load() == 0 ||
+                                    g3.load() == 0 || g4.load() == 0;
+            if (g2_done || other_done) { first_was_promoted = g2_done && !other_done; break; }
+            if (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() > 10.0) break;
+        }
+        check(first_was_promoted, "the promoted demand read was the FIRST guess to land, ahead of the whole low queue");
+        for (int i = 0; i < 5; ++i)
+            while (guesses[i]->load() != 0 &&
+                   std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < 10.0)
+                io.wait_any(1000);
+        bool all_in = g0.load() == 0 && g1.load() == 0 && g2.load() == 0 && g3.load() == 0 && g4.load() == 0;
+        check(all_in, "and every guess still ran after the demands - promotion is a reorder, not a loss");
     }
 
     remove(path.c_str());

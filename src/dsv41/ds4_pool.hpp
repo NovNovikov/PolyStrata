@@ -252,6 +252,27 @@ public:
         const uint64_t seen = done_;
         done_cv_.wait_for(lk, std::chrono::microseconds(us), [&] { return done_ != seen; });
     }
+    /// (hostile review, third round 8) A queued low job whose bytes became NEEDED now - the speculative read of
+    /// a layer that has arrived - moves to the high queue, ahead of the guesses nobody needs yet. Workers take
+    /// the high queue whenever it is non-empty, so an un-promoted demand read idles behind every queued guess
+    /// while the pump stands at its item waiting for it. `left` names the owner: all of the item's part-jobs
+    /// share its counter, so one call promotes the whole read. A job already running is untouched (nothing to
+    /// promote - it lands as soon as it lands), and a job already taken off is not in the queue to move.
+    void promote(const std::atomic<int>* left) {
+        bool moved = false;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            for (auto it = ql_.begin(); it != ql_.end();) {
+                if (it->left == left) {
+                    q_.push_back(std::move(*it));
+                    it = ql_.erase(it);
+                    moved = true;
+                } else
+                    ++it;
+            }
+        }
+        if (moved) cv_.notify_all();
+    }
     double busy_ms() const { return busy_us_.load(std::memory_order_relaxed) / 1000.0; }
     uint64_t direct_bytes() const { return direct_.load(std::memory_order_relaxed); }
     uint64_t buffered_bytes() const { return buffered_.load(std::memory_order_relaxed); }

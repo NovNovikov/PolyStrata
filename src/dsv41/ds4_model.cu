@@ -5081,7 +5081,15 @@ struct Model::Impl {
         while (c.n_read < end) {
             Chunk::Item& it = fit(c, c.n_read);
             if (it.pf != nullptr) {   // (local, LM_AHEAD: its expert still being read ahead)
-                if (it.pf->load(std::memory_order_acquire) != 0) break;
+                if (it.pf->load(std::memory_order_acquire) != 0) {
+                    // (third round 8) the guess is a DEMAND the moment its layer's item reaches the pump - but
+                    // it sits in the LOW queue behind every later guess, and the workers take high work first:
+                    // the pump would stand here, the queue idle of demand, while guesses nobody needs drain.
+                    // Promote this item's parts to the high queue - a part already running needs nothing, a
+                    // part already taken is off the queue, and re-pumping this item promotes what is left.
+                    c.io->promote(it.pf);
+                    break;
+                }
                 if (it.pf_bad->load(std::memory_order_acquire)) {
                     // (local, review 6 / second round 5.1) the speculative read failed - a guess must not kill the
                     // request. PfSide::recover makes this the ONE re-read of the slot: exchange() picks a single
