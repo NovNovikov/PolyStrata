@@ -32,6 +32,9 @@ rem Knobs for the load itself (defaults shown): KUUPERF_GENS=5 KUUPERF_WARM=2 KU
 rem The question of the day is DEFER: run just its A/B/A with   kuu_perf_test.bat baseline defer3 baseline2
 rem (~30 min); the full twelve-run set wants ~2 hours.
 rem Logs: %TEMP%\kuu-perf-logs\<name>.log (run + engine stderr teed) and <name>.engine.log (verbatim).
+rem Override the folder with KUUPERF_LOGD. A dispatcher dry run (fake engine) MUST set it - writing a
+rem mock run into the real folder overwrites the sweep's logs there (it happened 2026-11-22: a mock
+rem baseline/defer3 pass replaced that morning's engine logs and summary.txt with 0-byte and 3-line ones).
 setlocal EnableDelayedExpansion
 
 set "RUNS_FIRST="
@@ -43,7 +46,8 @@ if "%EXE%"=="" set "EXE=L:\Temp\opencode\up-cuda-build\strata-dsv41.exe"
 if "%PACK%"=="" set "PACK=L:\AI_pictures_generate\PolyStrata-data\packs\deepseek-v4.1-1017-ud-iq1-s"
 set "SCRIPT=%~dp0kuu_perf_check.py"
 set "IDS=%~dp0kuu_perf_ids.txt"
-set "LOGD=%TEMP%\kuu-perf-logs"
+if not defined KUUPERF_LOGD set "KUUPERF_LOGD=%TEMP%\kuu-perf-logs"
+set "LOGD=%KUUPERF_LOGD%"
 rem the user's usual engine args (strata-deepseek-v4.1-1017-ud-iq1-s-upstream.json), appended after the
 rem script's own defaults so they win, as in the live server
 set "ARGS=--max-context 262144 --eos 1 --dspark auto --cpu-threads 12 --prefill-chunk 1024 --reserve-mib 300 --vram-experts 0.85 --verbose"
