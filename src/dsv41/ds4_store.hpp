@@ -458,6 +458,7 @@ public:
         size_t nvis = 0, nfree = 0;
         for (size_t i = 0; i < nalloc_; ++i) {
             Slot& sp = slots_[i];
+            if (sp.cls < 0) continue;   // (dead after a rebalance recast a chunk narrower: kFree but the allocator can never hand it out - counting it as free would fake the reserve and skip the take-backs)
             if (sp.state.load(std::memory_order_acquire) == kLoading && sp.left.load(std::memory_order_acquire) == 0) {
                 try_ready(sp);
                 if (sp.state.load(std::memory_order_acquire) == kLoading) finish(sp);

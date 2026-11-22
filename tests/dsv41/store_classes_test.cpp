@@ -381,6 +381,7 @@ int main() {
         check(held == 8, "the wide class fills its chunk (and out-scores the narrow one later)");
         for (int e = 0; e < 4; ++e)
             check(load(st, 2, e) >= 0, "the narrow class grows its own chunk");
+        check(st.live_slots() == st.slots_allocated(), "before the recast every allocated entry is live");
         for (int e = 0; e < 8; ++e)
             st.touch(0, e);   // (keep the wide chunk warm: the coldest-chunk metric - heat or recency, either
                               //  way the touch moves it - so the middle class is offered the narrow chunk)
@@ -393,6 +394,10 @@ int main() {
         check(forgotten, "the recast class's experts are forgotten, not ghosted");
         check(wide_intact, "the untouched class reads right across the dead entries in its neighbour");
         check(mid_held, "the recast's first expert reads its file");
+        // (second review 1.3) the dead leftovers count for nothing: the live table shrank by the entries the
+        // narrower-to-wider recast killed, and sync()'s reserve arithmetic (nfree) skips them - free slots that
+        // the allocator can never hand out would fake the reserve and skip the take-backs below it
+        check(st.live_slots() < st.slots_allocated(), "the dead leftovers leave the live count (never handed out, never counted free)");
         check(load(st, 2, 9) >= 0, "the narrow class is served again after the recast (another chunk gives)");
         check(check_held(st, 2, 9, fx.geo), "and its expert reads right past the dead entries");
         bool sweep = true, any = false;
