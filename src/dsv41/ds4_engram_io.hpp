@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -271,5 +272,80 @@ public:
     std::mutex done_mu_;
     std::condition_variable done_cv_;
 };
+
+/// The Engram ring's book: n slots, unit u's rows into slot u % n, a slot refilled only once unit u - n's rows
+/// have been copied out of it (the engine records the copy on a CUDA event and waits on it - the ring says when
+/// the copy was recorded, the event wait stays the engine's). Pure bookkeeping, so the wraparound, the stopping
+/// and the reset-on-resize are testable off-device. reset() to a bigger slot size happens only after every copy
+/// of the old slots is done (the engine syncs the events first) - slots are never reused across a reset.
+class EgRing {
+public:
+    void reset(size_t slots_n, size_t bytes) {
+        n_ = slots_n;
+        bytes_ = bytes;
+        done_.store(0, std::memory_order_relaxed);
+        used_.store(0, std::memory_order_relaxed);
+    }
+    size_t slots() const { return n_; }
+    size_t bytes() const { return bytes_; }
+    size_t slot_of(size_t u) const { return u % n_; }
+    /// The producer may refill unit u's slot: false while unit u - n's copy has not been recorded yet.
+    bool can_fill(size_t u) const { return u < n_ || used_.load(std::memory_order_acquire) + n_ > u; }
+    /// The producer's: unit u's rows are in the slot.
+    void filled(size_t u) { done_.store(u + 1, std::memory_order_release); }
+    /// The consumer's: unit u's rows are in place (ready to copy to the device).
+    bool ready(size_t u) const { return done_.load(std::memory_order_acquire) > u; }
+    /// The consumer's: unit u's H2D copy is recorded (the slot may be refilled once that copy is done).
+    void copied(size_t u) { used_.store(u + 1, std::memory_order_release); }
+
+private:
+    size_t n_ = 0, bytes_ = 0;
+    std::atomic<size_t> done_{0}, used_{0};
+};
+
+/// Finish a batch (the engine's eg_finish without the engine): wait for its reads, then serve the rows the batch
+/// reads once but needs twice - and a row whose read failed reads as zeros EVERYWHERE it lands, never the slot's
+/// stale bytes (the ported order copied the dups before zeroing the failure, so a repeated row of a failed read
+/// got garbage). Whole rows go to the cache; failed ones do not, so a later window retries the file. on_fail
+/// fires per failed read (the engine warns once a run through it, counting the rest). The first caller finishes;
+/// a second one waits for it. Returns the failed reads (0 when the batch was finished already).
+inline size_t eg_complete(EgBatch& b, EgReader& io, EgRowCache& cache, std::mutex& cache_mu, uint32_t hd,
+                          const std::function<void(const EgRead&)>& on_fail) {
+    if (b.post.load(std::memory_order_acquire) == 2) return 0;
+    io.wait(b);
+    int want = 0;
+    if (!b.post.compare_exchange_strong(want, 1, std::memory_order_acq_rel)) {
+        while (b.post.load(std::memory_order_acquire) != 2) std::this_thread::yield();
+        return 0;
+    }
+    size_t bad = 0;
+    for (size_t i = 0; i < b.reads.size(); ++i)
+        if (!b.ok[i]) {
+            ++bad;
+            EgRead& r = b.reads[i];
+            std::memset(r.dst, 0, hd);
+            std::memset(r.scales, 0, hd / 32);
+            if (on_fail) on_fail(r);
+        }
+    for (const auto& d : b.dups) {   // (after the zeroing: a failed source zeroes its dups too)
+        const EgRead& r = b.reads[(size_t) d.first];
+        std::memcpy(d.second.first, r.dst, hd);
+        std::memcpy(d.second.second, r.scales, hd / 32);
+    }
+    {
+        std::lock_guard<std::mutex> lk(cache_mu);
+        for (size_t i = 0; i < b.reads.size(); ++i) {
+            const EgRead& r = b.reads[i];
+            if (!b.ok[i]) continue;   // (zeros are not the file's bytes: never cached)
+            if (uint8_t* c = cache.put(r.key)) {
+                std::memcpy(c, r.dst, hd);
+                std::memcpy(c + hd, r.scales, hd / 32);
+            }
+        }
+    }
+    b.live = false;
+    b.post.store(2, std::memory_order_release);
+    return bad;
+}
 
 }  // namespace strata::ds4

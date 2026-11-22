@@ -1319,6 +1319,7 @@ struct Model::Impl {
     // codes with their E8M0 scales in a tensor of their own (see eg_issue)
     std::vector<uint8_t> eg_fmt;
     std::atomic<int64_t> eg_rows_n{0}, eg_hits_n{0}, eg_reads_n{0}, eg_wait_ns{0}, eg_io_ns{0};
+    std::atomic<int64_t> eg_bad_n{0};   // (local) rows whose read failed: served as zeros, warned about once
     uint16_t* h_emb = nullptr;        // the window's embedding rows
     std::vector<float> c_xh, c_xsb, c_acc, c_xhd, c_xsd, c_accd, c_yd;
     // the state
@@ -8204,52 +8205,31 @@ struct Model::Impl {
     void eg_finish(EgBatch& b) {
         if (b.post.load(std::memory_order_acquire) == 2) return;
         const int64_t t0 = now_ns();
-        eg_io.wait(b);
-        int want = 0;
-        if (b.post.compare_exchange_strong(want, 1, std::memory_order_acq_rel)) {
-            const int hd = pk.eg_hd;
-            for (const auto& d : b.dups) {
-                const EgRead& r = b.reads[(size_t) d.first];
-                std::memcpy(d.second.first, r.dst, (size_t) hd);
-                std::memcpy(d.second.second, r.scales, (size_t) hd / 32);
-            }
-            if (ds4_dbg("DS4_DBG_EG") && pk.eg_hd >= 32) {   // DBG: a row whose IQ4_NL block scale is not finite
-                for (size_t i = 0; i < b.reads.size(); ++i) {
-                    const EgRead& r = b.reads[i];
-                    for (int k = 0; k < hd / 32; ++k) {
-                        uint16_t hb;
-                        std::memcpy(&hb, r.dst + (size_t) k * 18, 2);
-                        if ((hb & 0x7c00) == 0x7c00)
-                            std::fprintf(stderr, "DBG eg bad scale: read %zu/%zu file=%d off=%llu n=%u block=%d half=%04x ok=%d\n", i, b.reads.size(),
-                                         r.file, (unsigned long long) r.off, r.n, k, hb, (int) b.ok[i]);
-                    }
+        // (local) the finish is eg_complete's (ds4_engram_io.hpp, the same function the host test drives): a failed
+        // read zeroes its row BEFORE the duplicates are copied, so a row the window needs twice reads as zeros
+        // everywhere and never as the slot's stale bytes; failures are not cached, so a later window retries.
+        // The engine used to copy the dups first (garbage for a repeated row) and warn only on Metal.
+        static std::atomic<bool> eg_warned{false};
+        const size_t bad = eg_complete(b, eg_io, eg_cache, eg_cache_mu, (uint32_t) pk.eg_hd, [&](const EgRead& r) {
+            if (!eg_warned.exchange(true))
+                std::fprintf(stderr, "ds4: WARNING: an Engram row could not be read (file %d, offset %llu, %u bytes): "
+                                     "it counts as zeros (further ones not reported; the count is in stats: eg_bad)\n",
+                             r.file, (unsigned long long) r.off, r.n);
+        });
+        if (bad) eg_bad_n.fetch_add((int64_t) bad, std::memory_order_relaxed);
+        if (ds4_dbg("DS4_DBG_EG") && pk.eg_hd >= 32) {   // DBG: a row whose IQ4_NL block scale is not finite
+            for (size_t i = 0; i < b.reads.size(); ++i) {
+                const EgRead& r = b.reads[i];
+                for (int k = 0; k < pk.eg_hd / 32; ++k) {
+                    uint16_t hb;
+                    std::memcpy(&hb, r.dst + (size_t) k * 18, 2);
+                    if ((hb & 0x7c00) == 0x7c00)
+                        std::fprintf(stderr, "DBG eg bad scale: read %zu/%zu file=%d off=%llu n=%u block=%d half=%04x ok=%d\n", i, b.reads.size(),
+                                     r.file, (unsigned long long) r.off, r.n, k, hb, (int) b.ok[i]);
                 }
             }
-            {
-                std::lock_guard<std::mutex> lk(eg_cache_mu);
-                for (size_t i = 0; i < b.reads.size(); ++i) {
-                    const EgRead& r = b.reads[i];
-                    if (!b.ok[i]) {   // (a failed read: zeros, its gate adds nothing; not kept)
-#if defined(STRATA_METAL)
-                        std::fprintf(stderr, "ds4: WARNING: an Engram row could not be read (file %d, offset %llu, %u bytes): it counts as zeros\n", r.file,
-                                     (unsigned long long) r.off, r.n);
-#endif
-                        std::memset(r.dst, 0, (size_t) hd);
-                        std::memset(r.scales, 0, (size_t) hd / 32);
-                        continue;
-                    }
-                    if (uint8_t* c = eg_cache.put(r.key)) {
-                        std::memcpy(c, r.dst, (size_t) hd);
-                        std::memcpy(c + hd, r.scales, (size_t) hd / 32);
-                    }
-                }
-            }
-            eg_io_ns += b.t1.load() - b.t0;
-            b.live = false;
-            b.post.store(2, std::memory_order_release);
-        } else {
-            while (b.post.load(std::memory_order_acquire) != 2) std::this_thread::yield();
         }
+        if (b.t1.load() > b.t0) eg_io_ns += b.t1.load() - b.t0;
         eg_wait_ns += now_ns() - t0;
     }
     void eg_stats() {
@@ -8257,6 +8237,7 @@ struct Model::Impl {
         st.eg_hits = eg_hits_n.load();
         st.eg_reads = eg_reads_n.load();
         st.eg_io_ms = (double) eg_io_ns.load() / 1e6;
+        st.eg_bad = eg_bad_n.load();   // (local) rows the files would not give, served as zeros
         std::lock_guard<std::mutex> lk(eg_cache_mu);
         st.eg_cached = (int64_t) eg_cache.size();
         st.eg_cache_cap = (int64_t) eg_cache.capacity();
@@ -12374,8 +12355,8 @@ struct Model::Impl {
         // tokens alone, so the second Engram layer's are read while the layers between run.  The same rows, the same sums.
         static const int eg_nr = std::getenv("STRATA_DS4_EG_RING") ? std::max(0, std::atoi(std::getenv("STRATA_DS4_EG_RING"))) : 0;
         const bool eg_ring = eg_nr >= 2 && !egu.empty();
-        std::atomic<size_t> eg_done{0}, eg_used{0};
-        std::atomic<bool> eg_stop{false};
+        EgRing erg;   // (local) the ring's book, extracted to ds4_engram_io.hpp where the host test drives it;
+        std::atomic<bool> eg_stop{false};   //   the CUDA event waits and the copies stay this file's
         std::thread eg_th;
         struct EgJoin {
             std::atomic<bool>& stop;
@@ -12415,13 +12396,13 @@ struct Model::Impl {
                 eg_said = true;
                 std::fprintf(stderr, "ds4: Engram ring (local): %d slots of %.1f MB pinned\n", eg_nr, (double) (c.C * eg_per) / 1e6);
             }
-            eg_th = std::thread([this, &c, &run, &egu, &eg_done, &eg_used, &eg_stop, di] {
+            erg.reset((size_t) eg_nr, c.C * eg_per);
+            eg_th = std::thread([this, &c, &run, &egu, &erg, &eg_stop, di] {
                 cudaSetDevice(devs[(size_t) di].id);
-                const size_t nr = (size_t) eg_nr;
                 for (size_t u = 0; u < egu.size() && !eg_stop.load(); ++u) {
-                    const size_t r = u % nr;
-                    if (u >= nr) {   // (the slot's last unit copied to the device first)
-                        while (eg_used.load(std::memory_order_acquire) <= u - nr && !eg_stop.load())
+                    const size_t r = erg.slot_of(u);
+                    if (u >= erg.slots()) {   // (the slot's last unit copied to the device first)
+                        while (!erg.can_fill(u) && !eg_stop.load())
                             std::this_thread::sleep_for(std::chrono::microseconds(100));
                         if (eg_stop.load()) break;
                         cudaEventSynchronize(c.eg_ring_ev[r]);
@@ -12429,7 +12410,7 @@ struct Model::Impl {
                     const int li = egu[u].first, k = egu[u].second;
                     (void) li;
                     engram_rows(run.p0[(size_t) k], run.T[(size_t) k], egu[u].first, c.eg_ring[r]);
-                    eg_done.store(u + 1, std::memory_order_release);
+                    erg.filled(u);
                 }
             });
         } else if (!egu.empty()) eg_next = std::async(std::launch::async, read_eg, (size_t) 0);
@@ -12452,10 +12433,10 @@ struct Model::Impl {
                 size_t eg_mark = (size_t) -1;
                 if (L0.eg >= 0 && eg_ring) {   // (local) this unit's rows from the ring
                     const double te = now_ms();
-                    while (eg_done.load(std::memory_order_acquire) <= eg_u)
+                    while (!erg.ready(eg_u))
                         std::this_thread::sleep_for(std::chrono::microseconds(50));
                     st.engram_ms += now_ms() - te;
-                    wp.eg_ring = (int) (eg_u % (size_t) eg_nr);
+                    wp.eg_ring = (int) erg.slot_of(eg_u);
                     eg_mark = eg_u++;
                 } else if (L0.eg >= 0) {   // this unit's rows ready, the next one's on their way
                     const double te = now_ms();
@@ -12498,7 +12479,7 @@ struct Model::Impl {
                 }
                 const bool kvo = run.kv_only(k, il);
                 if (!run_layer(L0, 0, p0, T, wp, S, err, run, k, il)) return false;
-                if (eg_mark != (size_t) -1) eg_used.store(eg_mark + 1, std::memory_order_release);   // (its copy is recorded)
+                if (eg_mark != (size_t) -1) erg.copied(eg_mark);   // (its copy is recorded: the slot may be refilled)
                 if (dump_l != nullptr) dump_layer(d, c.h, il, p0, T);
                 if (kvo) continue;   // (no layer after it reads this chunk's state)
                 if (!last_l) {   // the chunk's state kept for the next layer

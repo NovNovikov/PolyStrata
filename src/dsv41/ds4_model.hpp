@@ -91,6 +91,7 @@ struct Stats {
     int64_t eg_rows = 0, eg_hits = 0, eg_reads = 0;   // Engram rows asked for, served without a read, read from the files
     double eg_io_ms = 0.0;                            // the windows' Engram reads, issue to last done (mostly hidden)
     int64_t eg_cached = 0, eg_cache_cap = 0;          // the row cache's rows held, its capacity
+    int64_t eg_bad = 0;                               // (local) Engram rows the files would not give: served as zeros
     int64_t swaps = 0;                // experts the cache moved into VRAM
     int64_t skipped = 0;              // routed experts STRATA_DS4_DISK_SKIP_W left out (light, not in RAM)
     int skip_on = -1;                 // DISK_SKIP_AUTO: 1 skipping, 0 off (warm), -1 not in use
