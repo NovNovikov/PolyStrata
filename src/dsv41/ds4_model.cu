@@ -10046,13 +10046,25 @@ struct Model::Impl {
             if (terminal) {   // (hotfix 2) release-only: a zero answer for every request the dying run's kernels
                 if (strata::ds4::mail_terminal_step(   //   still publish, so none of them waits on a thread that
                         next, [&](unsigned s) { return *(volatile unsigned*) &reqs[s % kRing].seq == s; },
-                        [&](unsigned s) {
-                            std::atomic_thread_fence(std::memory_order_acquire);   //   died mid-pipeline
+                        [&](unsigned s) {              //   died mid-pipeline
+                            std::atomic_thread_fence(std::memory_order_acquire);
                             Resp& tp = resps[s % kRing];
                             const int TT = std::max(1, std::min(kWin, reqs[s % kRing].T));
                             for (int t = 0; t < TT; ++t) tp.cpu[t] = 0;
                             std::atomic_thread_fence(std::memory_order_release);
                             *(volatile unsigned*) &tp.seq = s;
+                        },
+                        // (last review fix) a DEFER=2/3/4 request whose lane part was split is waited on TWO
+                        // rings - the landing kernel's wait ends on resps AND resps_late. The old terminal
+                        // answer released only the first: the light half of the wait had no end, the same
+                        // hang one ring deeper. The healthy path published both (late_ans, below its own
+                        // fence) - the drain must mirror it, same predicate, same order.
+                        [&](unsigned s) { return lane_splits(reqs[s % kRing].defer, defer_mode()); },
+                        [&](unsigned s) {
+                            Resp& tl = resps_late[s % kRing];   // (mode >= 2 is what makes lane_splits true,
+                            for (int t = 0; t < kWin; ++t) tl.cpu[t] = 0;   //   and defer_mode() >= 2 is when
+                            std::atomic_thread_fence(std::memory_order_release);   //   resps_late was allocated)
+                            *(volatile unsigned*) &tl.seq = s;
                         }))
                     last = std::chrono::steady_clock::now();
                 else

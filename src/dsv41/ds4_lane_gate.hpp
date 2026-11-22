@@ -78,12 +78,29 @@ private:
 /// again until its work is over (teardown's quit). No computing, no notes, no new work: releases only.
 /// serve_lane runs it in its terminal branch; ds4_lane_gate_test scenario 6 drives it over a fake ring with
 /// a device thread publishing ahead of the death - every wait bounded, a stranded request fails the test.
-template <class Published, class Release>
-inline bool mail_terminal_step(unsigned& next, const Published& published, const Release& release) {
+
+/// (last review fix) The same step WITH the late ring: a STRATA_DS4_DEFER=2/3/4 request whose lane part was
+/// split (`lane_splits(r.defer, defer_mode())`, ds4_defer_policy.hpp) is WAITED ON TWO MAILBOXES - the
+/// kernel's landing point ends its wait on resps AND on resps_late. Releasing only the first left exactly
+/// the hang this drain exists to end, one ring deeper: a split request published ahead of the death got
+/// its zero answer on resps and waited forever on the late seq. So the step asks `split(next)` after the
+/// request is confirmed published and, for those, also runs `release_late(next)` - which zeroes the late
+/// cpu flags and publishes the late seq (the failed answer's light half). Order is the healthy path's:
+/// the main answer lands first, the late one after, each behind its own release fence.
+template <class Published, class Release, class Split, class ReleaseLate>
+inline bool mail_terminal_step(unsigned& next, const Published& published, const Release& release,
+                               const Split& split, const ReleaseLate& release_late) {
     if (!published(next)) return false;
     release(next);
+    if (split(next)) release_late(next);
     ++next;
     return true;
+}
+
+/// The unsplit shape: nothing waits on a late ring (mode 0/1, or a request the lane never split).
+template <class Published, class Release>
+inline bool mail_terminal_step(unsigned& next, const Published& published, const Release& release) {
+    return mail_terminal_step(next, published, release, [](unsigned) { return false; }, [](unsigned) {});
 }
 
 }  // namespace strata::ds4

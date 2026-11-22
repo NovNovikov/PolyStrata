@@ -5,6 +5,7 @@
 // the transitions the engine makes (note-then-die on the service thread; the API's api_ok; run-start clears; an
 // entry), including clear/entry/api racing the death itself - all bounded by watchdogs, not by sleep guesses.
 #include "ds4_lane_gate.hpp"
+#include "ds4_defer_policy.hpp"   // (scenario 7) lane_splits: the same predicate the engine's terminal branch asks
 
 #include <atomic>
 #include <chrono>
@@ -240,6 +241,131 @@ int main() {
         check(current_fails, "and the request that raced the death failed its own outcome check, not only later runs");
         std::string err;
         check(g.entry_refused(err), "later runs are still refused - the sticky terminal state stands as before");
+    }
+
+    // 7. (last review fix) the terminal drain over the DEFER late ring. A STRATA_DS4_DEFER=2/3/4 request the
+    //    lane split (lane_splits(r.defer, mode), ds4_defer_policy.hpp) is waited on TWO mailboxes: the landing
+    //    kernel ends its wait on resps AND on resps_late. The first hotfix-2 shape released only resps - the
+    //    light half of a split request published ahead of the death had no end, the same hang one ring
+    //    deeper. The drain now runs the 5-argument production step: release resps, and for the split ones
+    //    zero the late cpu flags and publish the late seq too. Scenarios for modes 2, 3 and 4: every ODD
+    //    request is split (defer=1), the device thread keeps four requests in flight, the death lands mid-
+    //    pipeline, and every wait - main and late - runs under a watchdog. Invariants: no wait ever times
+    //    out; the split requests published AHEAD of the death get their late answer from the drain (the
+    //    bug being fixed); the unsplit ones are never answered on the late ring (the drain releases only
+    //    what lane_splits names); the healthy answers before the death carry the late half as well.
+    {
+        struct FReq2 { std::atomic<unsigned> seq{0}; std::atomic<int> defer{0}; };
+        struct FAns2 { std::atomic<unsigned> seq{0}; std::atomic<int> cpu[4]{}; };
+        const unsigned kN = 24, kAhead = 4, kRK = 8;
+        for (const int mode : {2, 3, 4}) {
+            LaneFail g;
+            std::vector<FReq2> rq(kRK);
+            std::vector<FAns2> rp(kRK), late(kRK);
+            std::atomic<bool> quit{false}, srv_done{false};
+            std::atomic<unsigned> timed_out{0}, late_released{0}, late_unsplit{0};
+            std::vector<char> main_ok(kN + 1, 0), late_ok(kN + 1, 0);
+            std::vector<int> cpu_at(kN + 1, -1), late_at(kN + 1, -1);
+            auto split = [&](unsigned i) { return strata::ds4::lane_splits((int) (i % 2), mode); };
+            std::thread dev([&] {
+                for (unsigned i = 1; i <= kN; ++i) {
+                    if (i > kAhead) {   // (ring discipline: a slot is republished only once every wait it holds ended)
+                        const unsigned old = i - kAhead;
+                        const bool osp = split(old);
+                        if (!within(4000, [&] {
+                                return rp[(size_t) (old % kRK)].seq.load(std::memory_order_acquire) == old &&
+                                       (!osp || late[(size_t) (old % kRK)].seq.load(std::memory_order_acquire) == old);
+                            })) {
+                            timed_out.fetch_add(1);
+                            rp[(size_t) (old % kRK)].seq.store(old);
+                            if (osp) late[(size_t) (old % kRK)].seq.store(old);   // (never wedge the test itself)
+                        }
+                    }
+                    rq[(size_t) (i % kRK)].defer.store((int) (i % 2), std::memory_order_relaxed);
+                    rq[(size_t) (i % kRK)].seq.store(i, std::memory_order_release);   // (the kernel's publish)
+                    main_ok[i] = (char) within(4000, [&] { return rp[(size_t) (i % kRK)].seq.load(std::memory_order_acquire) == i; });
+                    if (!main_ok[i]) { timed_out.fetch_add(1); rp[(size_t) (i % kRK)].seq.store(i); continue; }
+                    cpu_at[i] = rp[(size_t) (i % kRK)].cpu[0].load(std::memory_order_acquire);
+                    if (split(i)) {   // (the landing kernel's second wait: the late ring)
+                        late_ok[i] = (char) within(4000, [&] { return late[(size_t) (i % kRK)].seq.load(std::memory_order_acquire) == i; });
+                        if (!late_ok[i]) { timed_out.fetch_add(1); late[(size_t) (i % kRK)].seq.store(i); }
+                        else late_at[i] = late[(size_t) (i % kRK)].cpu[0].load(std::memory_order_acquire);
+                    } else if (late[(size_t) (i % kRK)].seq.load(std::memory_order_relaxed) == i)
+                        late_unsplit.fetch_add(1);   // (an unsplit request answered on the late ring: the drain released what lane_splits did NOT name)
+                }
+                quit.store(true);
+            });
+            std::thread srv([&] {
+                unsigned next = 1;
+                bool terminal = false;
+                std::string err;
+                while (!quit.load(std::memory_order_relaxed)) {
+                    if (terminal) {   // (the engine's branch with the review fix: the 5-argument production step)
+                        if (strata::ds4::mail_terminal_step(
+                                next,
+                                [&](unsigned s) { return rq[(size_t) (s % kRK)].seq.load(std::memory_order_acquire) == s; },
+                                [&](unsigned s) {
+                                    for (auto& c : rp[(size_t) (s % kRK)].cpu) c.store(0, std::memory_order_relaxed);
+                                    rp[(size_t) (s % kRK)].seq.store(s, std::memory_order_release);
+                                },
+                                [&](unsigned s) { return split(s); },
+                                [&](unsigned s) {
+                                    for (auto& c : late[(size_t) (s % kRK)].cpu) c.store(0, std::memory_order_relaxed);
+                                    late[(size_t) (s % kRK)].seq.store(s, std::memory_order_release);
+                                    late_released.fetch_add(1);
+                                }))
+                            continue;
+                        std::this_thread::sleep_for(std::chrono::microseconds(50));
+                        continue;
+                    }
+                    if (rq[(size_t) (next % kRK)].seq.load(std::memory_order_acquire) != next) {
+                        std::this_thread::sleep_for(std::chrono::microseconds(50));
+                        continue;
+                    }
+                    if (next <= 4) {   // (healthy answers: main and, for the split ones, the late half)
+                        for (auto& c : rp[(size_t) (next % kRK)].cpu) c.store(1, std::memory_order_relaxed);
+                        rp[(size_t) (next % kRK)].seq.store(next, std::memory_order_release);
+                        if (split(next)) {
+                            for (auto& c : late[(size_t) (next % kRK)].cpu) c.store(1, std::memory_order_relaxed);
+                            late[(size_t) (next % kRK)].seq.store(next, std::memory_order_release);
+                        }
+                        ++next;
+                        continue;
+                    }
+                    // (the death on request 5: note, the zero answer - main AND late when split - die, terminal)
+                    g.note("layer 9 expert 2: no slot and the read failed");
+                    for (auto& c : rp[(size_t) (next % kRK)].cpu) c.store(0, std::memory_order_relaxed);
+                    rp[(size_t) (next % kRK)].seq.store(next, std::memory_order_release);
+                    if (split(next)) {
+                        for (auto& c : late[(size_t) (next % kRK)].cpu) c.store(0, std::memory_order_relaxed);
+                        late[(size_t) (next % kRK)].seq.store(next, std::memory_order_release);
+                    }
+                    g.die();
+                    ++next;
+                    terminal = true;
+                }
+                srv_done.store(true);
+            });
+            dev.join();
+            const bool left = within(5000, [&] { return srv_done.load(); });
+            srv.join();
+            bool all_answered = left && timed_out.load() == 0, shape = true, late_drained = false;
+            for (unsigned i = 1; i <= kN && all_answered && shape; ++i) {
+                if (!main_ok[i] || (split(i) && !late_ok[i])) all_answered = false;
+                if (cpu_at[i] != (i <= 4 ? 1 : 0)) shape = false;
+                if (split(i) && late_at[i] != (i <= 4 ? 1 : 0)) shape = false;
+                if (split(i) && i >= 5 && i <= 4 + kAhead && late_ok[i]) late_drained = true;   // (ahead of the death)
+            }
+            char msg[160];
+            std::snprintf(msg, sizeof msg, "DEFER=%d: every main and late wait ended - the drain answers the late ring for the split requests", mode);
+            check(all_answered, msg);
+            std::snprintf(msg, sizeof msg, "DEFER=%d: healthy answers carry the late half, terminal zeros cover both rings from the death on", mode);
+            check(shape, msg);
+            std::snprintf(msg, sizeof msg, "DEFER=%d: the split request published AHEAD of the death got its late answer from the drain (the one-ring-deeper hang is closed)", mode);
+            check(late_drained && late_released.load() >= 1, msg);
+            std::snprintf(msg, sizeof msg, "DEFER=%d: an unsplit request is never answered on the late ring - the drain releases only what lane_splits names", mode);
+            check(late_unsplit.load() == 0, msg);
+        }
     }
 
     std::printf("ds4_lane_gate_test: %d checks, %d failures\n", checks, failures);
