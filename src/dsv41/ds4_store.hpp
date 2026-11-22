@@ -138,6 +138,14 @@ public:
         if (arena_ == nullptr) return false;
         slots_.reset(new Slot[cap_]);
         free_hint_c_.assign(cls_bytes_.size(), 0);
+        // (hostile review, third round 10) per-class accounting, all of it under mu_ like every other byte of
+        // this metadata: starved = the class could not feed itself (evict found nothing, grow found no room);
+        // relieved = a cold chunk of another class was recast for it; denied = not even the recast helped and
+        // take_slot gave up (-1: the engine's demand path decides what that means for the request).
+        cls_starve_.assign(cls_bytes_.size(), 0);
+        cls_relief_.assign(cls_bytes_.size(), 0);
+        cls_denied_.assign(cls_bytes_.size(), 0);
+        cls_said_.assign(cls_bytes_.size(), 0);
         where_.resize(geo_.size());
         heat_.resize(geo_.size());
         hits_in_layer_.assign(geo_.size(), 0);
@@ -175,6 +183,28 @@ public:
     size_t used_bytes() const { return used_; }               // (local) the arena committed so far
     size_t budget() const { return budget_; }
     size_t classes() const { return cls_bytes_.size(); }
+    /// (hostile review, third round 10) the size classes as the machine sees them, for diagnostics: bytes per
+    /// slot, live entries (a recast can kill entries: they are not counted), and the starvation sums. mu_ held
+    /// only while reading, so this is a consistent instant - what classes exist and what they endured so far.
+    struct ClassInfo {
+        size_t bytes = 0, entries = 0;
+        int64_t starved = 0, relieved = 0, denied = 0;
+    };
+    std::vector<ClassInfo> class_report() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        std::vector<ClassInfo> v(cls_bytes_.size());
+        for (size_t ci = 0; ci < cls_bytes_.size(); ++ci) {
+            v[ci].bytes = cls_bytes_[ci];
+            if (ci < cls_starve_.size()) v[ci].starved = cls_starve_[ci];
+            if (ci < cls_relief_.size()) v[ci].relieved = cls_relief_[ci];
+            if (ci < cls_denied_.size()) v[ci].denied = cls_denied_[ci];
+        }
+        for (size_t i = 0; i < nalloc_; ++i) {
+            const int c = slots_[i].cls;
+            if (c >= 0 && (size_t) c < v.size()) ++v[(size_t) c].entries;
+        }
+        return v;
+    }
     const Stats& stats() const { return st_; }
     double busy_ms() const { return io_ ? io_->busy_ms() : 0.0; }
     static constexpr size_t kSlack = 8192;
@@ -717,7 +747,28 @@ private:
             // permanent, and under STRATA_DS4_DROP_SHARDS (no mapped view to fall back on) a store that will
             // never hold an expert makes the engine's rescue loop give the process up. Reclaim instead: give
             // this class a cold chunk of another one, whole.
+            // (third round 10) and say which class is fighting whom: once per class per kind, with the sums
+            // kept for class_report(). A starved class that always gets relief is the design working; one
+            // that gets DENIED is a geometry the budget cannot shape - which used to be invisible.
+            if (cls >= 0 && (size_t) cls < cls_starve_.size()) {
+                ++cls_starve_[(size_t) cls];
+                if (!cls_said_[(size_t) cls]) {
+                    cls_said_[(size_t) cls] = 1;
+                    std::fprintf(stderr, "ds4: RAM store: the %.1f MB class starved (no slot of its own to evict, "
+                                         "no room to grow): reclaiming a cold chunk; first time only, sums in the store report\n",
+                                 (double) cls_bytes_[(size_t) cls] / 1e6);
+                }
+            }
             if (rebalance(cls) >= 0) return take_slot(demand, cls);
+            if (cls >= 0 && (size_t) cls < cls_denied_.size()) {
+                ++cls_denied_[(size_t) cls];
+                if ((size_t) cls < cls_said_.size() && cls_said_[(size_t) cls] != 2) {
+                    cls_said_[(size_t) cls] = 2;
+                    std::fprintf(stderr, "ds4: RAM store: WARNING - a cold-chunk reclaim did not feed the %.1f MB class "
+                                         "either: its layer runs without store slots until the geometry changes\n",
+                                 (double) cls_bytes_[(size_t) cls] / 1e6);
+                }
+            }
             return -1;
         }
         return best;
@@ -785,6 +836,7 @@ private:
             sp.state.store(kFree, std::memory_order_release);
         }
         st_.rebalances.fetch_add(1, std::memory_order_relaxed);
+        if (cls >= 0 && (size_t) cls < cls_relief_.size()) ++cls_relief_[(size_t) cls];   // (third round 10)
         free_hint_c_[(size_t) cls] = std::min(free_hint_c_[(size_t) cls], first);   // (the scan must reach the new slots)
         return (int) first;
     }
@@ -801,6 +853,8 @@ private:
     size_t budget_ = 0, used_ = 0, cap_ = 0;          // (local) the byte budget, the bytes committed, the slot table's size
     std::vector<int> cls_of_;                         // (local) a layer's size class
     std::vector<size_t> cls_bytes_, free_hint_c_, chunk_first_;
+    std::vector<int64_t> cls_starve_, cls_relief_, cls_denied_;   // (third round 10) per-class starvation sums (mu_)
+    std::vector<char> cls_said_;                                  //   0 quiet, 1 the starve notice said, 2 the denied one too
     uint8_t* arena_ = nullptr;
     size_t shrunk_ = 0;
     std::unique_ptr<Slot[]> slots_;

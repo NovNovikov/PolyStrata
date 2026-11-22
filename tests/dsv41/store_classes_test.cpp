@@ -313,6 +313,13 @@ int main() {
         ExpertStore st;
         check(st.init(c, fx.geo, fx.dfds, fx.pfds), "starvation store inits");
         check(st.used_bytes() <= st.budget(), "init stays inside the budget");
+        {   // (hostile review, third round 10) the per-class report, before any of it has a story
+            const auto rep = st.class_report();
+            bool clean = rep.size() == st.classes();
+            for (const auto& ci : rep)
+                clean = clean && ci.bytes > 0 && ci.starved == 0 && ci.relieved == 0 && ci.denied == 0;
+            check(clean, "a fresh store reports every class, sized, and no class trouble yet");
+        }
         // fill the first class: 8 demand loads, all held
         int held0 = 0;
         for (int e = 0; e < 8; ++e)
@@ -360,6 +367,21 @@ int main() {
             for (int t = 0; t < 500 && (got2 = load(st, 2, 5)) < 0; ++t)
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             check(got2 >= 0, "the starved class is served once the pins are down (the rescue's retry shape)");
+        }
+        {   // (hostile review, third round 10) and the report must tell the fight the block above just staged:
+            // this store starved, recast and refused classes - every kind now carries its count.
+            const auto rep = st.class_report();
+            bool any_starve = false, any_relief = false, any_denied = false;
+            size_t live = 0;
+            for (const auto& ci : rep) {
+                any_starve = any_starve || ci.starved > 0;
+                any_relief = any_relief || ci.relieved > 0;
+                any_denied = any_denied || ci.denied > 0;
+                live += ci.entries;
+            }
+            check(any_starve && any_relief, "the report counts the starvings and the recasts that relieved them");
+            check(any_denied, "and the refused ones: the -1 this block answered was not invisible");
+            check(live > 0, "live entries are counted over all classes");
         }
     }
     // 6b. the recast's dead entries, deterministically: a narrow class's chunk recast to a wider one fits

@@ -7072,6 +7072,9 @@ struct Model::Impl {
         std::fprintf(stderr, "ds4: RAM store: about %zu slots in %zu size classes (up to %.1f MB) in %.1f GB, policy %d, %d reader threads, %s reads\n",
                      store->slots_max(), store->classes(), store->slot_bytes() / 1e6, store->budget() / 1e9,
                      (int) cfg.policy, cfg.threads, direct ? "unbuffered" : "BUFFERED (no direct handle)");
+        for (size_t ci = 0; const auto & c : store->class_report())   // (third round 10) the table the class
+            std::fprintf(stderr, "ds4: RAM store: class %zu: %.1f MB slots, %zu committed\n",   //   notices name
+                         ci++, c.bytes / 1e6, c.entries);
         if (want_zc) {
             if (!store->gpu_mapped()) {
                 std::fprintf(stderr, "ds4: RAM store: the arena could not be mapped for the GPU: zero-copy off\n");
