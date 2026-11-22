@@ -11303,8 +11303,7 @@ struct Model::Impl {
             int nc = 0, keep = 0;   // confidences made; drafts the cut keeps so far
             float cum = 1.0f;
             made = 0;
-            for (int b : {0, 2, lim}) {   // confidence 0 first (no head if draft 0 is cut), rows 0-1 and confidences 1-2, then the rest
-                b = std::min(b, lim);
+            for (int b : dspark_lazy_batches(T, max_drafts, lz_max)) {   // (local: confidence 0, rows 0-1, the rest; ds4_draft_cut.hpp)
                 if (b > made) {
                     if (!head_share(hd, 0, hd.ao, b - made, err, false, made)) return false;
                     for (int i = made; i < b; ++i) {

@@ -12,6 +12,7 @@
 #include "ds4_attn_split.cuh"
 #include "ds4_wmma.cuh"
 #include "ds4_experts_rule.hpp"
+#include "ds4_defer_math.hpp"   // defer_add_elem / defer_mix_row: the late add's arithmetic, shared with its host test
 
 #include <cuda_fp16.h>
 
@@ -1945,22 +1946,9 @@ __global__ void defer_add_kernel(float* h, const Resp* r, const float* __restric
     if (e >= dim) return;
     if (!((volatile const int*) r->cpu)[t]) return;
     const float y = ((volatile const float*) r->part[t])[e];
-    float* hr = h + (size_t) t * hc * dim;
-    for (int k = 0; k < hc; ++k) {
-        float c;
-        if (comb != nullptr && comb2 != nullptr) {   // (STRATA_DS4_DEFER=3: through the next layer's attention and FFN mixing)
-            c = 0.0f;
-            for (int j = 0; j < hc; ++j) {
-                float m = 0.0f;
-                for (int i = 0; i < hc; ++i) m = __fmaf_rn(comb[(size_t) t * 64 + i * hc + j], post[(size_t) t * 8 + i], m);
-                c = __fmaf_rn(comb2[(size_t) t * 64 + j * hc + k], m, c);
-            }
-        } else if (comb != nullptr) {
-            c = 0.0f;
-            for (int j = 0; j < hc; ++j) c = __fmaf_rn(comb[(size_t) t * 64 + j * hc + k], post[(size_t) t * 8 + j], c);
-        } else c = post[(size_t) t * 8 + k];
-        hr[(size_t) k * dim + e] = __fmaf_rn(c, y, hr[(size_t) k * dim + e]);
-    }
+    defer_add_elem(h + (size_t) t * hc * dim + e, dim, y, post + (size_t) t * 8,
+                   comb == nullptr ? nullptr : comb + (size_t) t * 64,
+                   comb2 == nullptr ? nullptr : comb2 + (size_t) t * 64, hc);
 }
 __global__ void hc_post_inplace_kernel(const float* __restrict__ y, float* h, const float* __restrict__ post,
                                        const float* __restrict__ comb, int dim, int hc) {
@@ -2354,13 +2342,7 @@ void hc_post_inplace(const float* y, float* h, const float* post, const float* c
 __global__ void defer_mix_kernel(float* c, const float* __restrict__ comb, int hc) {
     const int t = blockIdx.x;
     if (threadIdx.x != 0) return;
-    float v[8];
-    for (int j = 0; j < hc; ++j) v[j] = c[(size_t) t * 8 + j];
-    for (int kk = 0; kk < hc; ++kk) {
-        float a = 0.0f;
-        for (int j = 0; j < hc; ++j) a = __fmaf_rn(comb[(size_t) t * 64 + j * hc + kk], v[j], a);
-        c[(size_t) t * 8 + kk] = a;
-    }
+    defer_mix_row(c + (size_t) t * 8, comb + (size_t) t * 64, hc);
 }
 void defer_mix(float* c, const float* comb, int hc, int T, cudaStream_t s) {
 #if defined(STRATA_METAL)
