@@ -69,7 +69,9 @@ int main(int argc, char** argv) {
                 if (es[j] == es[i]) es[i] = (es[i] + 1 + j) % 384;
         }
         std::vector<char> ok;
-        st.ensure(0, es, 6, ok);
+        std::vector<int> sl;   // (third round 5's release: ownership is the slot list, and begin holds it -
+        st.begin(0, es, 6, ok, sl);        //   find/mat below read the experts under exactly these pins)
+        st.wait_slots(sl, ok, 0, 6);
         if (a % 17 == 0 && !std::getenv("STORE_TEST_NOCMP"))   // a sample compared with the file read plainly
             for (int i = 0; i < 6; ++i)
                 if (ok[(size_t) i])
@@ -79,7 +81,7 @@ int main(int argc, char** argv) {
                         ++checked;
                         if (s < 0 || std::memcmp(st.mat(s, r), ref.data(), mb) != 0) ++bad;
                     }
-        st.release(0, es, 6, ok);
+        st.release(sl, ok);
     }
     // guesses queued behind demand, cancelled, and a shrink: the store must still give the file's bytes
     for (int round = 0; round < 3; ++round) {
@@ -87,17 +89,19 @@ int main(int argc, char** argv) {
         st.cancel_stale(0);
         int es[6] = {5 + round, 17, 200, 201, 202, 250 + round};
         std::vector<char> ok;
-        st.ensure(0, es, 6, ok);
+        std::vector<int> sl;   // (the ownership API again: the pins these slots owed, given back in full)
+        st.begin(0, es, 6, ok, sl);
+        st.wait_slots(sl, ok, 0, 6);
         for (int i = 0; i < 6; ++i)
             if (ok[(size_t) i]) {
-                const int sl = st.find(0, es[i]);
+                const int sl2 = st.find(0, es[i]);
                 for (int r = 0; r < 3; ++r) {
                     os::pread_full(fd, ref.data(), mb, offs[r] + (uint64_t) es[i] * mb);
                     ++checked;
-                    if (sl < 0 || std::memcmp(st.mat(sl, r), ref.data(), mb) != 0) ++bad;
+                    if (sl2 < 0 || std::memcmp(st.mat(sl2, r), ref.data(), mb) != 0) ++bad;
                 }
             }
-        st.release(0, es, 6, ok);
+        st.release(sl, ok);
         std::this_thread::sleep_for(std::chrono::milliseconds(800));   // (the guesses read by now)
         const size_t g = st.shrink_chunks(1);
         std::printf("round %d: shrank %zu chunk(s), %zu slots left, cancelled %lld\n", round, g, st.slots_allocated(), (long long) st.stats().cancelled.load());
