@@ -23,6 +23,7 @@
 #include "ds4_defer_policy.hpp"   // defer_window / lane_splits / the light split: shared with tests/dsv41/ds4_defer_policy_test.cpp
 #include "ds4_identity_knobs.hpp"   // SessionKnobs / emit_session_knobs: the fingerprint section, shared with its test
 #include "ds4_engram_io.hpp"
+#include "ds4_lm_ahead.hpp"
 
 #include "ds4_gguf.cuh"
 #include "ds4_iq.cuh"
@@ -856,12 +857,10 @@ struct Chunk {
     // priority, behind every demand read); at that layer's first item the two buffers swap and those experts are
     // layer-cache hits.  The same items in the same order: only where their bytes come from changes.
     uint8_t* la = nullptr;                   // the other buffer (lc_bytes)
-    int la_il = -1, la_n = 0;                // the layer read ahead into it, its slots taken
-    std::vector<int> la_of;                  // expert -> its slot in la (-1: none)
+    LmAheadPass la_p;                        // (local) the read-ahead's book: the layer it read for, expert -> slot
     std::vector<char> lc_pf;                 // lc slot -> filled by the read-ahead
-    std::unique_ptr<std::atomic<int>[]> pf_left[2];    // a buffer's slot: the read-ahead's parts still reading
-    std::unique_ptr<std::atomic<bool>[]> pf_bad[2];
-    int lc_side = 0, pf_slots = 0;           // which pf arrays are lc's (la's: the other)
+    PfSide pf[2];                            // (local) the two buffers' speculative-read slots (ds4_lm_ahead.hpp):
+    int lc_side = 0, pf_slots = 0;           // which side is lc's (la's: the other)
     uint64_t la_experts = 0, it_la = 0;      // experts read ahead; items that took one
 };
 
@@ -4799,21 +4798,22 @@ struct Model::Impl {
                 std::fill(c.lc_of.begin(), c.lc_of.end(), -1);
                 if (c.la != nullptr) {
                     std::fill(c.lc_pf.begin(), c.lc_pf.end(), 0);
-                    if (c.la_il == l.il) {   // (local, LM_AHEAD: the read-ahead buffer becomes the layer cache)
+                    if (c.la_p.is_for(l.il)) {   // (local, LM_AHEAD: the read-ahead buffer becomes the layer cache)
                         std::swap(c.lc, c.la);
                         c.lc_side = 1 - c.lc_side;
                         for (int x = 0; x < l.n_exp; ++x) {
-                            const int js = c.la_of[(size_t) x];
+                            const int js = c.la_p.of[(size_t) x];
                             if (js < 0) continue;
                             c.lc_of[(size_t) x] = js;
                             c.lc_writer[(size_t) js] = -1;
                             c.lc_pf[(size_t) js] = 1;
                         }
-                        c.lc_used = std::min(c.la_n, c.lc_n);
+                        c.lc_used = std::min(c.la_p.taken(), c.lc_n);
                     }
-                    c.la_il = -1;
-                    c.la_n = 0;
-                    std::fill(c.la_of.begin(), c.la_of.end(), -1);
+                    // (local, review 6) a pass whose layer never arrived (a skip, a RAM/VRAM-served layer: this
+                    // item is for another one) is no longer adopted; the buffer keeps it until lm_ahead() next
+                    // targets a layer - which drains the side before overwriting its slots (PfSide::drain).
+                    c.la_p.begin(-1);
                 }
             }
             const int j = c.lc_of[(size_t) e];
@@ -4821,8 +4821,8 @@ struct Model::Impl {
                 it.ram = c.lc + (size_t) j * stride;
                 it.after = c.lc_writer[(size_t) j];
                 if (c.la != nullptr && c.lc_pf[(size_t) j]) {   // (local, LM_AHEAD: read ahead - once it has landed)
-                    it.pf = &c.pf_left[c.lc_side][(size_t) j];
-                    it.pf_bad = &c.pf_bad[c.lc_side][(size_t) j];
+                    it.pf = c.pf[c.lc_side].left_of((size_t) j);
+                    it.pf_bad = c.pf[c.lc_side].bad_of((size_t) j);
                     ++c.it_la;
                 }
                 hit = true;
@@ -4969,9 +4969,22 @@ struct Model::Impl {
             if (it.pf != nullptr) {   // (local, LM_AHEAD: its expert still being read ahead)
                 if (it.pf->load(std::memory_order_acquire) != 0) break;
                 if (it.pf_bad->load(std::memory_order_acquire)) {
-                    err = "reading ahead layer " + std::to_string(it.il) + " expert " + std::to_string(it.e) +
-                          " from the model's files failed";
-                    return false;
+                    // (local, review 6) the speculative read failed - a guess must not kill the request.
+                    // Read the expert now, on demand, straight into the layer-cache slot it was guessed
+                    // into; the item then runs as a plain hit. Only a demand read that fails too ends it.
+                    const Layer& l = L[(size_t) it.il];
+                    uint8_t* slot = (uint8_t*) it.ram;
+                    bool got = slot != nullptr;
+                    for (int r = 0; r < 3 && got; ++r)
+                        got = pk.read_at(l.mx_file[r], l.mx_off[r] + (uint64_t) it.e * l.mx_stride[r],
+                                         mx_part_bytes(l, r), slot + l.lay.trellis[r]);
+                    if (!got) {
+                        err = "reading layer " + std::to_string(it.il) + " expert " + std::to_string(it.e) +
+                              " from the model's files failed (the read-ahead's attempt had failed too)";
+                        return false;
+                    }
+                    it.pf = nullptr;
+                    it.pf_bad = nullptr;
                 }
             }
             if (it.after >= 0) {   // layer-major: a slot's expert copied out of it once its reader is done; a slot
@@ -5123,7 +5136,7 @@ struct Model::Impl {
         if (l.nm != 1) return;
         static const double aq = std::getenv("DS4_LM_AHEAD_Q") ? std::atof(std::getenv("DS4_LM_AHEAD_Q")) : 0.5;
         const size_t stride = (l.blob + 63) & ~(size_t) 63;
-        const int cap = (int) std::min<size_t>({c.la_of.size(), c.lc_bytes / stride, (size_t) c.pf_slots});
+        const int cap = (int) std::min<size_t>({c.la_p.of.size(), c.lc_bytes / stride, (size_t) c.pf_slots});
         const uint32_t* pr = (o.expert_cache ? prof : prof_load).data() + (size_t) il2 * g.n_exp;
         double sum = 0;
         for (int e = 0; e < l.n_exp; ++e) sum += pr[e];
@@ -5143,14 +5156,18 @@ struct Model::Impl {
         });
         if ((int) cand.size() > cap) cand.resize((size_t) cap);
         const int side = 1 - c.lc_side;
-        std::fill(c.la_of.begin(), c.la_of.end(), -1);
+        // (local, review 6) this buffer may still carry a pass for a layer that never arrived (a YOCO skip, a
+        // RAM/VRAM-served layer: its first item, the adoption, never came). Its reads can still be in flight:
+        // waiting here is the only safe point before their bytes are overwritten - the guesses are low priority,
+        // so every demand read went first and this drain is off the critical path.
+        c.pf[side].drain([&] { c.io->wait_any(500); });
+        c.la_p.begin(il2);
         IoQueue::Job jobs[3];
         int j = 0;
         for (const auto& x : cand) {
             const int e = x.second;
             uint8_t* slot = c.la + (size_t) j * stride;
-            c.pf_left[side][(size_t) j].store(3, std::memory_order_relaxed);
-            c.pf_bad[side][(size_t) j].store(false, std::memory_order_relaxed);
+            c.pf[side].begin((size_t) j);
             for (int r = 0; r < 3; ++r) {
                 IoQueue::Job& jb = jobs[r];
                 jb = IoQueue::Job{};
@@ -5161,15 +5178,13 @@ struct Model::Impl {
                 jb.len = mx_part_bytes(l, r);
                 jb.dst = slot + l.lay.trellis[r];
                 jb.exact = true;
-                jb.left = &c.pf_left[side][(size_t) j];
-                jb.bad = &c.pf_bad[side][(size_t) j];
+                jb.left = c.pf[side].left_of((size_t) j);
+                jb.bad = c.pf[side].bad_of((size_t) j);
                 jb.map = pk.at(l.mx_file[r], jb.off);
             }
             c.io->push(jobs, 3, true);
-            c.la_of[(size_t) e] = j++;
+            c.la_p.assign(e, j++);
         }
-        c.la_il = il2;
-        c.la_n = j;
         c.la_experts += (uint64_t) j;
     }
     // layer L0 of chunk k routed (bounds b, the device's copy d_bounds): its streamed experts as they land, the VRAM
@@ -13089,18 +13104,9 @@ struct Model::Impl {
                 c.la = (uint8_t*) os::anon_alloc(lc_bytes, -1, 1);
             if (c.la != nullptr) {
                 c.pf_slots = (int) n_exp;
-                for (int sd = 0; sd < 2; ++sd) {
-                    c.pf_left[sd].reset(new std::atomic<int>[n_exp]);
-                    c.pf_bad[sd].reset(new std::atomic<bool>[n_exp]);
-                    for (size_t x = 0; x < n_exp; ++x) {
-                        c.pf_left[sd][x].store(0);
-                        c.pf_bad[sd][x].store(false);
-                    }
-                }
-                c.la_of.assign(n_exp, -1);
+                for (int sd = 0; sd < 2; ++sd) c.pf[sd].init(n_exp);
+                c.la_p.init(n_exp);
                 c.lc_pf.assign(n_exp, 0);
-                c.la_il = -1;
-                c.la_n = 0;
                 c.lc_side = 0;
                 c.la_experts = c.it_la = 0;
             } else
@@ -13122,13 +13128,12 @@ struct Model::Impl {
                 while (fit(c, i).left.load(std::memory_order_acquire) != 0) c.io->wait_any(500);
             if (c.la != nullptr) {   // (local, LM_AHEAD: its reads all done before the buffers go)
                 for (int sd = 0; sd < 2; ++sd)
-                    for (int x = 0; x < c.pf_slots; ++x)
-                        while (c.pf_left[sd][(size_t) x].load(std::memory_order_acquire) != 0) c.io->wait_any(500);
+                    c.pf[sd].drain([&] { c.io->wait_any(500); });
                 std::fprintf(stderr, "ds4: (local) next-layer read-ahead: %llu experts read ahead, %llu items took one\n",
                              (unsigned long long) c.la_experts, (unsigned long long) c.it_la);
                 os::anon_free(c.la, c.lc_bytes);
                 c.la = nullptr;
-                c.la_il = -1;
+                c.la_p.begin(-1);
             }
             if (c.lm_pinned) cudaFreeHost(c.lm_state);
             else os::anon_free(c.lm_state, c.lm_state_bytes);
