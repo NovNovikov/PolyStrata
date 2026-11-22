@@ -11572,6 +11572,10 @@ struct Model::Impl {
             }
             ++lz_rounds;
             lz_rows += made;
+            static std::atomic<bool> lz_said{false};   // (second review 12) the activation witness, once: the lazy
+            if (!lz_said.exchange(true))               //   path is now running, and its counters are in stats
+                std::fprintf(stderr, "ds4: DSpark lazy: drafting rounds in confidence batches (counted in stats: "
+                                     "lazy_rounds, lazy_rows)\n");
         } else if (mk) {
             // the markov steps over the group: each member its rows of the bias and its share's argmax, every member
             // then the global one (the sampler's tie rule) and its E row - the same drafts as the lead's whole rows,
@@ -15941,6 +15945,8 @@ bool Model::router_nonfinite() { return p_->router_nonfinite(); }
 void Model::save_profile() const { p_->save_profile(); }
 const Stats& Model::stats() const {
     Stats& st = p_->st;
+    st.lazy_rounds = p_->lz_rounds;   // (second review 12) the lazy DSpark counts: they grow only while the mode
+    st.lazy_rows = p_->lz_rows;       //   is on, so off they sit at zero and cost nothing
     if (p_->store) {   // (the store keeps its own counters: copied in when asked)
         const ExpertStore& x = *p_->store;
         st.store_hits = x.stats().hits.load();

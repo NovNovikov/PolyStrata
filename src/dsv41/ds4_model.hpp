@@ -114,6 +114,10 @@ struct Stats {
     double store_wait_ms = 0.0, store_busy_ms = 0.0;
     int64_t store_slots = 0, store_slots_max = 0;
     int64_t drafts_offered = 0, drafts_accepted = 0, drafts_rounds = 0;
+    // (local, STRATA_DS4_DSPARK_LAZY) the drafter rounds that ran the lazy path (confidence cut, drafts built in
+    // batches) and the draft rows they made. Counted only while the lazy mode is ON - the default path pays
+    // nothing - and published so the mode's witness is a number, not an assumption (second review 12).
+    int64_t lazy_rounds = 0, lazy_rows = 0;
     // per draft position (the 1st .. 8th of a round): verified with all the drafts before it accepted, and accepted
     int64_t draft_reached[8] = {}, draft_kept[8] = {};
     double draft_ms = 0.0, verify_ms = 0.0;   // the drafter's time, the verification windows' time
