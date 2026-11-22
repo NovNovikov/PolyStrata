@@ -8,6 +8,7 @@
 #include "ds4_lm_ahead.hpp"
 #include "ds4_pool.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -39,6 +40,7 @@ static void post_expert(IoQueue& io, PfSide& side, size_t slot, os::fd_t fd, uin
         jobs[r].exact = true;   // (dst and the reads land exactly; no slack around them)
         jobs[r].left = side.left_of(slot);
         jobs[r].bad = side.bad_of(slot);
+        jobs[r].cancel = side.cancel_of(slot);   // (third round 9) droppable while not started, as the engine posts them
     }
     io.push(jobs, 3, true);   // (low: a guess, behind every demand read - as the engine pushes them)
 }
@@ -261,6 +263,42 @@ int main() {
         check(writes.load() == rounds_with_read && rounds_with_read == 200,
               "200 rounds x six racing callers: every round re-read its failed slot exactly once, no stale winner twice");
         check(overlaps.load() == 0, "and no round ever held two writers over the slot at one instant");
+    }
+
+    // 6. (hostile review, third round 9) cancelling queued guesses: a pass given up on must not read bytes
+    // nobody will adopt. One worker, occupied by a big copy; the side's queued guess is discarded; the drain
+    // must end with the job dropped UNREAD - landed and failed at once (a read that ran would land UNFAILED and
+    // write the slot), the slot's old bytes untouched. And the reuse stays clean: begin() clears the flag, so
+    // the next pass on the same slot reads its expert normally.
+    {
+        PfSide side;
+        side.init(2);
+        const size_t BUSY = 128u << 20;   // (~20-40 ms: the window in which the guess cannot have started)
+        std::vector<uint8_t> big_src(BUSY, 3), big_dst(BUSY, 0);
+        IoQueue one(1);
+        IoQueue::Job busy = IoQueue::Job{};
+        busy.mem = big_src.data();
+        busy.dst = big_dst.data();
+        busy.len = BUSY;
+        one.push(&busy, 1);   // (the only worker is busy: everything else waits, unread, in the queue)
+        std::fill(slotbuf.begin(), slotbuf.end(), (uint8_t) 0xA5);   // (the sentinel the reads could never write)
+        post_expert(one, side, 0, fd, 3 * expert, expert, slotbuf.data());   // (the pass this test abandons)
+        side.discard_queued(0);   // (the pass is replaced / the run ends - before any of its jobs has started)
+        side.drain([&] { one.wait_any(500); });
+        check(side.landed(0) && side.failed(0),
+              "a discarded queued guess drops UNREAD: landed and failed at once, no bytes read");
+        // (the file's pattern is period-256 - every expert-offset reads the same bytes - so the untouched proof
+        // is a sentinel the reads could never produce, verified BEFORE the discard's slot was ever written)
+        bool untouched = true;
+        for (uint64_t i = 0; i < expert; i += 4099)
+            if (slotbuf[(size_t) i] != 0xA5) untouched = false;   // (scenario 5's tail wrote elsewhere; seed below)
+        check(untouched, "and the slot keeps its pre-set bytes - the discarded read never touched it");
+        post_expert(one, side, 0, fd, 3 * expert, expert, slotbuf.data());   // (the next pass on the same slot)
+        side.drain([&] { one.wait_any(500); });
+        bool fresh_ok = !side.failed(0);
+        for (uint64_t i = 0; i < expert && fresh_ok; i += 4099)
+            if (slotbuf[(size_t) i] != want_at(3 * expert + i)) fresh_ok = false;
+        check(fresh_ok, "the reuse reads normally: the cancel flag belonged to the abandoned pass, not the slot");
     }
 
     os::close_fd(fd);

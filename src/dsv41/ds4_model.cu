@@ -5294,6 +5294,11 @@ struct Model::Impl {
         });
         if ((int) cand.size() > cap) cand.resize((size_t) cap);
         const int side = 1 - c.lc_side;
+        // (third round 9) whatever sits in the queue for this side belongs to a pass nobody adopted (an adopted
+        // pass's side became lc, not this one): tell its queued reads to drop unread BEFORE draining - the
+        // drain then only waits for the reads that had already started, instead of letting the whole abandoned
+        // pass read over the link first, while the demand that replaced it stands at the pump.
+        c.pf[side].discard_all();
         // (local, review 6) this buffer may still carry a pass for a layer that never arrived (a YOCO skip, a
         // RAM/VRAM-served layer: its first item, the adoption, never came). Its reads can still be in flight:
         // waiting here is the only safe point before their bytes are overwritten - the guesses are low priority,
@@ -5318,6 +5323,7 @@ struct Model::Impl {
                 jb.exact = true;
                 jb.left = c.pf[side].left_of((size_t) j);
                 jb.bad = c.pf[side].bad_of((size_t) j);
+                jb.cancel = c.pf[side].cancel_of((size_t) j);   // (third round 9) droppable while not started
                 jb.map = pk.at(l.mx_file[r], jb.off);
             }
             c.io->push(jobs, 3, true);
@@ -13514,8 +13520,10 @@ struct Model::Impl {
             for (size_t i = c.base; i < c.n_read; ++i)
                 while (fit(c, i).left.load(std::memory_order_acquire) != 0) c.io->wait_any(500);
             if (c.la != nullptr) {   // (local, LM_AHEAD: its reads all done before the buffers go)
-                for (int sd = 0; sd < 2; ++sd)
-                    c.pf[sd].drain([&] { c.io->wait_any(500); });
+                for (int sd = 0; sd < 2; ++sd) {
+                    c.pf[sd].discard_all();   // (third round 9) the run is over (whole or cut short): a queued
+                    c.pf[sd].drain([&] { c.io->wait_any(500); });   //   speculative read has nobody left to serve
+                }
                 std::fprintf(stderr, "ds4: (local) next-layer read-ahead: %llu experts read ahead, %llu items took one\n",
                              (unsigned long long) c.la_experts, (unsigned long long) c.it_la);
                 os::anon_free(c.la, c.lc_bytes);
