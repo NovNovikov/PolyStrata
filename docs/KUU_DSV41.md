@@ -72,7 +72,7 @@ commit, each test runs without a model.
 | 12 | FIXED | `80aaa607` | The lazy DSpark counters grew in a member nothing read: `Stats` publishes `lazy_rounds`/`lazy_rows` (counted only while the mode is on - the default path pays nothing) and the path prints its activation once | engine build |
 | 13 | ADDED | - | "Approximate modes" below: what each knob changes and where its activation shows | - |
 | 14 | FIXED | `af16a157` | `kuu_features_test.bat` graded survival, not activation: every run now greps its log for the feature's witness line (PASS/SKIP/FAIL with the reason), and the two silent modes - `STRATA_DS4_ROUTER_BF16` and a load banner arming `STRATA_DS4_DEFER` - print one | the bat is NOT run here (real pack, exclusive GPU); witness strings taken verbatim from the engine |
-| 15 | SWEEP | - | full host-test re-run and engine build after all of the above; numbers in "What was actually run" | |
+| 15 | SWEEP | this commit | full host-test re-run and engine build after all of the above; numbers in "What was actually run" | |
 
 ## Identity of the moving parts (review 11)
 
@@ -214,24 +214,33 @@ cmake --build build --target ds4_slot_test ds4_marks_test ds4_ring_link_test ds4
 ## What was actually run, and with what
 
 All on the porting machine: RTX 4090 24 GB (sm_89), i5-13600KF, 128 GB DDR5, Windows 11, CUDA 12.9.
-strata-dsv41 compiles and links clean after every group and after every review fix; the last full sweep ran
-after `80ac8352`.
+strata-dsv41 compiles and links clean after every group and after every review fix; the counts below are
+the sweep re-run after the final second-review-round build.
 
 | Run | Result |
 | --- | --- |
 | `ds4_router_bf16_test` (device) | 19 checks, 0 failures: BF16 rows and the F32 copy give bit-identical logits at the router's real 256x7168 (T=1 and 16) and other shapes; `route()` picks identical |
-| `store_classes_test` | 153 checks, 0 failures: size classes over one 50 MB budget (72 experts vs the uniform store's 48 before first eviction), plus the review's starvation relief - a class takes a cold chunk from another and never a loading or pinned one |
-| `store_close_test` (new, review 4) | 14 checks, 0 failures: handles swapped under readers in flight, queued jobs resolved at dispatch, drain-close ordering |
+| `store_classes_test` | 166 checks, 0 failures: size classes over one 50 MB budget (72 experts vs the uniform store's 48 before first eviction), the starvation relief - a class takes a cold chunk from another and never a loading or pinned one - and round two's lease discipline: a ready slot is only handed out pinned, a demand read fills around a miss, and dead entries leave the counts, the eviction scan and the free list |
+| `store_close_test` (new, review 4) | 20 checks, 0 failures: handles swapped under readers in flight, queued jobs resolved at dispatch, drain-close ordering; round two's section 4: a swap waits its OLD generation's readers out, never a holder of the new handle, and a 500-round lost-wakeup watchdog over the release/swap race |
 | `ds4_vram_plan_test` | 19 checks, 0 failures (drafter split, cap compliance through every stage, freed room to the trunk, zero/min/unlimited budgets, no-cap behavior) |
 | `ds4_draft_cut_test` | 26 checks, 0 failures (cutoff boundaries inclusive, cumulative rule, window cap, rounds back to back; the review's lazy batch plan: shape over a grid of bounds, rows paid per cut position, a cut at draft 0 computes zero head rows) |
 | `ds4_io_test` | 27 checks, 0 failures (buffered/par/unbuffered/direct agree aligned and unaligned; direct survives the buffered closes; closed handle and past-EOF fail loudly) |
 | `ds4_defer_policy_test` (new, review 1) | 21 checks, 0 failures: the deferral verdict and the lane-split rule as pure functions |
-| `ds4_identity_knobs_test` (new, review 2) | 29 checks, 0 failures: session-5 identity strings, parsed effective values, cold for every splitting mode |
-| `engram_ring_test` (new, review 5) | 40 checks, 0 failures: ring slot book walked by two threads (no refill under a live copy), row cache clock, and `eg_complete` over synthetic files - a failed read zeros its row AND its duplicate, failures never cached, `stop()` drains a submitted batch |
-| `lm_ahead_test` (new, review 6) | 13 checks, 0 failures: the read-ahead pass book (target/skip/reset), real IO reads showing a reuse begins only after the drain and the slot then holds the new expert whole, a failed speculative slot landing-and-failed with the demand retry restoring its bytes |
+| `ds4_identity_knobs_test` (new, review 2) | 34 checks, 0 failures: session-6 identity strings, parsed effective values, cold for every splitting mode, and the `fp_txt` round-trip rule (the shortest text that reads back as the same float) |
+| `engram_ring_test` (new, review 5) | 49 checks, 0 failures: ring slot book walked by two threads (no refill under a live copy), row cache clock, and `eg_complete` over synthetic files - a failed read zeros its row AND its duplicate, failures never cached, `stop()` drains a submitted batch; round two's: sticky bad rows retried through the completion hook, a refused row failing its request not its lane, a producer that fails the ring item instead of publishing it, and the pinned-room fallback |
+| `lm_ahead_test` (new, review 6) | 23 checks, 0 failures: the read-ahead pass book (target/skip/reset), real IO reads showing a reuse begins only after the drain and the slot then holds the new expert whole, a failed speculative slot landing-and-failed with the demand retry restoring its bytes; round two's: the production `PfSide::recover` electing one re-reader with the rest waiting on it |
 | `defer_math_test` (new, review 7) | 1792 checks, 0 failures: the device late-add's exact functions vs a CPU reference for the on-time add, bit-exact on exact dyadic values - plain landing, one and two mixings, mode 4's per-layer remap, mode 3/4 coefficient agreement, device-shaped strided adds; hc 1/2/4/8, 64 seeds |
 | `ds4_route_guard_test` (device, regression on the touched kernels) | all ok |
 | `ds4_slot_test`, `ds4_marks_test`, `ds4_ring_link_test`, `ds4_evt_test`, `ds4_experts_rule_test`, `ds4_path_policy_test`, `ds4_pick_rule_test` | all pass (session slot/meta, marks, ring-link, events, rules) |
+
+Second review round, re-run after the final build (2026-11-22): `store_classes_test` 166, `store_close_test`
+20, `engram_ring_test` 49, `lm_ahead_test` 23, `ds4_identity_knobs_test` 34, `ds4_io_test` 27,
+`defer_math_test` 1792, `ds4_draft_cut_test` 26 - 0 failures each; the CUDA engine built clean from these
+commits (sm_89). One store_close timing assertion (the swap's wait measured against a 150 ms holder)
+missed its 400 ms bound once while eight builds shared the machine and passed 20/0 on a quiet re-run; its
+lost-wakeup watchdog is a named-timeout check, not a bound. `ds4_defer_policy_test` (21),
+`ds4_vram_plan_test` (19) and the device `ds4_router_bf16_test` (19) were not rebuilt: the code they
+compile against is unchanged since they passed.
 
 ## Not run, and why
 
