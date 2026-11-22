@@ -114,6 +114,9 @@ struct EgBatch {
     std::vector<uint8_t> ok;                                            // per read: 1 read whole
     std::atomic<int> left{0};                                           // reads not yet done
     std::atomic<int> post{0};                                           // 0 pending, 1 finishing, 2 finished
+    std::atomic<size_t> bad_n{0};                                       // (second review 4.1) failed reads of a finished batch:
+                                                                        //   sticky, so every later finisher of this batch - and
+                                                                        //   a caller that consumes its rows - sees them
     int64_t t0 = 0;                                                     // submitted (now_ns())
     std::atomic<int64_t> t1{0};                                         // the last read done
     bool live = false;                                                  // submitted and not yet finished
@@ -123,6 +126,7 @@ struct EgBatch {
         ok.clear();
         left.store(0);
         post.store(0);
+        bad_n.store(0);
         live = false;
     }
 };
@@ -309,18 +313,29 @@ private:
 /// got garbage). Whole rows go to the cache; failed ones do not, so a later window retries the file. on_fail
 /// fires per failed read (the engine warns once a run through it, counting the rest). The first caller finishes;
 /// a second one waits for it. Returns the failed reads (0 when the batch was finished already).
+/// `retry` (second review 4.1) gets every read whose reader failed BEFORE it is zeroed: an engine hook reading
+/// the same row through the engine's own Pack handles - the reader's private handle failing is often transient
+/// (the unbuffered path under contention), and the row belongs to a file the engine can still read. A retry that
+/// lands fills r.dst/r.scales and counts as a good row (cached, not zeroed, not failed); one that fails leaves
+/// the zeros, and the caller must treat them as an error, never as an answer: the engine stops the run and the
+/// API reports the request's failure, so failed rows are never published as ready data.
 inline size_t eg_complete(EgBatch& b, EgReader& io, EgRowCache& cache, std::mutex& cache_mu, uint32_t hd,
-                          const std::function<void(const EgRead&)>& on_fail) {
-    if (b.post.load(std::memory_order_acquire) == 2) return 0;
+                          const std::function<void(const EgRead&)>& on_fail,
+                          const std::function<bool(const EgRead&)>& retry = nullptr) {
+    if (b.post.load(std::memory_order_acquire) == 2) return b.bad_n.load(std::memory_order_relaxed);
     io.wait(b);
     int want = 0;
     if (!b.post.compare_exchange_strong(want, 1, std::memory_order_acq_rel)) {
         while (b.post.load(std::memory_order_acquire) != 2) std::this_thread::yield();
-        return 0;
+        return b.bad_n.load(std::memory_order_relaxed);   // (sticky: a batch whose rows are zeros stays bad)
     }
     size_t bad = 0;
     for (size_t i = 0; i < b.reads.size(); ++i)
         if (!b.ok[i]) {
+            if (retry && retry(b.reads[i])) {   // (second review 4.1) the engine's own read: a transient reader failure ends here
+                b.ok[i] = 1;
+                continue;
+            }
             ++bad;
             EgRead& r = b.reads[i];
             std::memset(r.dst, 0, hd);
@@ -344,6 +359,7 @@ inline size_t eg_complete(EgBatch& b, EgReader& io, EgRowCache& cache, std::mute
         }
     }
     b.live = false;
+    b.bad_n.store(bad, std::memory_order_relaxed);   // (before post=2: a later finisher of this batch reads it back)
     b.post.store(2, std::memory_order_release);
     return bad;
 }

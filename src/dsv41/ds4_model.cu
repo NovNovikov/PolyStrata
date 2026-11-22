@@ -8291,9 +8291,29 @@ struct Model::Impl {
         eg_reads_n += (int64_t) b.reads.size();
         eg_io.submit(b);
     }
+    // (local, second review 4.1) the Engram row the dedicated reader could not get, read again through the engine's
+    // own Pack: the reader's private unbuffered handle failing is usually transient (contention on the drive), and
+    // the row lives in a file the engine can always reach (the buffered ones, or the direct ones DROP_SHARDS leaves).
+    // True: the row is now in r.dst/r.scales, exactly as the reader would have laid it out.
+    bool eg_retry_row(const EgRead& r) {
+        if (r.mx8) {
+            std::vector<uint8_t> tmp(r.n);
+            if (!pk.read_at(r.file, r.off, r.n, tmp.data())) return false;
+            for (uint32_t k = 0; k < r.n / 33; ++k) {   // [scale, 32 codes] -> codes | scales (EgReader's layout, the same)
+                r.scales[k] = tmp[(size_t) k * 33];
+                std::memcpy(r.dst + (size_t) k * 32, tmp.data() + (size_t) k * 33 + 1, 32);
+            }
+            return true;
+        }
+        if (!pk.read_at(r.file, r.off, r.n, r.dst)) return false;
+        if (r.n2 == 0) return true;
+        return pk.read_at(r.file2, r.off2, r.n2, r.scales);
+    }
     // b's rows all in place (any thread; a group's members may ask at once: one finishes, the others wait for it)
-    void eg_finish(EgBatch& b) {
-        if (b.post.load(std::memory_order_acquire) == 2) return;
+    // Returns the rows the files refused even after the retry: the chunk's ring must NOT publish a unit carrying
+    // them as ready data (second review 4.1), and the run reports them as its error (second review 4.2).
+    size_t eg_finish(EgBatch& b) {
+        if (b.post.load(std::memory_order_acquire) == 2) return 0;
         const int64_t t0 = now_ns();
         // (local) the finish is eg_complete's (ds4_engram_io.hpp, the same function the host test drives): a failed
         // read zeroes its row BEFORE the duplicates are copied, so a row the window needs twice reads as zeros
@@ -8303,10 +8323,15 @@ struct Model::Impl {
         const size_t bad = eg_complete(b, eg_io, eg_cache, eg_cache_mu, (uint32_t) pk.eg_hd, [&](const EgRead& r) {
             if (!eg_warned.exchange(true))
                 std::fprintf(stderr, "ds4: WARNING: an Engram row could not be read (file %d, offset %llu, %u bytes): "
-                                     "it counts as zeros (further ones not reported; the count is in stats: eg_bad)\n",
+                                     "the request fails with this error (further ones not reported; the count is in stats: eg_bad)\n",
                              r.file, (unsigned long long) r.off, r.n);
-        });
-        if (bad) eg_bad_n.fetch_add((int64_t) bad, std::memory_order_relaxed);
+        }, [&](const EgRead& r) { return eg_retry_row(r); });
+        if (bad) {
+            eg_bad_n.fetch_add((int64_t) bad, std::memory_order_relaxed);
+            // (second review 4.2) the caller fails the RUN with this: zeros are never an answer. No lane-wide error
+            // is noted here - a refused row is a failed request, not a dead lane; the retry above already caught the
+            // transient ones, so getting here means the engine's own read of that row failed too.
+        }
         if (ds4_dbg("DS4_DBG_EG") && pk.eg_hd >= 32) {   // DBG: a row whose IQ4_NL block scale is not finite
             for (size_t i = 0; i < b.reads.size(); ++i) {
                 const EgRead& r = b.reads[i];
@@ -8321,6 +8346,7 @@ struct Model::Impl {
         }
         if (b.t1.load() > b.t0) eg_io_ns += b.t1.load() - b.t0;
         eg_wait_ns += now_ns() - t0;
+        return bad;
     }
     void eg_stats() {
         st.eg_rows = eg_rows_n.load();
@@ -8333,10 +8359,10 @@ struct Model::Impl {
         st.eg_cache_cap = (int64_t) eg_cache.capacity();
     }
     // the chunked prompt path: rows of Engram layer `only` into dst, now (a helper thread, a chunk ahead)
-    void engram_rows(int64_t p0, int T, int only, uint8_t* dst) {
+    size_t engram_rows(int64_t p0, int T, int only, uint8_t* dst) {
         EgBatch b;
         eg_issue(p0, T, only, dst, b);
-        eg_finish(b);
+        return eg_finish(b);
     }
 
     // ---- the CPU lane: a window's routed experts that live on the host, as entries (an expert and up to 8 of its
@@ -12471,21 +12497,23 @@ struct Model::Impl {
                 for (int k = 0; k < nk; ++k)
                     if (run.runs(k, il)) egu.push_back({L[(size_t) il].eg, k});
         const size_t eg_per = (size_t) (pk.eg_ngram - 1) * pk.eg_heads * (pk.eg_hd + pk.eg_hd / 32);
-        auto read_eg = [this, &c, &run, &egu, eg_per](size_t u) {
+        auto read_eg = [this, &c, &run, &egu, eg_per](size_t u) -> size_t {
             if (u >= 2) cudaEventSynchronize(c.eg_ev[u % 2]);
             const int li = egu[u].first, k = egu[u].second;
-            engram_rows(run.p0[(size_t) k], run.T[(size_t) k], li, c.eg_host[u % 2] + (size_t) li * c.C * eg_per);
+            // (second review 4.2) the count of rows the files refused: the consumer ends the run on it below
+            return engram_rows(run.p0[(size_t) k], run.T[(size_t) k], li, c.eg_host[u % 2] + (size_t) li * c.C * eg_per);
         };
         size_t eg_u = 0;
-        std::future<void> eg_next;
+        std::future<size_t> eg_next;
         // (local) STRATA_DS4_EG_RING=n (n >= 2; 0 = off): the units' rows read by one thread into n slots, as far ahead as
         // the slots allow (unit u into slot u % n once unit u - n's copy to the device is done) - the rows depend on the
         // tokens alone, so the second Engram layer's are read while the layers between run.  The same rows, the same sums.
         static const int eg_nr = std::getenv("STRATA_DS4_EG_RING") ? std::max(0, std::atoi(std::getenv("STRATA_DS4_EG_RING"))) : 0;
-        const bool eg_ring = eg_nr >= 2 && !egu.empty();
+        bool eg_ring = eg_nr >= 2 && !egu.empty();   // (second review 4.3) may still fall back below: pinned room can run short
         EgRing erg;   // (local) the ring's book, extracted to ds4_engram_io.hpp where the host test drives it;
-        std::atomic<bool> eg_stop{false};   //   the CUDA event waits and the copies stay this file's
-        std::thread eg_th;
+        std::atomic<bool> eg_stop{false};   //   the CUDA event waits and the copies stay this file's;
+        std::atomic<bool> eg_fail{false};   //   (second review 4.2) the producer's death - an unreadable row or a
+        std::thread eg_th;                  //   dead event - ends the run instead of leaving the consumer waiting
         struct EgJoin {
             std::atomic<bool>& stop;
             std::thread& th;
@@ -12499,8 +12527,8 @@ struct Model::Impl {
                 // the donor left the old slots pinned until exit; they are released here instead, after their last
                 // H2D copy is done (the events say so), and taken out of the teardown list so nothing frees twice
                 for (cudaEvent_t ev : c.eg_ring_ev) {
-                    cudaEventSynchronize(ev);
-                    cudaEventDestroy(ev);
+                    if (cudaEventSynchronize(ev) != cudaSuccess) (void) cudaGetLastError();   // (second review 4.3) a
+                    cudaEventDestroy(ev);   // dead event stops the slot release no more than it stops the run
                 }
                 for (uint8_t* p : c.eg_ring) {
                     auto it = std::find(host_allocs.begin(), host_allocs.end(), (void*) p);
@@ -12511,21 +12539,38 @@ struct Model::Impl {
                 c.eg_ring_ev.clear();
                 c.eg_ring_bytes = c.C * eg_per;
             }
-            while ((int) c.eg_ring.size() < eg_nr) {
-                uint8_t* p = nullptr;
-                if (!halloc(p, c.C * eg_per, err)) return false;
+            int got = (int) c.eg_ring.size();
+            for (; got < eg_nr; ++got) {   // (second review 4.3) a slot that will not pin is the ring running narrower,
+                uint8_t* p = nullptr;      //   not the run's death: the two-buffer read_eg path takes the units again
+                if (!halloc(p, c.C * eg_per, err)) break;
                 cudaEvent_t ev = nullptr;
-                CK(cudaEventCreateWithFlags(&ev, cudaEventDisableTiming));
+                if (cudaEventCreateWithFlags(&ev, cudaEventDisableTiming) != cudaSuccess) {   // (CK's exit would be a run
+                    (void) cudaGetLastError();                                                 //   dying over an event: no)
+                    auto it = std::find(host_allocs.begin(), host_allocs.end(), (void*) p);
+                    if (it != host_allocs.end()) host_allocs.erase(it);
+                    cudaFreeHost(p);
+                    break;
+                }
                 c.eg_ring.push_back(p);
                 c.eg_ring_ev.push_back(ev);
             }
-            static bool eg_said = false;
-            if (!eg_said) {
-                eg_said = true;
-                std::fprintf(stderr, "ds4: Engram ring (local): %d slots of %.1f MB pinned\n", eg_nr, (double) (c.C * eg_per) / 1e6);
+            err.clear();   // (the halloc text belongs to a fallback, not to the run)
+            if (got < 2) { // (fewer than two slots cannot overlap reading with copying: the ordinary path serves)
+                eg_ring = false;
+                std::fprintf(stderr, "ds4: Engram ring: %.1f MB of pinned slots would not fit (%d of %d got); "
+                                     "the Engram reads go the two-buffer way instead\n",
+                             (double) (c.C * eg_per) / 1e6, got, eg_nr);
+            } else {
+                static bool eg_said = false;
+                if (!eg_said) {
+                    eg_said = true;
+                    std::fprintf(stderr, "ds4: Engram ring (local): %d of %d requested slots of %.1f MB pinned%s\n",
+                                 got, eg_nr, (double) (c.C * eg_per) / 1e6,
+                                 got < eg_nr ? " (pinned room ran short: the ring runs narrower)" : "");
+                }
+                erg.reset((size_t) got, c.C * eg_per);
             }
-            erg.reset((size_t) eg_nr, c.C * eg_per);
-            eg_th = std::thread([this, &c, &run, &egu, &erg, &eg_stop, di] {
+            eg_th = std::thread([this, &c, &run, &egu, &erg, &eg_stop, &eg_fail, di] {
                 cudaSetDevice(devs[(size_t) di].id);
                 for (size_t u = 0; u < egu.size() && !eg_stop.load(); ++u) {
                     const size_t r = erg.slot_of(u);
@@ -12533,11 +12578,22 @@ struct Model::Impl {
                         while (!erg.can_fill(u) && !eg_stop.load())
                             std::this_thread::sleep_for(std::chrono::microseconds(100));
                         if (eg_stop.load()) break;
-                        cudaEventSynchronize(c.eg_ring_ev[r]);
+                        if (cudaEventSynchronize(c.eg_ring_ev[r]) != cudaSuccess) {   // (second review 4.2) a dead
+                            eg_fail.store(true);                                      //   event is the producer's
+                            eg_stop.store(true);                                      //   death: the consumer's wait
+                            break;                                                    //   must end, not spin
+                        }
                     }
                     const int li = egu[u].first, k = egu[u].second;
                     (void) li;
-                    engram_rows(run.p0[(size_t) k], run.T[(size_t) k], egu[u].first, c.eg_ring[r]);
+                    // (second review 4.1/4.2) rows the files refused even after the retry: the unit is NOT published
+                    // as ready - the zeros it left in the slot are never copied to the device as an answer. The
+                    // consumer sees eg_fail and ends the run with the lane error eg_finish recorded.
+                    if (engram_rows(run.p0[(size_t) k], run.T[(size_t) k], egu[u].first, c.eg_ring[r]) != 0) {
+                        eg_fail.store(true);
+                        eg_stop.store(true);
+                        break;
+                    }
                     erg.filled(u);
                 }
             });
@@ -12561,14 +12617,22 @@ struct Model::Impl {
                 size_t eg_mark = (size_t) -1;
                 if (L0.eg >= 0 && eg_ring) {   // (local) this unit's rows from the ring
                     const double te = now_ms();
-                    while (!erg.ready(eg_u))
+                    while (!erg.ready(eg_u) && !eg_fail.load())
                         std::this_thread::sleep_for(std::chrono::microseconds(50));
+                    if (eg_fail.load()) {   // (second review 4.2) the producer died on an unreadable row or a dead
+                        err = "Engram: a row could not be read from the model's files";   //   event: the zeros in the
+                        return false;       //   slot are not an answer - this request fails, nothing runs on them
+                    }
                     st.engram_ms += now_ms() - te;
                     wp.eg_ring = (int) erg.slot_of(eg_u);
                     eg_mark = eg_u++;
                 } else if (L0.eg >= 0) {   // this unit's rows ready, the next one's on their way
                     const double te = now_ms();
-                    eg_next.get();
+                    const size_t egb = eg_next.get();   // (second review 4.2) refused rows: this unit's slot holds
+                    if (egb != 0) {                     //   zeros, and zeros are not an answer - the request fails
+                        err = "Engram: a row could not be read from the model's files";
+                        return false;
+                    }
                     st.engram_ms += now_ms() - te;
                     wp.eg_slot = (int) (eg_u % 2);
                     if (++eg_u < egu.size()) eg_next = std::async(std::launch::async, read_eg, eg_u);
@@ -12726,12 +12790,14 @@ struct Model::Impl {
             for (int m = 0; m < l0.nm; ++m)
                 if (member(l0, m).dev == di && !l0.mtp && l0.eg >= 0) egs.push_back(l0.eg);
         const size_t eg_per = (size_t) (pk.eg_ngram - 1) * pk.eg_heads * (pk.eg_hd + pk.eg_hd / 32);
-        auto read_eg = [this, &c, &run, &egs, eg_per](int k) {
+        auto read_eg = [this, &c, &run, &egs, eg_per](int k) -> size_t {
             if (k >= 2) cudaEventSynchronize(c.eg_ev[k % 2]);
+            size_t bad = 0;   // (second review 4.2) refused rows across this chunk's Engram layers
             for (int li : egs)
-                engram_rows(run.p0[(size_t) k], run.T[(size_t) k], li, c.eg_host[k % 2] + (size_t) li * c.C * eg_per);
+                bad += engram_rows(run.p0[(size_t) k], run.T[(size_t) k], li, c.eg_host[k % 2] + (size_t) li * c.C * eg_per);
+            return bad;
         };
-        std::future<void> eg_next;
+        std::future<size_t> eg_next;
         if (!egs.empty()) eg_next = std::async(std::launch::async, read_eg, 0);
         for (int k = 0; k < nk; ++k) {
             if (run_yields) {
@@ -12749,7 +12815,11 @@ struct Model::Impl {
             const bool last_k = k + 1 == nk;
             if (!egs.empty()) {   // chunk k's rows ready, chunk k + 1's on their way
                 const double te = now_ms();
-                eg_next.get();
+                const size_t egb = eg_next.get();   // (second review 4.2) refused rows: the slot holds zeros and
+                if (egb != 0) {                     //   zeros are not an answer - this request fails, not the lane
+                    err = "Engram: a row could not be read from the model's files";
+                    return false;
+                }
                 if (d.mi == 0) st.engram_ms += now_ms() - te;
                 if (k + 1 < nk) eg_next = std::async(std::launch::async, read_eg, k + 1);
             }
@@ -14657,7 +14727,12 @@ struct Model::Impl {
         if (l.eg >= 0) {
             const int cols = (pk.eg_ngram - 1) * pk.eg_heads, ehd = pk.eg_hd;
             const size_t per = (size_t) cols * (ehd + ehd / 32);
-            eg_finish(*eg_win[(size_t) l.eg]);   // (asked for when the window began)
+            // (second review 4.2) rows the files refused (retry included): the zeros in h_eg are not an answer and
+            // the batch stays bad, so every later window over these rows fails the same way - never an answer of zeros.
+            if (eg_finish(*eg_win[(size_t) l.eg]) != 0) {   // (asked for when the window began)
+                err = "Engram: a row could not be read from the model's files";
+                return false;
+            }
             uint8_t* src = h_eg + (size_t) l.eg * eg_cap * per;
             for (int t = 0; t < T; ++t)   // [token][rows | scales] -> [all rows][all scales]
                 CK(cudaMemcpyAsync(d.eg_rows + (size_t) t * cols * ehd, src + (size_t) t * per, (size_t) cols * ehd,

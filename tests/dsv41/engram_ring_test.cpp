@@ -4,7 +4,8 @@
 // read errors, stop with a batch pending, the MXFP8 unpack) and eg_complete (the finish the engine now calls) -
 // driven with synthetic files: a ring whose consumer proves no slot is refilled under it; a batch whose failed
 // read must leave zeros in EVERY place its row lands (the ported order copied the duplicates before zeroing, so
-// a repeated row of a failed read got the slot's stale bytes). No GGUF, no device, no model.
+// a repeated row of a failed read got the slot's stale bytes); the failed-row report is sticky and a retry hook
+// can land a reader-failed row before it is zeroed (second review 4.1). No GGUF, no device, no model.
 #include "ds4_engram_io.hpp"
 
 #include <atomic>
@@ -190,8 +191,10 @@ int main() {
                 check(cache.find(keyfn(11, mode)) == nullptr && cache.find(keyfn(900, mode)) == nullptr,
                       "failed rows are not cached: a later window retries the file");
             }
+            // (second review 4.1) the second finish reports the SAME failed count (sticky): a caller that consumes
+            // these rows later - the engine's per-layer eg_finish - still learns the rows are zeros, never a clean 0
             const size_t again = eg_complete(b, io, cache, cm, kHd, [&](const EgRead&) { ++reported; });
-            check(again == 0 && reported == 2, "a second finish of the batch does nothing and reports nothing");
+            check(again == 2 && reported == 2, "a second finish does no work but reports the batch's failed rows again");
             bool intact = true;
             for (uint32_t i = 0; i < kHd; ++i)
                 if (d0[i] != row_byte(3, i) || dup_ok[i] != row_byte(3, i)) intact = false;
@@ -259,6 +262,94 @@ int main() {
             check(dup_ok2, "and its duplicate gets the same bytes");
             io.stop();
         }
+        remove(good.c_str());
+    }
+
+    // ---- 4. (second review 4.1) the retry hook: a failing reader row the engine's own read can still land, and
+    // one it cannot. The repaired row is bytes (cached, not zeroed, not failed); the refused one is zeros, stays
+    // out of the cache, and the batch keeps reporting it - so the engine's ring never publishes it as ready.
+    {
+        const char* tmp = std::getenv("TEMP") ? std::getenv("TEMP") : ".";
+        const std::string good = std::string(tmp) + "\\ds4_eg_good.bin";
+        const std::string bad = std::string(tmp) + "\\ds4_eg_missing_42.bin";
+        const uint32_t mb = (kHd / 32) * 33;
+        {
+            std::vector<uint8_t> data((size_t) 100 * mb);
+            for (uint32_t r = 0; r < 100; ++r)
+                for (uint32_t j = 0; j < mb; ++j) {
+                    const uint32_t k = j / 33, o = j % 33;
+                    data[(size_t) r * mb + j] = o == 0 ? (uint8_t) (r * 13u + k + 1u) : row_byte((int) r, k * 32 + o - 1);
+                }
+            FILE* f = fopen(good.c_str(), "wb");
+            if (!f) { std::printf("engram_ring_test: cannot write %s\n", good.c_str()); return 2; }
+            fwrite(data.data(), 1, data.size(), f);
+            fclose(f);
+        }
+        EgReader io;
+        io.start({good, bad}, 2, {});
+        std::vector<uint8_t> d_fixed(kHd, 0xAB), s_fixed(2, 0xCD), d_refused(kHd, 0xAB), s_refused(2, 0xCD);
+        EgBatch b;
+        auto mk = [&](int row, int file, std::vector<uint8_t>& d, std::vector<uint8_t>& s) {
+            EgRead r;
+            r.file = file;
+            r.off = (uint64_t) row * mb;
+            r.n = mb;
+            r.dst = d.data();
+            r.scales = s.data();
+            r.mx8 = true;
+            r.key = keyfn(row, 9);
+            b.reads.push_back(r);
+        };
+        mk(21, 1, d_fixed, s_fixed);      // the missing file: the READER fails...
+        mk(33, 1, d_refused, s_refused);  // ... and here even the engine's own read says no
+        io.submit(b);
+        EgRowCache cache;
+        cache.init(8, kHd + kHd / 32);
+        std::mutex cm;
+        int retried = 0, reported = 0;
+        // the hook stands in for the engine's eg_retry_row: it reads the row where the file really is (the good
+        // file at the row's offset) and lays it out as EgReader would; it refuses the row the engine cannot get
+        const size_t bad_n = eg_complete(
+            b, io, cache, cm, kHd, [&](const EgRead&) { ++reported; },
+            [&](const EgRead& r) {
+                ++retried;
+                if (r.key == keyfn(21, 9)) {   // the repairable row: read from `good` and de-interleave
+                    FILE* f = fopen(good.c_str(), "rb");
+                    if (!f) return false;
+                    std::vector<uint8_t> tmp(mb);
+                    const bool got = fseek(f, (long) r.off, SEEK_SET) == 0 && fread(tmp.data(), 1, mb, f) == mb;
+                    fclose(f);
+                    if (!got) return false;
+                    for (uint32_t k = 0; k < mb / 33; ++k) {
+                        r.scales[k] = tmp[(size_t) k * 33];
+                        memcpy(r.dst + (size_t) k * 32, tmp.data() + (size_t) k * 33 + 1, 32);
+                    }
+                    return true;
+                }
+                return false;   // the refused row: the engine's own handles fail too
+            });
+        check(retried == 2, "the hook is asked for every failed read, before any zeroing");
+        check(bad_n == 1 && reported == 1, "a repaired retry is not a failed row; only the refused one is");
+        bool fixed_ok = true;
+        for (uint32_t i = 0; i < kHd; ++i)
+            if (d_fixed[i] != row_byte(21, i)) fixed_ok = false;
+        for (uint32_t k = 0; k < 2; ++k)
+            if (s_fixed[k] != (uint8_t) (21 * 13u + k + 1u)) fixed_ok = false;
+        check(fixed_ok, "the repaired row carries the file's bytes, not zeros");
+        bool refused_zero = true;
+        for (uint32_t i = 0; i < kHd; ++i)
+            if (d_refused[i]) refused_zero = false;
+        for (uint32_t k = 0; k < 2; ++k)
+            if (s_refused[k]) refused_zero = false;
+        check(refused_zero, "the refused row is zeroed as before");
+        {
+            std::lock_guard<std::mutex> lk(cm);
+            check(cache.find(keyfn(21, 9)) != nullptr, "the repaired row is cached like any whole one");
+            check(cache.find(keyfn(33, 9)) == nullptr, "the refused row is not");
+        }
+        check(eg_complete(b, io, cache, cm, kHd, nullptr) == 1,
+              "and the batch keeps reporting the refused row: the ring will not publish its unit as ready");
+        io.stop();
         remove(good.c_str());
     }
     std::printf("engram_ring_test: %d checks, %d failures\n", checks, failures);
