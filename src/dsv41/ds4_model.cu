@@ -4575,11 +4575,10 @@ struct Model::Impl {
                        const uint8_t* src = nullptr) {
         if (l.lay.fmt == gg::kFmtMXFP4) {   // the blob, or member m's rows / blocks: from `src` (the expert read into
             // pinned staging as its blob) or from the file's mapping
-            // (local, review 2 item 1.1 finding, fixed under item 10: when `src` is null and the store holds the
-            // expert, these ASYNC memcpys read the store's slot without a pin - eviction during the copy streams
-            // another expert's bytes. Not switched to `stable` here: with the store up and the views dropped the
-            // mapping is null, and rc_fill passes no src - the resolution (always stage through `src` when the
-            // store covers the layer) needs the lane-residency trace of item 10, with the call paths mapped.)
+            // (local, review 2 item 1.1, fixed under second review 10.1: every caller that can run while the store
+            // covers this layer now stages the blob and passes `src` - the flow's batches always did, rc_loop's
+            // recent-slot fills do since 10.1 - so the mapping is read directly only where the store cannot reach
+            // it: the Metal direct path (no store there) and non-MXFP4 layers (their mappings are not shared))
             auto mat_r = [&](int r) { return src != nullptr ? src + l.lay.trellis[r] : mx_mat(l, e, r); };
             bool ok = true;
             if (l.nm == 1) {
@@ -9367,6 +9366,25 @@ struct Model::Impl {
     void rc_loop() {
         std::vector<RcJob> fly;     // issued, not yet done
         std::string err;
+        // (local, second review 10.1) one pinned staging blob for the MXFP4 fills. stream_expert's async copies
+        // must never read the file's mapping directly while the store is up: with DROP_SHARDS off the mapping IS
+        // the store's recastable storage (an eviction could land another expert's bytes mid-copy - the copies out
+        // of it run for milliseconds), with it on the mapping is null and the copy fails. Every MXFP4 fill stages
+        // the blob here first - the store's pinned copy when it holds one, the file otherwise - and the device
+        // copies from this stable source, exactly as the flow's batches already do.
+        uint8_t* rc_stage = nullptr;
+        size_t rc_stage_bytes = 0;
+        for (const Layer& l : L)
+            if (l.lay.fmt == gg::kFmtMXFP4) rc_stage_bytes = std::max(rc_stage_bytes, (size_t) l.blob);
+        if (rc_stage_bytes != 0 &&
+            cudaHostAlloc((void**) &rc_stage, rc_stage_bytes, cudaHostAllocPortable) != cudaSuccess) {
+            rc_stage = nullptr;   // (no pinned room: the fills fall back to the mapping, the pre-port behaviour)
+            (void) cudaGetLastError();
+        }
+        struct RcStageFree {
+            uint8_t** p;
+            ~RcStageFree() { if (*p != nullptr) cudaFreeHost(*p); }
+        } rc_stage_free{&rc_stage};
         for (;;) {
             std::deque<RcJob> held;
             {
@@ -9382,12 +9400,30 @@ struct Model::Impl {
                 // rc_done != rc_gen check never publishes the slot: the expert routes over the RAM lane (correct,
                 // slower), and the slot retires (rc_fill keeps holding it out of the free list))
                 bool ok = true;
-                for (int m = 0; m < l.nm; ++m) {
+                const uint8_t* src = nullptr;   // (second review 10.1) the staged blob; null for non-MXFP4 layers,
+                                                //   whose mappings the store never shares
+                if (l.lay.fmt == gg::kFmtMXFP4 && rc_stage != nullptr) {
+                    bool got = false;
+                    if (store) {   // (its copy is RAM: take it under a pin the length of one memcpy)
+                        const int ss = store->acquire_ready(l.il, j.expert);
+                        if (ss >= 0) {
+                            std::memcpy(rc_stage, store->blob(ss), (size_t) l.blob);
+                            store->unpin(ss);
+                            got = true;
+                        }
+                    }
+                    if (!got) got = read_mx(l, j.expert, rc_stage);
+                    if (!got)
+                        ok = false;   // (a refused fill is the async copy's failure: the slot retires, the lane routes)
+                    else
+                        src = rc_stage;
+                }
+                for (int m = 0; m < l.nm && ok; ++m) {
                     Layer& x = member(l, m);
                     const int di = x.dev;
                     cudaSetDevice(devs[(size_t) di].id);
                     cudaStreamWaitEvent(rc_cs[(size_t) di], rc_go[(size_t) di], 0);   // (after the tick's tables)
-                    if (!stream_expert(l, m, j.expert, sat(l, x, l.rc_base + j.slot, unit(x)), rc_cs[(size_t) di], err))
+                    if (!stream_expert(l, m, j.expert, sat(l, x, l.rc_base + j.slot, unit(x)), rc_cs[(size_t) di], err, src))
                         ok = false;
                     cudaEventRecord(l.rc_ev[(size_t) j.slot * l.nm + m], rc_cs[(size_t) di]);
                 }
@@ -10359,9 +10395,22 @@ struct Model::Impl {
         uint8_t* stg = ln_host + (size_t) i * ln_stride;
         const bool zc = zc_ok(l, e);   // (in place: the device pulls it from where it lies, nothing to read)
         const bool held = zc || (!l.ram.empty() && l.ram[(size_t) e] >= 0);
-        bool ok = !held || zc || read_mx(l, e, stg);
+        // (second review 10.2) the store's copy is RAM too: when it holds this expert the lane takes the blob
+        // from it - under a pin the length of this memcpy, nothing longer (the device pulls from the lane's own
+        // pinned slot, never from the store) - instead of reading a file whose pages the store has but the page
+        // cache may not. A slot not ready yet reads the file as before: never a wait on the store here.
+        bool staged = false;
+        if (!held && !zc && store != nullptr) {
+            const int ss = store->acquire_ready(l.il, e);
+            if (ss >= 0) {
+                std::memcpy(stg, store->blob(ss), (size_t) l.blob);
+                store->unpin(ss);
+                staged = true;
+            }
+        }
+        bool ok = staged || !held || zc || read_mx(l, e, stg);
         for (int r = 0; r < 3; ++r) {
-            if (ok && !held)
+            if (ok && !held && !staged)
                 ok = pk.read_at(l.mx_file[r], l.mx_off[r] + (uint64_t) e * l.mx_stride[r], mx_part_bytes(l, r),
                                 stg + l.lay.trellis[r]);
             if (!ok && *(volatile unsigned*) &J.pull->bad[i] == 0u) {
@@ -10450,8 +10499,15 @@ struct Model::Impl {
     // lane: a Strix Halo's MXFP4 expert 5.9 ms against 0.14)
     bool lane_warm(const Layer& l, int e) const {
         if (!l.ram.empty() && l.ram[(size_t) e] >= 0) return true;
-        return os::resident_sampled(mx_mat(l, e, 0), mx_part_bytes(l, 0), 1) &&
-               os::resident_sampled(mx_mat(l, e, 2), mx_part_bytes(l, 2), 1);
+        // (second review 10.3) a blob the store holds is in RAM whatever the page table says - and with
+        // DROP_SHARDS the mapping these pages used to be is gone, so sampling null would call a resident
+        // expert cold. lane_copy takes the store's copy for exactly these picks.
+        if (store != nullptr && store->find(l.il, e) >= 0) return true;
+        const uint8_t* gm = mx_mat(l, e, 0);
+        const uint8_t* dm = mx_mat(l, e, 2);
+        if (gm == nullptr || dm == nullptr) return false;   // (no mapping to sample: not warm, plan the read)
+        return os::resident_sampled(gm, mx_part_bytes(l, 0), 1) &&
+               os::resident_sampled(dm, mx_part_bytes(l, 2), 1);
     }
     // (serve_lane) of a decode request's CPU-lane picks (expert, pick i), the ones the stream lane takes (pcie::split
     // on this class's costs, at most the device's slots): out of `picks`, the request's pull published (always - the
