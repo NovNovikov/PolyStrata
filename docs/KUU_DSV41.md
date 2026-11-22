@@ -328,6 +328,15 @@ the read-ahead, and `--mmap-experts on` with a limited `DS4_STORE_GB` gives `DRO
 through. Speed claims still wait for a repeated, one-process benchmark - eight loads of the same 103 GB at
 ~0.38 GB/s is why the sweep spends ~45 minutes before it measures anything.
 
+The measurement that answers them is `tests/dsv41/kuu_perf_test.bat`: one run per parameter in its own
+process (the windows group `baseline defer3 eg_ring lm_ahead all_exact`, the store group `store_base
+uniform drop_shards` on `--mmap-experts on` + `DS4_STORE_GB=32`, each compared with its own control), a
+4096-token prompt, one warm-up GEN and three measured GENs, every run one RESULT line - cold load,
+prefill, decode tok/s per GEN, and the activation witness, so no number is read without knowing the
+switch reached its code. `kuu_perf_check.py` is the runner; its mock test (`kuu_perf_check_test.py`,
+run green 2026-11-22) grades the verdict table without a model. Eight pack loads want an idle machine:
+the owner runs it, as always.
+
 ## Not run, and why
 
 - Any end-to-end inference, prefill/decode timing, KL or quality measurement: excluded by the task spec -
