@@ -2108,6 +2108,12 @@ struct Model::Impl {
             if (cudaSetDevice((int) di) != cudaSuccess) continue;
             for (cudaEvent_t e : prof_pool[di]) (void) cudaEventDestroy(e);
         }
+        // (third round 7) the flow's reader threads go BEFORE the pinned arenas they read into and write out of:
+        // ~Chunk joins them through io's destructor, but members destruct after this body - every cudaFreeHost
+        // below would run while a queued job was still copying into staging. ~IoQueue lets started jobs land
+        // (into memory that is still alive right here) and drops the merely-queued ones.
+        for (size_t i = 0; i < chunks.size(); ++i)
+            if (chunks[i] != nullptr && chunks[i]->io != nullptr) chunks[i]->io.reset();
         for (const ProfMark& m : prof_marks) {
             if (m.dev < 0 || (size_t) m.dev >= prof_pool.size()) continue;
             if (cudaSetDevice(m.dev) == cudaSuccess) (void) cudaEventDestroy(m.ev);
@@ -5053,7 +5059,16 @@ struct Model::Impl {
     // (local, review 2) Give back the store pins the chunk's items still hold. The normal path releases each pin as
     // the item's copies land (flow_pump); a chunk abandoned mid-run - read error, STOP, unload - never reaches
     // those points, and its slots would stay pinned outliving the run that took them.
+    // (third round 7) the in-flight reads FIRST, then the pins: the jobs pushed for items up to n_read count the
+    // item's left down as they finish - reading the store slot this hold pins (j.mem), writing into this chunk's
+    // staging / ring / layer-cache regions. Unpinning with a job still running lets the store recast the slot out
+    // from under it, and the caller that drops c.items right after (run_dev_chunks, and ~Chunk at teardown) frees
+    // the very counters (j.left/j.bad point into them) and buffers the completion writes into. Same wait as
+    // halt_end and lm_end already run - it now guards every way out, which is what those two were missing too.
     void flow_release_pins(Chunk& c) {
+        if (c.flow && c.io)
+            for (size_t i = c.base; i < c.n_read; ++i)
+                while (fit(c, i).left.load(std::memory_order_acquire) != 0) c.io->wait_any(500);
         if (!store) return;
         for (auto& it : c.items)
             if (it.store_slot >= 0) { store->unpin(it.store_slot); it.store_slot = -1; }

@@ -7,13 +7,16 @@
 // No GGUF, no device, no model. Windows runs all of it; the unbuffered/direct handles are Windows concepts
 // and the functions report failure on other platforms, where the comparisons still run on the buffered pair.
 #include "ds4_os.hpp"
+#include "ds4_pool.hpp"   // (third round 7) IoQueue: the flow's CPU-side reads and the drain-before-release contract
 
 #ifdef _WIN32
 #include <malloc.h>   // _aligned_malloc: the direct reads need an aligned destination, as the pool's does
 #endif
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -115,6 +118,68 @@ int main() {
     }
     os::close_fd(dir);
     os::close_fd(unbuf);
+
+    // (hostile review, third round 7) drain before release, the abandoned flow-run shape. The engine's chunk owns
+    // its items: a job in flight counts the item's left down and writes bytes into the chunk's staging. Abandon
+    // points - the store unpin, the item drop, the arena free - may pass only after every posted job landed; the
+    // old flow_release_pins unpinned (and run_dev_chunks dropped items) with jobs still running, so a completion
+    // wrote into freed counters and buffers. Production IoQueue, production Job contract, the engine's exact
+    // procedure: post three parts an item, abandon mid-run, drain the posted items' counters the way
+    // flow_release_pins now does, and only then free the items and the staging. 200 rounds; the invariants: after
+    // the drain every counter is zero and every byte landed, and the abandons did catch jobs in flight.
+    {
+        struct Item {
+            std::atomic<int> left{0};
+            std::atomic<bool> bad{false};
+        };
+        const auto part_off = [](int i, int p, int round) { return (uint64_t) (10 + (i * 3 + p) + round % 4) * 4096ull; };
+        const os::fd_t iofd = os::open_par(path);
+        check(iofd != os::kBadFd, "the file reopens for the drain scenario");
+        bool good = iofd != os::kBadFd;
+        int inflight_rounds = 0;
+        for (int round = 0; round < 200 && good; ++round) {
+            IoQueue io(2);
+            auto items = std::make_unique<std::vector<Item>>(8);
+            auto staging = std::make_unique<std::vector<uint8_t>>(8 * 3 * 4096, 0);
+            const int posted = 1 + (round * 7919) % 8;   // (the pump's cut: the first `posted` items got their jobs)
+            for (int i = 0; i < posted; ++i) {
+                Item& it = (*items)[(size_t) i];
+                it.left.store(3);
+                IoQueue::Job jobs[3];
+                for (int p = 0; p < 3; ++p) {
+                    IoQueue::Job& j = jobs[p];
+                    j = IoQueue::Job{};
+                    j.fd = iofd;
+                    j.off = part_off(i, p, round);
+                    j.len = 4096;
+                    j.dst = staging->data() + (size_t) i * 3 * 4096 + (size_t) p * 4096;
+                    j.left = &it.left;
+                    j.bad = &it.bad;
+                }
+                io.push(jobs, 3);
+            }
+            bool flying = false;   // (the abandon moment: what the old code did was walk on FROM HERE)
+            for (int i = 0; i < posted; ++i)
+                flying = flying || (*items)[(size_t) i].left.load(std::memory_order_relaxed) != 0;
+            if (flying) ++inflight_rounds;
+            for (int i = 0; i < posted; ++i)   // (flow_release_pins' drain, the same keys: base..n_read, wait_any)
+                while ((*items)[(size_t) i].left.load(std::memory_order_acquire) != 0) io.wait_any(500);
+            for (int i = 0; i < posted && good; ++i) {
+                if ((*items)[(size_t) i].left.load() != 0 || (*items)[(size_t) i].bad.load()) good = false;
+                for (int p = 0; p < 3 && good; ++p) {
+                    const uint64_t off = part_off(i, p, round);
+                    for (size_t q = 0; q < 4096 && good; q += 61)
+                        if ((*staging)[(size_t) i * 3 * 4096 + (size_t) p * 4096 + q] != pat(off + q)) good = false;
+                }
+            }
+            items.reset();   // (the release step: this very free was the use-after-free when it came too early)
+            staging.reset();
+        }
+        check(good, "200 abandoned runs drained then freed: counters zero, bytes right, no job outlived its item");
+        check(inflight_rounds > 100, "and the abandons caught jobs in flight (the scenario really drives the hazard)");
+        os::close_fd(iofd);
+    }
+
     remove(path.c_str());
     std::printf("ds4_io_test: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
