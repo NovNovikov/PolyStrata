@@ -7602,7 +7602,10 @@ struct Model::Impl {
 
     // the state at pos into checkpoint `slot` (the window rings and the compressors' partial groups: the rest of the
     // state is indexed by position, and what lies past a restored position is written again)
-    void checkpoint(int slot) { snap_into(ck[slot & 1]); }
+    void checkpoint(int slot) {
+        if (lane_.noted()) return;   // (hotfix 2) a lane that reported mid-run: rows past its death are zeros -
+        snap_into(ck[slot & 1]);     //   no snapshot of that state, no restore point made room for it
+    }
     void snap_into(Check& c) {
         c.pos = pos;
         c.win.resize(L.size());
@@ -7640,7 +7643,8 @@ struct Model::Impl {
     // the state at pos as a restore point a request asked for (shared: the end of a shared start, given up last); one
     // at this position already is kept (it holds the same state), else the one mark_victim() picks makes room
     void mark(bool shared) {
-        if (Check* c = mark_room(pos, shared)) snap_into(*c);
+        if (lane_.noted()) return;   // (hotfix 2) same rule as the checkpoint: no restore point of a state whose
+        if (Check* c = mark_room(pos, shared)) snap_into(*c);   //   lane died, and no good one evicted for it
     }
     // the restore point at position `at` to fill (nullptr: none kept, or one there already - in use again)
     Check* mark_room(int64_t at, bool shared) {
@@ -7768,6 +7772,10 @@ struct Model::Impl {
     // (the rows a position completed never change), the tokens up to it.  The mark stays; the slot holds the checkpoints
     // at or before it.  (A shared start kept from a read that went on past it: #607 without a stop at the start.)
     uint64_t slot_save(std::vector<uint8_t>& out, std::string& err, int64_t at = -1) {
+        if (lane_.noted()) {   // (hotfix 2) a slot taken from a state the lane poisoned is a slot that RESTORES
+            err = "CPU lane: the state is not whole - nothing is set aside";   //   the zeros later: refuse the
+            return 0;                                                          //   save while the note stands
+        }
         const Check* at_mark = nullptr;
         if (at >= 0 && at != pos) {
             for (const Check& x : mk)
@@ -10003,6 +10011,14 @@ struct Model::Impl {
         unsigned next = 1;
         auto last = std::chrono::steady_clock::now();
         std::vector<Ent> ents;
+        // (hotfix 2 to the third round) death no longer exits the mailbox: the device pipelines its layers, so
+        // kernels already on the streams publish the NEXT requests behind this thread's back, and a gone server
+        // left those waits without an end - the round-3 fix made the death sticky and refused later RUNS, but the
+        // request racing the death could still hang its kernels. The thread now stays: in terminal mode every
+        // published request gets the failed (zero) answer - the same answer the death's own request got - until
+        // teardown's quit ends the loop. Production step: strata::ds4::mail_terminal_step, driven off-device by
+        // ds4_lane_gate_test with a fake ring and a publishing device thread.
+        bool terminal = false;
         while (!quit.load(std::memory_order_relaxed)) {
             Req& r = reqs[next % kRing];
             if (*(volatile unsigned*) &r.seq != next) {
@@ -10027,6 +10043,22 @@ struct Model::Impl {
                 }
                 continue;
             }
+            if (terminal) {   // (hotfix 2) release-only: a zero answer for every request the dying run's kernels
+                if (strata::ds4::mail_terminal_step(   //   still publish, so none of them waits on a thread that
+                        next, [&](unsigned s) { return *(volatile unsigned*) &reqs[s % kRing].seq == s; },
+                        [&](unsigned s) {
+                            std::atomic_thread_fence(std::memory_order_acquire);   //   died mid-pipeline
+                            Resp& tp = resps[s % kRing];
+                            const int TT = std::max(1, std::min(kWin, reqs[s % kRing].T));
+                            for (int t = 0; t < TT; ++t) tp.cpu[t] = 0;
+                            std::atomic_thread_fence(std::memory_order_release);
+                            *(volatile unsigned*) &tp.seq = s;
+                        }))
+                    last = std::chrono::steady_clock::now();
+                else
+                    std::this_thread::sleep_for(std::chrono::microseconds(50));   // (quiet ring: terminal mode
+                continue;                                                          //   lasts until teardown, so a
+            }                                                                      //   release-only spin still naps)
             std::atomic_thread_fence(std::memory_order_acquire);
             const int li = layer_of[next % kRing].load(std::memory_order_acquire);
             Resp& rp = resps[next % kRing];
@@ -10270,12 +10302,14 @@ struct Model::Impl {
                 *(volatile unsigned*) &late_ans->seq = next;
                 late_ans = nullptr;
             }
-            if (lane_.noted()) {   // (local, review 2 item 1.2; third round 4) a demand read failed for real: the
-                lane_.die();       //   flag is published (the GPU's wait ends), this request's numbers are zeros -
-                halt.store(true);  //   and this is the thread's END: the gate marks the death sticky, so the API
-                ++next;            //   reports lane_err for THIS request and every later entry is refused before
-                break;             //   it can publish a mailbox request nobody would ever answer (the round-two
-            }                      //   code left the loop silently, and the next run hung on its own request)
+            if (lane_.noted()) {   // (local, review 2 item 1.2; third round 4; hotfix 2) a demand read failed for
+                lane_.die();       //   real: the flag is published (this request's wait ends on zeros), the gate
+                halt.store(true);  //   marks the death sticky so later runs are refused - and the thread enters
+                terminal = true;   //   TERMINAL mode instead of leaving: the run's kernels keep publishing their
+            }                      //   next layers, and each of those requests gets its zero answer too. No
+                                   //   break, and NO ++next here either: the loop's own advance below serves the
+                                   //   next slot, terminal branch included - a mailbox nobody reads is the hang
+                                   //   this whole gate exists to end.
             if (late_ans != nullptr) {   // (local) STRATA_DS4_DEFER=2: the light part (cpu flags 0 when there was none)
                 std::atomic_thread_fence(std::memory_order_release);
                 *(volatile unsigned*) &late_ans->seq = next;
@@ -15602,8 +15636,9 @@ struct Model::Impl {
     // `spec` each run is a verify window (its backups kept, its drafter rings left for verify_multi to seed with the
     // rows it keeps), without it every row seeds its conversation's drafter rings here (Project Maya #611)
     bool step_runs(const int* sv, const int* const* toks, const int* lens, int n, bool spec, std::string& err) {
-        if (sqs.empty()) {
-            err = "one conversation (no --parallel)";
+        if (lane_dead_err(err)) return false;   // (hotfix 2) the multi-session step rides the same mailbox as
+        if (sqs.empty()) {                      //   every forward: a dead lane answers nothing, refuse before the
+            err = "one conversation (no --parallel)";   //   rows are staged and the conversations parked
             return false;
         }
         int T = 0;
@@ -15678,6 +15713,11 @@ struct Model::Impl {
         spec_win = spec;
         ok = par ? forward_par(0, T, err) : forward_serial(0, T, err);
         spec_win = false;
+        if (ok && lane_.noted()) {   // (hotfix 2) forward_serial/forward_par are the window paths - they do not
+            err = "CPU lane: " + take_lane_err();   //   own the noted-check the single forward runs: a lane that
+            ok = false;                            //   died inside this window answered rows with zeros, and
+        }                                          //   committing them (below) writes the corruption into every
+                                                   //   conversation's position and ring. Commit nothing.
         st.layer_ms += now_ms() - tl;
         if (spec) st.verify_ms += now_ms() - tl;
         for (auto& b : eg_win)
@@ -15728,9 +15768,10 @@ struct Model::Impl {
     // seeded with the kept rows' taps.  drafts: run i's tokens after y (its rows - 1 of them)
     bool verify_multi(int i, const std::vector<int>& drafts, float temperature, float top_p, int top_k, float min_p,
                       uint64_t seed, uint64_t counter, int& accepted, int& next, std::string& err) {
-        if (i < 0 || i >= (int) mruns.size() || !mruns[(size_t) i].open) {
-            err = "verify_multi: no verify window " + std::to_string(i);
-            return false;
+        if (lane_dead_err(err)) return false;   // (hotfix 2) the multi-session verify pair ends in the drafter
+        if (i < 0 || i >= (int) mruns.size() || !mruns[(size_t) i].open) {   //   seeding of a conversation that
+            err = "verify_multi: no verify window " + std::to_string(i);     //   must decode on after it: with a
+            return false;                                                     //   dead lane nothing may advance
         }
         MRun& r = mruns[(size_t) i];
         const int n = r.n - 1, V = g.vocab;

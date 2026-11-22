@@ -144,6 +144,104 @@ int main() {
         check(!g.api_ok(err), "and no outcome is trusted");
     }
 
+    // 6. (hotfix 2) the TERMINAL DRAIN: the serve thread must not leave requests behind it when it dies - the
+    //    device pipelines its layers, so several requests sit published while the thread answers one. A fake
+    //    mailbox ring (published seq -> answer published back, the engine's shape), a device thread that keeps
+    //    four requests in flight and waits each answer under a watchdog, and a serve thread answering healthy
+    //    through request 4, failing request 5 the way the engine does (note, zero answer published, die), and
+    //    from there on running the PRODUCTION step - strata::ds4::mail_terminal_step - until quit. Invariants:
+    //    no request ever waits past its watchdog; answers before the death are healthy ones, from the death on
+    //    they are the failed zeros; the drain released the requests that had been published AHEAD of the death
+    //    (the ones the old `break` stranded); and the CURRENT request - the one answered as the thread died -
+    //    fails its own api_ok check, not only the next run's.
+    {
+        LaneFail g;
+        const unsigned kN = 30, kAhead = 4, kRK = 8;   // (kRK the ring's slots, kAhead the device's pipeline)
+        struct FReq  { std::atomic<unsigned> seq{0}; };
+        struct FResp { std::atomic<unsigned> seq{0}; std::atomic<int> cpu[4]{}; };
+        std::vector<FReq> rq(kRK);
+        std::vector<FResp> rp(kRK);
+        std::atomic<bool> quit{false}, srv_done{false};
+        std::atomic<unsigned> timed_out{0}, terminal_answered{0};
+        bool answered_ok[kN + 1] = {};
+        int cpu_at[kN + 1] = {};
+        bool current_fails = false;   // (checked at the death, for request 5 - the run racing it)
+        std::thread dev([&] {
+            for (unsigned i = 1; i <= kN; ++i) {
+                if (i > kAhead) {   // (ring discipline: a slot may be republished only once its answer landed)
+                    if (!within(4000, [&] { return rp[(size_t) ((i - kAhead) % kRK)].seq.load(std::memory_order_acquire) == i - kAhead; }))
+                        rp[(size_t) ((i - kAhead) % kRK)].seq.store(i - kAhead);   // (never wedge the test itself)
+                }
+                rq[(size_t) (i % kRK)].seq.store(i, std::memory_order_release);   // (the kernel's publish)
+                answered_ok[i] = within(4000, [&] { return rp[(size_t) (i % kRK)].seq.load(std::memory_order_acquire) == i; });
+                if (!answered_ok[i]) {
+                    timed_out.fetch_add(1);
+                    rp[(size_t) (i % kRK)].seq.store(i);   // (report and move on - the answer is still missing)
+                    continue;
+                }
+                cpu_at[i] = rp[(size_t) (i % kRK)].cpu[0].load(std::memory_order_acquire);
+            }
+            quit.store(true);   // (teardown: the serve thread's loop end, as quit ends serve_lane)
+        });
+        std::thread srv([&] {
+            unsigned next = 1;
+            bool terminal = false;
+            std::string err;
+            while (!quit.load(std::memory_order_relaxed)) {
+                if (terminal) {   // (the engine's branch, the engine's step)
+                    if (strata::ds4::mail_terminal_step(
+                            next,
+                            [&](unsigned s) { return rq[(size_t) (s % kRK)].seq.load(std::memory_order_acquire) == s; },
+                            [&](unsigned s) {
+                                for (auto& c : rp[(size_t) (s % kRK)].cpu) c.store(0, std::memory_order_relaxed);
+                                rp[(size_t) (s % kRK)].seq.store(s, std::memory_order_release);
+                                terminal_answered.fetch_add(1);
+                            }))
+                        continue;
+                    std::this_thread::sleep_for(std::chrono::microseconds(50));
+                    continue;
+                }
+                if (rq[(size_t) (next % kRK)].seq.load(std::memory_order_acquire) != next) {
+                    std::this_thread::sleep_for(std::chrono::microseconds(50));
+                    continue;
+                }
+                if (next <= 4) {   // (healthy answers: cpu flag 1)
+                    for (auto& c : rp[(size_t) (next % kRK)].cpu) c.store(1, std::memory_order_relaxed);
+                    rp[(size_t) (next % kRK)].seq.store(next, std::memory_order_release);
+                    ++next;
+                    continue;
+                }
+                // (the failed demand read on request 5: the engine's order - note, the zero answer published,
+                //  die, and TERMINAL mode for every request after; no break, no thread exit)
+                g.note("layer 9 expert 2: no slot and the read failed");
+                for (auto& c : rp[(size_t) (next % kRK)].cpu) c.store(0, std::memory_order_relaxed);
+                rp[(size_t) (next % kRK)].seq.store(next, std::memory_order_release);
+                g.die();
+                current_fails = !g.api_ok(err);   // (the CURRENT request: it failed, not only later ones)
+                ++next;
+                terminal = true;
+            }
+            srv_done.store(true);   // (the loop's end: quit landed, the drain stops - what the watchdog waits)
+        });
+        dev.join();   // (bounded by the device's own watchdogs: it always returns)
+        // (a serve thread that could not leave its drain IS the defect: bound the wait by its own done flag,
+        //  then join - joinable() says nothing about a finished thread until joined, so the flag is the truth)
+        const bool left = within(5000, [&] { return srv_done.load(); });
+        srv.join();
+        check(left, "quit ended the terminal drain - the serve thread leaves when the model tears down");
+        check(timed_out.load() == 0 && [&] { for (unsigned i = 1; i <= kN; ++i) if (!answered_ok[i]) return false; return true; }(),
+              "every published request got its answer: no kernel waits on a thread that died mid-pipeline");
+        bool shape_ok = true;
+        for (unsigned i = 1; i <= kN; ++i)
+            if (answered_ok[i] && cpu_at[i] != (i <= 4 ? 1 : 0)) shape_ok = false;
+        check(shape_ok, "healthy answers before the death, failed zeros from the death onward");
+        check(terminal_answered.load() >= kAhead,
+              "the drain released the requests published AHEAD of the death - the ones the old break stranded");
+        check(current_fails, "and the request that raced the death failed its own outcome check, not only later runs");
+        std::string err;
+        check(g.entry_refused(err), "later runs are still refused - the sticky terminal state stands as before");
+    }
+
     std::printf("ds4_lane_gate_test: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

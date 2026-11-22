@@ -68,4 +68,22 @@ private:
     std::string why_;
 };
 
+/// (hotfix 2 to the third round) The terminal drain's one step, apart from the model so the host test can
+/// drive the PRODUCTION loop: a serve thread that died mid-answer must not leave the mailbox - the device
+/// kernels may already have published the next layers' requests, and their waits have no other end. So the
+/// thread stays and releases every slot whose request arrived: `published(next)` says the ring slot at
+/// `next` carries its request (the engine reads the volatile seq, the test an atomic), `release(next)`
+/// writes the failed (zero) answer and publishes it so that wait ends; then next advances. One served
+/// request per call, true: served, false: the ring is quiet for now - the caller keeps spinning and calls
+/// again until its work is over (teardown's quit). No computing, no notes, no new work: releases only.
+/// serve_lane runs it in its terminal branch; ds4_lane_gate_test scenario 6 drives it over a fake ring with
+/// a device thread publishing ahead of the death - every wait bounded, a stranded request fails the test.
+template <class Published, class Release>
+inline bool mail_terminal_step(unsigned& next, const Published& published, const Release& release) {
+    if (!published(next)) return false;
+    release(next);
+    ++next;
+    return true;
+}
+
 }  // namespace strata::ds4
