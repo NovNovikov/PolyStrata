@@ -2,8 +2,10 @@
 """kuu_perf_check.py <exe> <pack> <run-name> <ids-file> [engine args...]
 
 One real-load run of the engine on a real pack, for ONE feature's measurement: a long prompt (the ids
-file, whole - kuu_perf_test.bat makes one of 4096), one warm-up GEN, then KUUPERF_GENS measured GENs of
-KUUPERF_TOKENS tokens (defaults 3 and 64). Every GEN is timed where the protocol makes it measurable:
+file, whole - kuu_perf_test.bat makes one of 32,768, the size the user's own benches run: the qwen A/B
+benches take a 32,675-token prompt with GEN 512, the mimo bench --gen 1024/2048), one warm-up GEN, then
+KUUPERF_GENS measured GENs of KUUPERF_TOKENS tokens (defaults 3 and 512 - the qwen bench's number).
+Every GEN is timed where the protocol makes it measurable:
 send -> first 'T ' is the prefill (the prompt landing), first 'T ' -> DONE is the decode, so
 decode tok/s = (tokens-1) / decode_s. The engine's own cold load comes from its 'ds4: loaded in X s'
 line. Every engine stderr line is kept (KUU_ENGINE_LOG) and teed, as in short_prompt_check.py.
@@ -69,7 +71,7 @@ def main():
     ids = [int(x) for x in open(idsf).read().strip().split(",")]
     gens = int(os.environ.get("KUUPERF_GENS", 3))
     warm = int(os.environ.get("KUUPERF_WARM", 1))
-    ntok = int(os.environ.get("KUUPERF_TOKENS", 64))
+    ntok = int(os.environ.get("KUUPERF_TOKENS", 512))
     logname = os.environ.get("KUU_ENGINE_LOG") or os.path.join(
         tempfile.gettempdir(), f"kuu_perf_{name}.engine.log")
     log = open(logname, "w", encoding="utf-8", errors="replace")

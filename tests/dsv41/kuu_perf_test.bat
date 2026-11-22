@@ -1,12 +1,14 @@
 @echo off
 rem kuu_perf_test.bat - the per-parameter PERFORMANCE sweep of the ported kuu features. One run per
-rem parameter (plus the controls), each in its own engine process with the SAME real load: a 4096-token
-rem prompt, one warm-up GEN, then three measured GENs of 64 tokens (tests/dsv41/kuu_perf_check.py). Every
-rem run reports, on one RESULT line: the engine's cold load, the prefill (prompt landing), decode tok/s
-rem per measured GEN - and the activation witness, so a number is never read without knowing whether the
-rem switch actually reached its code (PASS ran / SKIP named reason it was idle / FAIL trouble or
-rem silence). Compare each run against ITS control, measured GEN against measured GEN - the first GEN of
-rem any load is warm-up and never comparable (baseline: 10 -> 19 tok/s across its own GENs).
+rem parameter (plus the controls), each in its own engine process with the SAME real load, sized like
+rem the user's own benches (the qwen A/B benches: 32,675-token prompt, GEN 512; the mimo bench --gen
+rem 1024/2048): a 32,768-token prompt, one warm-up GEN, then three measured GENs of 512 tokens
+rem (tests/dsv41/kuu_perf_check.py). Every run reports, on one RESULT line: the engine's cold load, the
+rem prefill (prompt landing), decode tok/s per measured GEN - and the activation witness, so a number
+rem is never read without knowing whether the switch actually reached its code (PASS ran / SKIP named
+rem reason it was idle / FAIL trouble or silence). Compare each run against ITS control, measured GEN
+rem against measured GEN - the first GEN of any load is warm-up and never comparable (the short smoke's
+rem baseline climbed 10 -> 19 tok/s across its own GENs).
 rem
 rem   baseline / defer3 / eg_ring / lm_ahead / all_exact   controls: baseline (the usual geometry)
 rem   store_base / uniform / drop_shards                   controls: store_base (--mmap-experts on +
@@ -57,10 +59,11 @@ if not exist "%LOGD%" mkdir "%LOGD%"
 set "SUM=%LOGD%\summary.txt"
 echo kuu per-parameter performance %DATE% %TIME%> "%SUM%"
 
-rem the load: 4096 token ids, made once (any vocab-valid ids route every expert - it is a load, not a text)
+rem the load: 32,768 token ids, made once (the size the user's benches use; any vocab-valid ids route
+rem every expert - it is a load, not a text)
 if not exist "%IDS%" (
     set PYTHONIOENCODING=utf-8
-    python -c "import sys;sys.stdout.write(','.join(str(100+i) for i in range(4096)))" > "%IDS%"
+    python -c "import sys;sys.stdout.write(','.join(str(100+i) for i in range(32768)))" > "%IDS%"
     if not exist "%IDS%" ( echo could not write %IDS% & exit /b 2 )
 )
 
