@@ -74,6 +74,37 @@ commit, each test runs without a model.
 | 14 | FIXED | `af16a157` | `kuu_features_test.bat` graded survival, not activation: every run now greps its log for the feature's witness line (PASS/SKIP/FAIL with the reason), and the two silent modes - `STRATA_DS4_ROUTER_BF16` and a load banner arming `STRATA_DS4_DEFER` - print one | the bat is NOT run here (real pack, exclusive GPU); witness strings taken verbatim from the engine |
 | 15 | SWEEP | this commit | full host-test re-run and engine build after all of the above; numbers in "What was actually run" | |
 
+## Third review round (items 1-15, P1 blockers first)
+
+A third hostile review read the second round's fixes and the paths around them - handle lifetimes,
+abandoned runs, service threads that die, buffers overwritten mid-DMA. Seven P1 findings came first
+(items 1-7): each could corrupt weights, hang a request forever, or kill a later request on a dead
+thread. Stage B (8, 9, 12, 13, 14) and Stage C (10, 11, 15) follow the same numbering as before. One
+fix per item, every test model-free; the acceptance line was: no silent weight corruption, no infinite
+wait on a dead service thread, engine links, all tests pass.
+
+| # | Status | Commit | Finding, and what the fix does | Test |
+| --- | --- | --- | --- | --- |
+| 1 | FIXED | `1b43fb5e` | `FdRef::acquire` read the handle and counted itself as a reader in two steps: a `replace()` between them returned a CLOSED fd, and the reader was counted against a generation that never used it. Handle and reader count now live in one refcounted `Ctl` block - acquire takes both under a short mutex, `replace()` still never waits on a reader, and a retired fd closes at the LAST reference, after every in-flight read | `store_close_test` (22: a close/replace loop racing readers that read through the handle they hold) |
+| 2 | FIXED | `ef5b8d76` | The recent-slot fill (`rc_stage`) rewrote and freed a pinned staging buffer while an earlier copy from it could still be queued: two experts' bytes in one slot. The production class is extracted (`ds4_rc_stage.hpp`): every member stream carries notes, a rewrite DRAINS the previous fill first, a poisoned stage is leaked rather than freed under a live DMA, a failed fill DECLINES (the RAM lane serves) and a pinned buffer that will not pin falls back to heap - never onto a recastable store slot | `ds4_rc_stage_test` (device, new: barriers force the two fills to overlap and check every slot's bytes) |
+| 3 | FIXED | `8508bf9b` | An Engram ring that fell back for pinned room left `eg_ring=false` while the ring PRODUCER started over the unreset book (`slot_of()` on n==0) and the consumer `get()`-ed a future nobody started. Requested (`eg_want`) and effective (`eg_ring`) are decided apart, half-made ring resources are freed on every fallback (out of `host_allocs` too), a thread that cannot start is a mode change not a `std::terminate`, and exactly one producer - the one the effective mode names - starts | `engram_ring_test` (62, fallback shapes) |
+| 4 | FIXED | `5b3a9e77` | A lane thread's death was reported like a recoverable failure, and `flow_pump`'s `break` could strand the service loop: later requests queued to a thread that no longer existed and hung. The failure state splits (`ds4_lane_gate.hpp` `LaneFail`): REPORT clears per run, DEATH is sticky forever (`clear_run` re-marks, never reopens), every forward/feed/draft entry refuses on death, and a refused `forward` rolls its position and token book back instead of advancing over a lane that will not compute | `ds4_lane_gate_test` (18, new: a killed service thread fails the NEXT request rather than hanging it) |
+| 5 | FIXED | `ada97f1a` | `StoreHold::release()` keyed on the caller's `ok` flags: a partial read left its slots pinned forever (the budget never saw them back), and the hot batch resolved experts by raw slot instead of the hold's `dmd()` - the lease a dead read still owed. Ownership is the slot list alone (`sl[i] >= 0` IS the pin), and the hot path resolves through the hold | `store_classes_test` (174, scenario 8: an abandoned hold, pins returned whole) |
+| 6 | FIXED | `5da95c8b` | After a successful `PfSide::recover`, the election's loser-winner race could pick a SECOND writer for the just-restored slot. The winner re-checks through `recover_owned`: a slot that arrived while you were elected is taken as a HIT, never rewritten | `lm_ahead_test` (30, the production exchange driven by two threads) |
+| 7 | FIXED | `dbb3b181` | Every way out of a flow run moved on while its CPU reads were in flight: `flow_release_pins` unpinned slots a running read copies out of, `run_dev_chunks` dropped `items` - the counters the completions decrement - under them, and `~Impl` `cudaFreeHost`ed the staging the queued jobs write into (the `IoQueue` destructor joins its threads only AFTER that body). The wait `halt_end`/`lm_end` had is now inside `flow_release_pins` (before the unpin, keyed on `c.flow && c.io`), and `~Impl` resets the chunks' queues before any pinned arena is freed | `ds4_io_test` (32, abandon-then-drain: 200 rounds, counters zero, bytes right, >100 rounds caught jobs in flight) |
+| 8 | FIXED | `d731d20f` | A speculative read whose layer ARRIVED was a demand the pump waits for - and it sat in the low queue behind later guesses while the workers take high work first. `IoQueue::promote(left)` moves the queued part-jobs of that owner to the high queue (a part running is untouched, a part taken is off the queue, repeat calls are idempotent); `flow_pump` promotes the item it stands at | `ds4_io_test` (32, one worker, five guesses: the promoted one provably lands FIRST) |
+| 9 | FIXED | `97929ffa` | Speculative LM_AHEAD passes nobody adopted still read over the link: reuse drained for them, and `lm_end` waited for a run's own queued guesses. `PfSide` grows a per-slot cancel flag - posted jobs carry it, the queue drops a flagged job UNREAD - set by `discard_all` before the reuse drain and before `lm_end`'s drains; `begin()` resets it, which is safe against the drain-before-reuse invariant | `lm_ahead_test` (30, scenario 6: discarded queued guess lands failed with the sentinel slot untouched) |
+| 10 | FIXED (diagnostics) / DEFERRED (reserve) | `df43ef64` | A size class that starves was invisible: one total `rebalances` counter and a silent `-1`. Per-class `starved`/`relieved`/`denied` counts, one-time notices naming the slot MB, a `class_report()`, and the load banner's class table. A per-class RESERVE is deferred: the recast already rebalances the shared budget between classes and no measurement says a fixed floor pays - building it would sit unused as often as not | `store_classes_test` (174: fresh store reports clean; the starve/recast/refuse block leaves all three counters non-zero) |
+| 11 | FIXED | `e2b05c1e` | The preload RANKING was byte-aware (`count per blob byte`) but the `DS4_STORE_BG` head/tail SPLIT divided 48 GB by LAYER 0's blob - off by the blob ratio on a mixed pack, so the "before the first token" pile was not 48 GB; the background report made the same assumption. The cut accumulates each listed expert's own blob; the report sums the tail's own bytes | engine build (the split needs profile + loaded geometry; uniform packs - where both formulas agree within one expert - unchanged) |
+| 12 | FIXED | `31838938` | "No mapped view" is a fact about a FILE: `DROP_SHARDS` keeps mixed shards' mappings, yet one dropped file set the global `views=false` and every starved expert of every layer took the demand rescue - a second blob of IO plus an anon alloc - where its own matrices are still mapped. The rescue asks `Pack::at` per expert (null exactly for dropped files); the global flag is gone, bin packs keep their old answers via the `pk.gguf` guard | engine build (rescue lives with a loaded pack; the per-file primitives `at`/`read_at` are covered by `ds4_io_test` and `store_close_test`) |
+| 13 | FIXED | `ea79e43f` | The ring pinned without a ceiling (`cudaHostAlloc` says yes past comfort on Windows) and its events had no teardown owner. A byte budget (4000 MB default, `STRATA_DS4_EG_RING_MB`) clamps the slot count BEFORE pinning, trims a ring a grown chunk pushed over it, and falls under two slots; `~Impl` destroys the ring's and the two-buffer path's events where it already frees the flow's queues | `engram_ring_test` (62: the clamp arithmetic - request bounds budget and vice versa, floors, zero/negative shapes, both engine compositions) |
+| 14 | FIXED | `fa152cbb` | `kuu_features_test.bat`'s witness greps had no text: the script handed the engine's stderr to a temporary it UNLINKED, so each run's log carried six prints, no engine line. Every engine stderr line is now teed live into the .bat's log AND kept whole in `KUU_ENGINE_LOG`; grading tightened (a 15-token DONE, a QUIT that hangs, a non-zero exit all fail) and a failure prints the log's tail | `short_prompt_check_test.py` (new: seven mock-engine scenarios grade the checker - exit codes, witness passthrough, log completeness, post-QUIT tail) |
+| 15 | FIXED | `509bad51` | `lazy_rounds`/`lazy_rows` lived only in the `/stats` JSON; the console showed a lazy run and a silently-eager run identically. STAT grows `lazy_r=`/`lazy_rows=` deltas, the serve summary names the lazy share of its drafts, the dspark harness prints its line | engine build |
+
+Items 16 and 17 of the task spec were constraints, not findings: the accepted first- and second-round
+fixes stand (the sweep below re-ran them all), and no new allocator, scheduler or engine was introduced -
+every change is inside the machinery the port already had.
+
 ## Identity of the moving parts (review 11)
 
 Everything that changes what a layer computes is in the session identity as the ENGINE resolved it - and
@@ -131,6 +162,7 @@ cache), so equal fingerprints promise equal settings, not equal numbers across m
 | `DS4_MTP_VRAM_GB` | GB | unset | the drafter's per-block VRAM byte cap |
 | `STRATA_DS4_DSPARK_LAZY` | `0`/`1` | `0` | stop drafting rows the confidence cut discards |
 | `STRATA_DS4_EG_RING` | int | off | Engram reader ring slots (>= 2) |
+| `STRATA_DS4_EG_RING_MB` | MB | `4000` | the ring's total pinned-byte ceiling: over it the ring runs narrower, under two slots it is off (round three) |
 | `DS4_LM_AHEAD_Q` | float | `0.5` | read-ahead: the pick-chance to read an expert ahead |
 | `DS4_LM_AHEAD_CHUNKS` | int | `4` | read-ahead: the shortest run of chunks that turns it on |
 | `STRATA_DS4_LM_AHEAD` | `0`/`1` | `0` | next-layer expert read-ahead |
@@ -204,8 +236,10 @@ cmake --build build --target ds4_vram_plan_test ds4_draft_cut_test   # plus the 
 #   cl /std:c++17 /I src/dsv41 /I include tests/dsv41/defer_math_test.cpp    && defer_math_test
 #   cl /std:c++17 /I src/dsv41 /I include tests/dsv41/ds4_defer_policy_test.cpp
 #   cl /std:c++17 /I src/dsv41 /I include tests/dsv41/ds4_identity_knobs_test
+#   cl /std:c++17 /I src/dsv41 /I include tests/dsv41/ds4_lane_gate_test.cpp  && ds4_lane_gate_test
+#   python tests/dsv41/short_prompt_check_test.py          (mock engines - no model, no GPU)
 # device tests (EXCLUDE_FROM_ALL, need a GPU):
-cmake --build build --target ds4_router_bf16_test ds4_route_guard_test && ./ds4_router_bf16_test
+cmake --build build --target ds4_router_bf16_test ds4_route_guard_test ds4_rc_stage_test && ./ds4_router_bf16_test
 # the pre-existing dsv41 host tests (unchanged, run as regression):
 cmake --build build --target ds4_slot_test ds4_marks_test ds4_ring_link_test ds4_evt_test \
     ds4_experts_rule_test ds4_path_policy_test ds4_pick_rule_test
@@ -242,6 +276,15 @@ lost-wakeup watchdog is a named-timeout check, not a bound. `ds4_defer_policy_te
 `ds4_vram_plan_test` (19) and the device `ds4_router_bf16_test` (19) were not rebuilt: the code they
 compile against is unchanged since they passed.
 
+Third review round, re-run after the final build (2026-11-22), same machine: `store_classes_test` 174,
+`store_close_test` 22, `ds4_io_test` 32, `lm_ahead_test` 30, `ds4_lane_gate_test` 18 (new),
+`engram_ring_test` 62, `defer_math_test` 1792, `ds4_draft_cut_test` 26, `ds4_identity_knobs_test` 34 -
+0 failures each; the device `ds4_rc_stage_test` 18 (new), and `short_prompt_check_test.py` all-good
+(mock engine, no model). The CUDA engine (`strata-dsv41.exe`, sm_89) built and linked clean at every
+commit of the round. `kuu_features_test.bat` itself was NOT run - it loads the real pack on an exclusive
+GPU, out of the task spec; what round three fixed in it is the machinery its verdicts stand on, tested
+against mock engines instead.
+
 ## Not run, and why
 
 - Any end-to-end inference, prefill/decode timing, KL or quality measurement: excluded by the task spec -
@@ -264,4 +307,5 @@ compile against is unchanged since they passed.
 - `DS4_MTP_VRAM_GB` and ring sizes for the 4090 with the user's pack: the donor's numbers are starting points.
 - `DSPARK_LAZY` falls back to eager when the head group spans devices, a markov split runs, or a draft dump is
   active - whether the user's geometry hits that, the first `--dspark on` run will show: with a drafter
-  loaded, `lazy_rounds` staying at 0 in stats names the fallback (review 12).
+  loaded, `lazy_rounds` staying at 0 names the fallback - since the third round the STAT line and the serve
+  summary print it beside the drafts, no JSON open needed (review 12, round-3 item 15).
