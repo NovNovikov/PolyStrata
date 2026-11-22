@@ -21,6 +21,7 @@
 #include "ds4_vram_plan.hpp"   // plan_group_vram: the VRAM expert split, shared with tests/dsv41/ds4_vram_plan_test.cpp
 #include "ds4_draft_cut.hpp"   // draft_cut_keep: the confidence cut, shared with main.cpp's verify and the 8.5 test
 #include "ds4_defer_policy.hpp"   // defer_window / lane_splits / the light split: shared with tests/dsv41/ds4_defe
+#include "ds4_lane_gate.hpp"      // (local) LaneFail: the CPU lane's report-vs-death state (third round item 4)
 #include "ds4_rc_stage.hpp"       // (local) RcStage: the recent-slot fills' staging blob and its DMA drain ruler_policy_test.cpp
 #include "ds4_identity_knobs.hpp"   // SessionKnobs / emit_session_knobs: the fingerprint section, shared with its test
 #include "ds4_engram_io.hpp"
@@ -1190,35 +1191,23 @@ struct Model::Impl {
     std::mutex halt_mu;
     int halt_k = INT_MAX, halt_seen = -1;
     bool halted = false;                      // the last run ended early on a Stop
-    // (local, review 2) a CPU-lane demand read that failed for real (starved store AND failing files): the forward
-    // reports it as its error; cleared at every run's start. A flag + guarded string: the lane and the copy thread
-    // both note, only the API thread reads, the hot paths check the relaxed flag alone.
-    std::atomic<bool> lane_err_set{false};
-    std::mutex lane_err_mu;
-    std::string lane_err;
-    void note_lane_err(const std::string& msg) {
-        std::lock_guard<std::mutex> lk(lane_err_mu);
-        if (lane_err.empty()) lane_err = msg;
-        lane_err_set.store(true, std::memory_order_relaxed);
-    }
-    std::string take_lane_err() {
-        std::lock_guard<std::mutex> lk(lane_err_mu);
-        return lane_err;
-    }
+    // (local, review 2; third round, item 4) the CPU lane's failure state, now two apart things (ds4_lane_gate.hpp):
+    // a demand read that failed for real is a REPORT (which read, for the run's error text; cleared at every run's
+    // start - a copy-thread note belongs to the run that saw it), and when the service thread leaves the mailbox
+    // with a report outstanding it is also a DEATH: sticky past every clear, the entry guard refuses later
+    // inference before any GPU work, and no answer of a dead-lane run is ever handed back. A flag + guarded string:
+    // the lane and the copy thread both note, only the API thread reads, the hot paths check the relaxed flag alone.
+    LaneFail lane_;
+    void note_lane_err(const std::string& msg) { lane_.note(msg); }
+    std::string take_lane_err() { return lane_.why(); }
     // (local, review 2 item 1.2) the one check every public call makes on a run's outcome: a CPU lane that noted a
     // real demand-read failure (the store had no slot AND reading the files failed too) must not hand back an
     // answer computed on missing bytes, whatever the GPUs did with the rest of the token.
-    bool api_ok(bool ok, std::string& err) {
-        if (!ok) return false;
-        if (!lane_err_set.load(std::memory_order_relaxed)) return true;
-        err = "CPU lane: " + take_lane_err();
-        return false;
-    }
-    void clear_lane_err() {
-        std::lock_guard<std::mutex> lk(lane_err_mu);
-        lane_err.clear();
-        lane_err_set.store(false, std::memory_order_relaxed);
-    }
+    bool api_ok(bool ok, std::string& err) { return ok && lane_.api_ok(err); }
+    void clear_lane_err() { lane_.clear_run(); }
+    // (third round 4) the one check every public entry makes BEFORE any work, GPU or mailbox: after the service
+    // thread died there is nobody left to answer a request, so publishing one is an infinite wait dressed as a run
+    bool lane_dead_err(std::string& err) const { return lane_.entry_refused(err); }
     // a yield (Model::set_yield, asked while forward_chunks waits): the run ends at a chunk every device reaches, as on
     // a Stop, but the chunks before it stay read - feed() returns true with fed() the tokens it took.  One GPU too ends
     // at a chunk there, never mid-chunk (halt_now), unless a Stop follows (Project Maya #587)
@@ -10204,11 +10193,12 @@ struct Model::Impl {
                 *(volatile unsigned*) &late_ans->seq = next;
                 late_ans = nullptr;
             }
-            if (lane_err_set.load(std::memory_order_relaxed)) {   // (local, review 2 item 1.2) a demand read failed for real:
-                halt.store(true);   // the flag is published (the GPU's wait ends), this request's numbers are zeros,
-                ++next;             // and the run stops here - the API reports lane_err as the request's error, so
-                break;              // an answer computed on missing bytes never leaves the engine as a success
-            }
+            if (lane_.noted()) {   // (local, review 2 item 1.2; third round 4) a demand read failed for real: the
+                lane_.die();       //   flag is published (the GPU's wait ends), this request's numbers are zeros -
+                halt.store(true);  //   and this is the thread's END: the gate marks the death sticky, so the API
+                ++next;            //   reports lane_err for THIS request and every later entry is refused before
+                break;             //   it can publish a mailbox request nobody would ever answer (the round-two
+            }                      //   code left the loop silently, and the next run hung on its own request)
             if (late_ans != nullptr) {   // (local) STRATA_DS4_DEFER=2: the light part (cpu flags 0 when there was none)
                 std::atomic_thread_fence(std::memory_order_release);
                 *(volatile unsigned*) &late_ans->seq = next;
@@ -11472,6 +11462,8 @@ struct Model::Impl {
         return ok;
     }
     bool draft_(int y, std::vector<int>& out, std::vector<float>& conf, std::string& err) {
+        if (lane_dead_err(err)) return false;   // (third round 4) the drafter's layers route experts through the
+                                                //   same mailbox: with the lane dead their waits would never end
         begin_forward();   // (local) the drafter's layers are a forward too: an aborted step's deferred part must not land here
         out.clear();
         conf.clear();
@@ -11738,6 +11730,7 @@ struct Model::Impl {
     }
     bool draft_multi_(const int* sv, const int* ys, int n, std::vector<std::vector<int>>& out,
                       std::vector<std::vector<float>>& conf, std::string& err) {
+        if (lane_dead_err(err)) return false;   // (third round 4) as in draft_(): the shared drafts ride the mailbox
         begin_forward();   // (local) as in draft_(): the drafter's rows are a forward of their own
         const int T = g.d_block, D = g.dim, H = g.hc, V = g.vocab, R = g.d_rank, NR = n * T;
         WinPlan dp;   // (the rows: conversation sv[c]'s block at rows c * T .., its positions pos ..)
@@ -13387,7 +13380,8 @@ struct Model::Impl {
     double pm_k(int c) const { return pm.flow.factor_for_size_class(c); }
     // n tokens through windows of 16, the last one's logits_rows rows of logits
     bool feed_windows(const int* tokens, int n, int logits_rows, std::string& err) {
-        clear_lane_err();   // (review 2)
+        if (lane_dead_err(err)) return false;   // (third round 4) refuse before any work (forward's own guard is
+        clear_lane_err();   //   (review 2)  the backstop; no window starts after a dead lane)
         logits_all = false;
         for (int a = 0; a < n; a += kWin) {
             const int T = std::min(kWin, n - a);
@@ -13792,6 +13786,8 @@ struct Model::Impl {
     // a shared start), each kept from what the layers kept of it on the way - as mark() at that position would keep it
     bool forward_chunks(const int* tk, int n, int logits_rows, std::string& err, int snap_slot = -1, int after = 0,
                         const std::vector<std::pair<int64_t, bool>>* inner = nullptr) {
+        if (lane_dead_err(err)) return false;   // (third round 4) a dead lane answers nothing: refuse before any
+                                                //   GPU work, mailbox publish, or state change
         if (inner != nullptr && inner->size() + 1 > (size_t) kSnapN) {
             err = "forward_chunks: restore points a run cannot keep";
             return false;
@@ -14063,6 +14059,10 @@ struct Model::Impl {
                 if (cp != nullptr && cp->flow) picked += (double) (cp->it_file + cp->it_ram) - (double) cp->it_spec_unused;
             if (!tp) pm_learn(n, picked);
         }
+        if (lane_.noted()) {   // (third round 4) the CPU lane reported mid-run: some chunk answered with zeros, and
+            err = "CPU lane: " + take_lane_err();   //   which one is not knowable from here - so commit NOTHING: no
+            return false;      //   position, no logits claim, no restore points, no checkpoint, no drafter seed.
+        }                      //   (lm_end_ frees the layer cache on the way out, as on any early return; the KV
         if (logits_all) n_logits = (T_last - 1) % kWin + 1;   // (sample() takes the last row of d.logits)
         if (took < n) {   // (a yield: the rest of the tokens are a later feed's; no logits)
             toks.resize((size_t) (pos + took));
@@ -14255,6 +14255,7 @@ struct Model::Impl {
     }
 
     bool forward(const int* tk, int T, int logits_rows, std::string& err, int seed_rows = -1) {
+        if (lane_dead_err(err)) return false;   // (third round 4) refuse before any work: the mailbox has nobody left
         clear_lane_err();   // (review 2) decode's run: its lane errors start empty (feed_* clear their own)
 #if defined(STRATA_METAL)
         struct BusyAll {   // DS4_BUSY_ALL: the GPU is held busy for the whole step (the host gaps between its bursts too)
@@ -14314,6 +14315,12 @@ struct Model::Impl {
         CK(cudaStreamSynchronize(d.st));
         st.head_ms += now_ms() - th;
         prof_collect();
+        if (lane_.noted()) {   // (third round 4) the lane answered part of this window with zeros: its KV rows are
+            toks.resize((size_t) p0);   //   missing bytes - the position, and the token log with it, stay where the
+            ctoks.resize((size_t) p0);  //   state is whole, and the run comes back as an error. api_ok would fail it
+            err = "CPU lane: " + take_lane_err();   //   anyway; committing it here would make the corruption outlive
+            return false;   //   the request that noticed it (the next verify would accept from these rows)
+        }
         pos += T;
         st.tokens += T;
         cache_tick(T);
@@ -15869,6 +15876,7 @@ bool Model::feed(const int* tokens, int n, int logits_rows, std::string& err, in
 }
 bool Model::feed_mark(const int* tokens, int n, int logits_rows, int slot, std::string& err) {
     Impl& p = *p_;
+    if (p.lane_dead_err(err)) return false;   // (third round 4) before the checkpoint: a dead lane saves no states
     p.pm.last = -1;
     p.halted = false;
     p.clear_lane_err();   // (review 2)
@@ -15889,6 +15897,7 @@ bool Model::feed_marks(const int* tokens, int n, int logits_rows, int slot,
                        const std::vector<std::pair<int64_t, bool>>& inner, std::string& err) {
     if (inner.empty()) return feed_mark(tokens, n, logits_rows, slot, err);
     Impl& p = *p_;
+    if (p.lane_dead_err(err)) return false;   // (third round 4) as in feed_mark: nothing is saved or fed past a death
     const int64_t p0 = p.pos;
     for (size_t j = 0; j < inner.size(); ++j)
         if (inner[j].first <= p0 || inner[j].first >= p0 + n - 1 || (j > 0 && inner[j].first <= inner[j - 1].first)) {
