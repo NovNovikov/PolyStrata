@@ -3854,8 +3854,16 @@ class Service:
         restore by identity, tokens and pictures itself - so a knob change could only ever REFUSE a
         restore that was perfectly safe, and on this rig refusing one costs the full re-read (a 140k
         conversation, minutes).  Same reasoning #2228 used to take the pictures' keys out.  Everything
-        else sampling carries (image_pad, strata_tune, and any future field) stays in: a field is let
+        else sampling carries (strata_tune, and any future field) stays in: a field is let
         out only once it is known to hold no state, never by default.
+
+        image_pad joined the knobs on 2026-11-22, completing #2228 (which took the pictures' KEYS
+        out but left this one, so the first screenshot in a text conversation still busted every
+        stored pair - measured: a full re-read of a 162k branch for one pasted image). It only
+        exists on image requests (Service.run() adds it beside the embeddings file), the strata
+        engine skips the key (sampling_keys' own comment), and the engine re-verifies every restore
+        by identity, tokens and pictures - the state holds what the tokens made, not where a later
+        request asked the image rows to sit.
 
         Deliberately WITHOUT turn_key (the last-turn position): it moves with every
         follow-up, so keying on it would make follow-up restores impossible.  The GEN
@@ -3872,7 +3880,8 @@ class Service:
     # them changes one byte of a saved state, so none of them may decide whether one mounts.
     SAMPLING_KNOBS = frozenset(("temperature", "top_p", "top_k", "min_p", "repetition_penalty",
                                 "frequency_penalty", "presence_penalty", "penalty_last_n", "seed",
-                                "strata_checkpoint", "strata_img_keys"))      # strata_img_keys: #2228
+                                "strata_checkpoint", "strata_img_keys",       # strata_img_keys: #2228
+                                "image_pad"))                                  # 2026-11-22: the rest of #2228
 
     def _auto_store(self):
         """The auto store dir, or None (no store: never fails the request)."""

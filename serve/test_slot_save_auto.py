@@ -355,9 +355,13 @@ class Hooks(unittest.TestCase):
         again = self.ids + gen + make_ids(30, 9500)
         self.assertEqual(self.svc.auto_restore_session(again, {"temperature": 0.2}), 2050)
         self.assertEqual(self.svc.auto_restore_session(again, {"seed": 7, "top_k": 40}), 2050)
+        # 2026-11-22: the rest of #2228. The first screenshot in a text conversation must not bust
+        # every stored pair - image_pad only exists on image requests and the engine skips the key.
+        self.assertEqual(self.svc.auto_restore_session(again, {"image_pad": 151655}), 2050)
+        self.assertEqual(self.svc.auto_restore_session(again, {"temperature": 0.7, "image_pad": 151655}), 2050)
         tuned = {"temperature": 0.7, "strata_tune": {"pcie_frac": 0.5}}
         self.assertEqual(self.svc.auto_restore_session(again, tuned), 0)          # not a knob: refused
-        self.svc.auto_save_session(self.ids, gen, {"temperature": 0.2})          # the twin save dedups
+        self.svc.auto_save_session(self.ids, gen, {"temperature": 0.2, "image_pad": 151655})   # twin dedup too
         self.assertEqual(len(auto.list_entries(auto.auto_dir(self.dir.name))), 1)
 
     def test_one_short_of_full_indexes_the_state_not_the_promise(self):
