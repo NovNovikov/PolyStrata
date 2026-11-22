@@ -129,6 +129,44 @@ int main() {
         std::memcpy(stage.data(), pat_a.data(), kBlob);   // (legal: nothing is reading it)
         check(true, "and refilling it immediately is the protocol's idle path");
     }
+    // 5. (hotfix 1 to the third round) a FAILED record() poisons the stage: the copies it was to note were
+    //    enqueued BEFORE record ran, so a failure there leaves a live DMA with no note - the unprovable history
+    //    the poison exists for. Refills must be refused (drain says false forever) and the blob is leaked at
+    //    scope end, never freed under that copy. Bad device id: the note cannot even be created.
+    {
+        RcStage stage;
+        check(stage.alloc(kBlob), "a stage for the poison scenario");
+        std::memcpy(stage.data(), pat_a.data(), kBlob);
+        cudaMemcpyAsync(slow_dst, slow_src, kSlow, cudaMemcpyDeviceToDevice, s1);   // (busy first: the window stays open)
+        cudaMemcpyAsync(dst_a, stage.data(), kBlob, cudaMemcpyHostToDevice, s1);    // (a live reader of the blob)
+        check(!stage.record(9999, s1), "a record on a device that is not there fails");
+        check(!stage.record(0, s1), "and it was terminal: the poisoned stage notes nothing more");
+        check(!stage.drain(), "the drain says false forever: a poisoned blob can never be proven drained");
+        check(!stage.has_notes(), "no note was left half-made behind the failure");
+    }   // (the stage LEAKS its blob here - the in-flight copy above still reads it; deliberate, the destructor's rule)
+    check(cudaStreamSynchronize(s1) == cudaSuccess, "the poisoned stage left the stream healthy");
+    {
+        std::vector<uint8_t> back(kBlob);
+        check(cudaMemcpy(back.data(), dst_a, kBlob, cudaMemcpyDeviceToHost) == cudaSuccess &&
+                  std::memcmp(back.data(), pat_a.data(), kBlob) == 0,
+              "and the copy the failed note abandoned delivered A's bytes - poisoned meant UNTOUCHED, not rewritten");
+    }
+    // 6. the same poison from the record side: a handle that WAS a stream - destroy a stream that still carries
+    //    work (legal: the copies run on, the handle dies), and record() over the dead handle must fail and poison
+    //    exactly like the device branch. (0x1 would not do: it is cudaStreamLegacy, a valid stream.)
+    {
+        RcStage stage;
+        check(stage.alloc(kBlob), "a stage for the dead-stream shape");
+        std::memcpy(stage.data(), pat_b.data(), kBlob);
+        cudaStream_t s3 = nullptr;
+        check(cudaStreamCreate(&s3) == cudaSuccess, "a stream made just to die");
+        cudaMemcpyAsync(slow_dst, slow_src, kSlow, cudaMemcpyDeviceToDevice, s3);   // (work that outlives the handle)
+        cudaMemcpyAsync(dst_a, stage.data(), kBlob, cudaMemcpyHostToDevice, s3);    // (the blob's live reader)
+        check(cudaStreamDestroy(s3) == cudaSuccess, "the handle is destroyed - its work runs on");
+        check(!stage.record(0, s3), "an event will not record on the dead handle");
+        check(!stage.drain(), "and the failure poisons: the copy outliving its stream stays unprovable");
+    }   // (leaked on purpose again: that abandoned copy is still reading the blob)
+    check(cudaDeviceSynchronize() == cudaSuccess, "the dead-stream shape drained clean and left the device healthy");
 
     cudaStreamDestroy(s1);
     cudaStreamDestroy(s2);

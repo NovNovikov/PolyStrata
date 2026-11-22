@@ -2,21 +2,25 @@
 // Ported into Strata (third_party/project-maya/NOTICE.md, LICENSE); changes are in the git history of this file.
 // src/dsv41/ds4_rc_stage.hpp - one staging blob for the recent-slot fills' H2D copies, and the rule that keeps it
 // honest: nobody writes it while a device copy is still reading it (hostile review, third round item 2).
+// Event operations are checked, and a failed create/record/sync POISONS the stage: the fill's copies were enqueued
+// before any note could exist, so their completion is unprovable, and a poisoned blob is never written again and
+// never freed - leaked deliberately rather than pulled out from under a live DMA. A declined recent-slot fill only
+// means the expert routes over the RAM lane.
 //
 // The recent-slot filler stages each expert's bytes once, then lets the device pull them with ASYNC copies, so the
 // next expert's bytes must not overwrite the blob before those copies drained. record() notes the end of one fill on
 // EVERY member stream its copies ran on (a tensor-parallel expert's pieces go to several devices); drain() waits for
 // all of them before the buffer may be written again - and before it is freed, so teardown never frees a buffer a
-// DMA still reads. Event operations are checked: a failed create/record/sync says so, and the caller declines the
-// fill rather than staging blind - a declined recent-slot fill only means the expert routes over the RAM lane.
+// DMA still reads (poisoning above is the fallback when that wait can no longer be trusted).
 //
 // The blob itself is pinned when CUDA can give pinned memory, plain heap when it cannot: an async copy FROM pageable
 // memory completes before cudaMemcpyAsync returns (the driver stages it internally), so the no-overwrite rule holds
 // trivially there, and a failed pinned allocation no longer sends the copies back to the store's recastable slots -
 // the defect the staging was added for. No allocation at all: alloc() says false and the caller declines the fills.
 //
-// Tests: tests/dsv41/ds4_rc_stage_test.cpp (device): two experts, a deliberately slow copy for the first, a refill
-// attempt for the second - both destinations keep their bytes, and a stage destroyed mid-DMA stays alive for it.
+// Tests: tests/dsv41/ds4_rc_stage_test (device): two experts, a deliberately slow copy for the first, a refill
+// attempt for the second - both destinations keep their bytes, a stage destroyed mid-DMA stays alive for it, and
+// a record() that fails (bad device, bad stream) poisons the stage so no refill and no free follow.
 #pragma once
 
 #include <cuda_runtime.h>
@@ -58,17 +62,23 @@ public:
     size_t size() const { return bytes_; }
     // (after enqueuing this fill's copies on one member's stream): a note that the device may still be reading the
     // blob through this stream. Every member's stream gets one; false means the note could not be made, and the
-    // fill cannot be proven done - the caller declines it (nothing was written blind).
+    // fill cannot be proven done - the caller declines it (nothing was written blind), and the STAGE IS POISONED:
+    // the copies this note was to stand for were enqueued BEFORE record() ran (hotfix 1 to the third round), so
+    // a failure here leaves a live DMA with no note at all - exactly what the poison exists for. A poisoned stage
+    // records nothing more, drains to false (refilling it is refused) and its blob is leaked at teardown rather
+    // than freed under that untracked copy.
     bool record(int dev_id, cudaStream_t cs) {
         if (poisoned_) return false;
         cudaEvent_t e = nullptr;
         if (cudaSetDevice(dev_id) != cudaSuccess || cudaEventCreateWithFlags(&e, cudaEventDisableTiming) != cudaSuccess) {
             (void) cudaGetLastError();
+            poisoned_ = true;   // (an enqueued copy on cs has no note and never will: unprovable, unfreeable)
             return false;
         }
         if (cudaEventRecord(e, cs) != cudaSuccess) {
             (void) cudaGetLastError();
             (void) cudaEventDestroy(e);
+            poisoned_ = true;   //   (same: the record died, the copy it would track did not)
             return false;
         }
         infl_.push_back({dev_id, e});
