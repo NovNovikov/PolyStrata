@@ -247,7 +247,7 @@ public:
     void unpin(int s) {
         if (s < 0) return;
         std::lock_guard<std::mutex> lk(mu_);
-        if ((size_t) s < nalloc_ && slots_[(size_t) s].pin > 0) slots_[(size_t) s].pin--;
+        if ((size_t) s < nalloc_) drop_pin(s);
     }
     /// A slot's pin count > 0 (host tests, diagnostics): a pin held by acquire_ready/begin.  (Second review 1.1:
     /// the tests must see that a recast waits for the holder.)
@@ -341,7 +341,7 @@ public:
             finish(sp);
             if (sp.state.load() == kReady) ok[(size_t) i] = 1;
             else {
-                sp.pin--;
+                drop_pin(s);   // (hotfix 3) the LAST pin on a failed slot frees it; a holder keeps kFailed held
                 sl[(size_t) i] = -1;
                 all = false;
             }
@@ -361,10 +361,8 @@ public:
     void release(const std::vector<int>& sl, const std::vector<char>& /*ok*/) {
         std::lock_guard<std::mutex> lk(mu_);
         for (size_t i = 0; i < sl.size(); ++i)
-            if (sl[(size_t) i] >= 0) {
-                Slot& sp = slots_[(size_t) sl[(size_t) i]];
-                if (sp.pin > 0) sp.pin--;
-            }
+            if (sl[(size_t) i] >= 0 && (size_t) sl[(size_t) i] < nalloc_)
+                drop_pin(sl[(size_t) i]);   // (hotfix 3) decrements, and frees a failed slot the last pin leaves
     }
     /// Starts reading (layer, e) if it is neither here nor on its way (a guess: unpinned, may be given up before it is used).
     void prefetch(int layer, int e) {
@@ -445,16 +443,18 @@ public:
         const int s = where_[(size_t) layer][(size_t) e];
         if (s < 0) return;
         Slot& sp = slots_[(size_t) s];
-        if (sp.pin > 0) sp.pin--;
         if (ok) {
+            if (sp.pin > 0) sp.pin--;
             sp.left.store(0, std::memory_order_release);
             sp.state.store(kReady, std::memory_order_release);
         } else {
+            // (hotfix 3) a begin() can pin a put's loading slot (where_ names it), so the failed put can have
+            // holders besides its own owner: dead + HELD until the last pin drops, never kFree under them.
             where_[(size_t) layer][(size_t) e] = -1;
             sp.layer = sp.expert = -1;
             sp.left.store(0, std::memory_order_release);
-            sp.state.store(kFree, std::memory_order_release);
-            hint_down(s);
+            sp.state.store(kFailed, std::memory_order_release);
+            drop_pin(s);   // (the put_begin owner's own pin; last one → kFree + hint_down)
         }
     }
     /// Guesses still waiting in the queue for a layer the token is past: dropped unread (their slots free once the queue has gone by)
@@ -588,6 +588,9 @@ public:
     }
 
 private:
+    // kFailed (hotfix 3): a read that failed while someone still held the slot - dead (identity forgotten,
+    // never findable, never handed out, never recast) but NOT free: take_slot's free scan gives out kFree
+    // without checking pins, so a failed slot enters kFailed and the last drop_pin() retires it to kFree.
     static constexpr int kFree = 0, kLoading = 1, kReady = 2, kFailed = 3;
     // slots a chunk of the arena (the unit the GPU mapping registers; DS4_STORE_CHUNK_SLOTS: a test knob for the registration segment size)
     static size_t chunk_slots() {
@@ -675,13 +678,30 @@ private:
         if (sp.bad.load()) {
             where_[(size_t) sp.layer][(size_t) sp.expert] = -1;
             sp.layer = sp.expert = -1;
-            sp.state.store(kFree, std::memory_order_release);
+            // (hotfix 3) a failed read with holders goes to kFailed, NOT kFree: take_slot hands kFree out
+            // without looking at pins, and begin() pins a LOADING slot by where_ - so two ensure()s of the
+            // same still-loading expert are two holders of one slot, and freeing it here issued it to a third
+            // fill while both held it, their later releases cutting the new owner's pin short. kFailed is
+            // dead (where_ forgotten, never findable, never handed out, never recast): the last drop_pin
+            // frees it. A pinless failure (a dropped guess) frees on the spot, as it always did.
+            sp.state.store(sp.pin > 0 ? kFailed : kFree, std::memory_order_release);
             sp.prefetch = false;
             if (sp.cancel.load()) st_.cancelled.fetch_add(1, std::memory_order_relaxed);
             else st_.fails.fetch_add(1, std::memory_order_relaxed);
             return;
         }
         sp.state.store(kReady, std::memory_order_release);
+    }
+    /// (hotfix 3) Give one pin back; the LAST pin on a held-dead (kFailed) slot returns it to the free pool -
+    /// its bytes are unclaimed (the read never landed or was abandoned), its identity already forgotten.
+    /// mu_ held.
+    void drop_pin(int s) {   // mu_ held
+        Slot& sp = slots_[(size_t) s];
+        if (sp.pin > 0) --sp.pin;
+        if (sp.pin == 0 && sp.state.load(std::memory_order_acquire) == kFailed) {
+            sp.state.store(kFree, std::memory_order_release);
+            hint_down(s);
+        }
     }
     bool grow(int cls) {   // a chunk of class cls's slots, inside the byte budget
         if (nalloc_ >= cap_ || cls < 0 || cls >= (int) cls_bytes_.size()) return false;
@@ -798,6 +818,9 @@ private:
                 }
                 const int st = sp.state.load(std::memory_order_acquire);
                 if (st == kLoading) { can = false; break; }
+                if (st == kFailed && sp.pin > 0) { can = false; break; }   // (hotfix 3) a failed slot still held
+                                                                            //   by a reader: its chunk is busy,
+                                                                            //   recasting would zero that pin
                 if (sp.cls == cls) ours = true;
                 if (st == kReady) {
                     if (sp.pin > 0 || sp.visible) { can = false; break; }

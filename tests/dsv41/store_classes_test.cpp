@@ -15,6 +15,11 @@
 #include <string>
 #include <thread>
 #include <vector>
+#ifdef _WIN32
+#include <io.h>   // (_chsize_s: the truncated-file shape of scenario 9)
+#else
+#include <unistd.h>   // (ftruncate there)
+#endif
 
 using namespace strata::ds4;
 
@@ -523,6 +528,81 @@ int main() {
         for (int e : es)
             if (load(st, 1, e) < 0 || !check_held(st, 1, e, fx.geo)) back = false;
         check(back, "the abandoned experts load normally afterwards, bytes and all");
+    }
+
+    // 9. (hotfix 3 to the third round) a failed slot WITH HOLDERS is never allocatable. begin() pins the
+    //    where_ slot even while it is still loading - so two ensure-shaped holds of one loading expert are two
+    //    holders of one slot. When its read fails, the old finish() made that slot kFree mid-hold; take_slot's
+    //    free scan hands kFree out without looking at pins, so a third fill rode the same slot while both held
+    //    it - and their eventual releases cut THAT owner's pin short, evicting a slot mid-DMA. The store file
+    //    is truncated at layer 2's second matrix region: every layer-2 fill fails there, deterministically.
+    {
+        const uint64_t cut = fx.geo[2].off[1];   // (layer 2's up matrix region starts here; everything under it still reads)
+        {
+            // (the fixture's own handles must go first: open_ro shares READ only, so nothing may open the
+            //  file for writing while one stands - then truncate, then hand the same handles back fresh)
+            os::close_fd(fx.dfd);
+            os::close_fd(fx.pfd);
+            fx.dfd = fx.pfd = os::kBadFd;
+            FILE* f = fopen(fx.path.c_str(), "r+b");
+            bool trunc = false;
+            if (f != nullptr) {
+#ifdef _WIN32
+                trunc = _chsize_s(_fileno(f), (long long) cut) == 0;
+#else
+                trunc = ftruncate(fileno(f), (long long) cut) == 0;
+#endif
+                fclose(f);
+            }
+            fx.dfd = os::open_direct(fx.path);
+            fx.pfd = os::open_ro(fx.path);
+            fx.dfds = {fx.dfd};   // (the store reads through these vectors: the old handles are closed)
+            fx.pfds = {fx.pfd};
+            check(trunc && fx.dfd != os::kBadFd && fx.pfd != os::kBadFd,
+                  "the failed-holder store's file is truncated where layer 2 stops being readable");
+        }
+        ExpertStore::Cfg c;
+        c.threads = 2;
+        c.floor_bytes = 0;
+        c.budget_bytes = 64u << 20;
+        ExpertStore st;
+        check(st.init(c, fx.geo, fx.dfds, fx.pfds), "the failed-holder store inits");
+        check(load(st, 0, 1) >= 0 && check_held(st, 0, 1, fx.geo), "the layers under the cut read normally");
+        const int64_t f0 = st.stats().fails.load();
+        check(load(st, 2, 5) < 0, "a layer-2 fill fails at the truncation - a reported failure, not a hang");
+        check(st.stats().fails.load() == f0 + 1, "and it counted as exactly one failed read");
+        // two holders of one loading slot, then the reuse attempt the hotfix exists for
+        const int es[1] = {5};
+        std::vector<char> ok1, ok2, ok3;
+        std::vector<int> sl1, sl2, sl3;
+        st.begin(2, es, 1, ok1, sl1);   // (holder A: names slot s and starts the fill)
+        st.begin(2, es, 1, ok2, sl2);   // (holder B: where_ still names s - the LOADING slot is pinned twice)
+        const int s = sl1[0];
+        check(s >= 0 && sl2[0] == s && st.pinned(s), "two ensure-shaped holds, one loading slot");
+        const bool oka = st.wait_slots(sl1, ok1, 0, 1);   // (A waits; the read fails: finish lands the slot dead)
+        check(!oka && !ok1[0], "the failed fill reports itself to the first holder");
+        check(st.pinned(s), "the dead slot stays HELD - holder B still owns it (kFailed, not kFree)");
+        check(st.find(2, 5) < 0, "the dead expert is forgotten from where_: no ghost to find");
+        st.begin(2, es, 1, ok3, sl3);   // (the third fill of the same expert: the old kFree handed it s itself)
+        check(sl3[0] < 0 || sl3[0] != s, "a third fill of the same expert is never given the dead held slot");
+        if (sl3[0] >= 0) st.wait_slots(sl3, ok3, 0, 1);   // (this fill fails too - same truncated region)
+        st.release(sl3, ok3);                              // (its own pin, whoever owns its slot now)
+        st.release(sl2, ok2);                              // (holder B gives back: with the last pin the dead s frees)
+        check(!st.pinned(s), "the last pin gave the dead slot back - releases only ever touch their own slot's pin");
+        check(load(st, 2, 5) < 0 && st.stats().fails.load() == f0 + 4,
+              "the failed expert keeps getting fresh slots after the holds end: each attempt fails and counts once");
+        // the put path, owner alone: a failed put frees on the spot (its own pin was the last one)
+        uint8_t* b1 = st.put_begin(2, 7);
+        check(b1 != nullptr, "put_begin gives a blob for a VRAM hand-back");
+        st.put_done(2, 7, false);
+        check(st.find(2, 7) < 0, "a failed put leaves nothing findable and nothing held behind");
+        const int64_t f1 = st.stats().fails.load();
+        check(load(st, 1, 3) >= 0 && check_held(st, 1, 3, fx.geo), "healthy classes are untouched by the dead holds");
+        (void) f1;
+        bool sweep = true;
+        for (int e = 0; e < 8; ++e)
+            if (load(st, 0, e) >= 0 && !check_held(st, 0, e, fx.geo)) sweep = false;
+        check(sweep, "the truncated store still serves its readable layers byte-exact");
     }
 
     fx.close();
