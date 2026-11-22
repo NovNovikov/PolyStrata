@@ -12647,8 +12647,14 @@ struct Model::Impl {
         // (local) STRATA_DS4_EG_RING=n (n >= 2; 0 = off): the units' rows read by one thread into n slots, as far ahead as
         // the slots allow (unit u into slot u % n once unit u - n's copy to the device is done) - the rows depend on the
         // tokens alone, so the second Engram layer's are read while the layers between run.  The same rows, the same sums.
+        // (third round 3) requested and EFFECTIVE ring mode are decided apart: the switch asks, the pinned room rules,
+        // and the producer that starts is the one the effective mode names - the round-two code set the fallback flag
+        // INSIDE the ring branch yet started the ring thread after it (over an unreset book: slot_of() on n == 0), and
+        // the consumer then called get() on a future nothing had ever started. Now: fewer than two slots - or a ring
+        // thread that cannot start - means the partial slots are released and only the two-buffer producer ever runs.
         static const int eg_nr = std::getenv("STRATA_DS4_EG_RING") ? std::max(0, std::atoi(std::getenv("STRATA_DS4_EG_RING"))) : 0;
-        bool eg_ring = eg_nr >= 2 && !egu.empty();   // (second review 4.3) may still fall back below: pinned room can run short
+        const bool eg_want = eg_nr >= 2 && !egu.empty();
+        bool eg_ring = false;   // (effective) true only between erg.reset() and a live producer thread over it
         EgRing erg;   // (local) the ring's book, extracted to ds4_engram_io.hpp where the host test drives it;
         std::atomic<bool> eg_stop{false};   //   the CUDA event waits and the copies stay this file's;
         std::atomic<bool> eg_fail{false};   //   (second review 4.2) the producer's death - an unreadable row or a
@@ -12661,7 +12667,7 @@ struct Model::Impl {
                 if (th.joinable()) th.join();
             }
         } eg_join{eg_stop, eg_th};
-        if (eg_ring) {
+        if (eg_want) {
             if (c.eg_ring_bytes < c.C * eg_per) {   // (slots made for a smaller chunk: made again at the new size)
                 // the donor left the old slots pinned until exit; they are released here instead, after their last
                 // H2D copy is done (the events say so), and taken out of the teardown list so nothing frees twice
@@ -12695,10 +12701,20 @@ struct Model::Impl {
             }
             err.clear();   // (the halloc text belongs to a fallback, not to the run)
             if (got < 2) { // (fewer than two slots cannot overlap reading with copying: the ordinary path serves)
-                eg_ring = false;
                 std::fprintf(stderr, "ds4: Engram ring: %.1f MB of pinned slots would not fit (%d of %d got); "
                                      "the Engram reads go the two-buffer way instead\n",
                              (double) (c.C * eg_per) / 1e6, got, eg_nr);
+                // (third round 3) the ring's half-made resources are the fallback's dead weight: the slots and the
+                // events created for it go now (theirs were never recorded on: no copy was ever queued through them)
+                for (cudaEvent_t ev : c.eg_ring_ev) cudaEventDestroy(ev);
+                for (uint8_t* p : c.eg_ring) {
+                    auto it = std::find(host_allocs.begin(), host_allocs.end(), (void*) p);
+                    if (it != host_allocs.end()) host_allocs.erase(it);
+                    cudaFreeHost(p);
+                }
+                c.eg_ring.clear();
+                c.eg_ring_ev.clear();
+                c.eg_ring_bytes = 0;   // (next run's ring is sized fresh - nothing reusable is left)
             } else {
                 static bool eg_said = false;
                 if (!eg_said) {
@@ -12708,35 +12724,60 @@ struct Model::Impl {
                                  got < eg_nr ? " (pinned room ran short: the ring runs narrower)" : "");
                 }
                 erg.reset((size_t) got, c.C * eg_per);
+                eg_ring = true;
             }
-            eg_th = std::thread([this, &c, &run, &egu, &erg, &eg_stop, &eg_fail, di] {
-                cudaSetDevice(devs[(size_t) di].id);
-                for (size_t u = 0; u < egu.size() && !eg_stop.load(); ++u) {
-                    const size_t r = erg.slot_of(u);
-                    if (u >= erg.slots()) {   // (the slot's last unit copied to the device first)
-                        while (!erg.can_fill(u) && !eg_stop.load())
-                            std::this_thread::sleep_for(std::chrono::microseconds(100));
-                        if (eg_stop.load()) break;
-                        if (cudaEventSynchronize(c.eg_ring_ev[r]) != cudaSuccess) {   // (second review 4.2) a dead
-                            eg_fail.store(true);                                      //   event is the producer's
-                            eg_stop.store(true);                                      //   death: the consumer's wait
-                            break;                                                    //   must end, not spin
+        }
+        if (eg_ring) {
+            try {
+                eg_th = std::thread([this, &c, &run, &egu, &erg, &eg_stop, &eg_fail, di] {
+                    if (cudaSetDevice(devs[(size_t) di].id) != cudaSuccess) {   // (third round 3) a producer that is
+                        eg_fail.store(true);                                    //   not even on its device's context
+                        eg_stop.store(true);                                    //   says so instead of failing quiet
+                        return;
+                    }
+                    for (size_t u = 0; u < egu.size() && !eg_stop.load(); ++u) {
+                        const size_t r = erg.slot_of(u);
+                        if (u >= erg.slots()) {   // (the slot's last unit copied to the device first)
+                            while (!erg.can_fill(u) && !eg_stop.load())
+                                std::this_thread::sleep_for(std::chrono::microseconds(100));
+                            if (eg_stop.load()) break;
+                            if (cudaEventSynchronize(c.eg_ring_ev[r]) != cudaSuccess) {   // (second review 4.2) a dead
+                                eg_fail.store(true);                                      //   event is the producer's
+                                eg_stop.store(true);                                      //   death: the consumer's wait
+                                break;                                                    //   must end, not spin
+                            }
                         }
+                        const int li = egu[u].first, k = egu[u].second;
+                        (void) li;
+                        // (second review 4.1/4.2) rows the files refused even after the retry: the unit is NOT published
+                        // as ready - the zeros it left in the slot are never copied to the device as an answer. The
+                        // consumer sees eg_fail and ends the run with the lane error eg_finish recorded.
+                        if (engram_rows(run.p0[(size_t) k], run.T[(size_t) k], egu[u].first, c.eg_ring[r]) != 0) {
+                            eg_fail.store(true);
+                            eg_stop.store(true);
+                            break;
+                        }
+                        erg.filled(u);
                     }
-                    const int li = egu[u].first, k = egu[u].second;
-                    (void) li;
-                    // (second review 4.1/4.2) rows the files refused even after the retry: the unit is NOT published
-                    // as ready - the zeros it left in the slot are never copied to the device as an answer. The
-                    // consumer sees eg_fail and ends the run with the lane error eg_finish recorded.
-                    if (engram_rows(run.p0[(size_t) k], run.T[(size_t) k], egu[u].first, c.eg_ring[r]) != 0) {
-                        eg_fail.store(true);
-                        eg_stop.store(true);
-                        break;
-                    }
-                    erg.filled(u);
+                });
+            } catch (const std::system_error& e) {   // (third round 3) a thread that cannot start is a mode change,
+                eg_ring = false;                     //   not a std::terminate: the two-buffer path below takes the
+                // units again. The slots made for the ring go with it - they are dead weight on this path, and
+                // their events were never recorded on (no copy was ever queued through them)
+                std::fprintf(stderr, "ds4: Engram ring: the reader thread could not start (%s); "
+                                     "the Engram reads go the two-buffer way instead\n", e.what());
+                for (cudaEvent_t ev : c.eg_ring_ev) cudaEventDestroy(ev);
+                for (uint8_t* p : c.eg_ring) {
+                    auto it = std::find(host_allocs.begin(), host_allocs.end(), (void*) p);
+                    if (it != host_allocs.end()) host_allocs.erase(it);
+                    cudaFreeHost(p);
                 }
-            });
-        } else if (!egu.empty()) eg_next = std::async(std::launch::async, read_eg, (size_t) 0);
+                c.eg_ring.clear();
+                c.eg_ring_ev.clear();
+                c.eg_ring_bytes = 0;
+            }
+        }
+        if (!eg_ring && !egu.empty()) eg_next = std::async(std::launch::async, read_eg, (size_t) 0);
         for (size_t li = 0; li < c.fl_layers.size(); ++li) {
             const int il = c.fl_layers[li];
             Layer& L0 = L[(size_t) il];
