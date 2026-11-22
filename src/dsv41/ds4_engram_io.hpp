@@ -24,6 +24,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -55,28 +56,36 @@ public:
         return at(it->second);
     }
     /// Room for key's payload (the caller fills it): a new slot while below capacity, else the clock's victim.
+    /// nullptr also means "RAM ran short while growing" (second review 7.1): the cache stops growing at the
+    /// size it holds and every later call just says no - rows keep being read from the file as they were, so
+    /// a memory-tight box loses a cache, not the run (an uncaught bad_alloc here ended the whole process).
     uint8_t* put(uint64_t key) {
         if (cap_ == 0 || bytes_ == 0) return nullptr;
         const auto it = map_.find(key);
         if (it != map_.end()) return at(it->second);
         uint32_t s;
-        if (keys_.size() < cap_) {
-            s = (uint32_t) keys_.size();
-            if (s % kBlock == 0) blocks_.emplace_back(new uint8_t[(size_t) kBlock * bytes_]);
-            keys_.push_back(key);
-            ref_.push_back(0);
-        } else {
-            while (ref_[hand_]) {   // (a second chance for rows used since the hand last passed)
-                ref_[hand_] = 0;
+        try {
+            if (keys_.size() < cap_) {
+                s = (uint32_t) keys_.size();
+                if (s % kBlock == 0) blocks_.emplace_back(new uint8_t[(size_t) kBlock * bytes_]);
+                ref_.push_back(0);   // (ref_ first: a throw on the next line keeps ref_ at least as long as keys_,
+                keys_.push_back(key);   //  so the clock, which walks cap_ <= ref_.size(), can never step out of it)
+            } else {
+                while (ref_[hand_]) {   // (a second chance for rows used since the hand last passed)
+                    ref_[hand_] = 0;
+                    hand_ = (hand_ + 1) % (uint32_t) cap_;
+                }
+                s = hand_;
                 hand_ = (hand_ + 1) % (uint32_t) cap_;
+                map_.erase(keys_[s]);
+                keys_[s] = key;
+                ref_[s] = 0;
             }
-            s = hand_;
-            hand_ = (hand_ + 1) % (uint32_t) cap_;
-            map_.erase(keys_[s]);
-            keys_[s] = key;
-            ref_[s] = 0;
+            map_.emplace(key, s);
+        } catch (const std::bad_alloc&) {
+            cap_ = keys_.size();   // (stop growing where the memory is; the clock still works on what exists)
+            return nullptr;
         }
-        map_.emplace(key, s);
         return at(s);
     }
 
@@ -135,11 +144,23 @@ struct EgBatch {
 class EgReader {
 public:
     ~EgReader() { stop(); }
-    /// direct[i]: file i read unbuffered (Windows, a file nothing maps: os::open_unbuffered), else buffered
-    void start(const std::vector<std::string>& paths, int threads, std::vector<char> direct = {}) {
+    /// direct[i]: file i read unbuffered (Windows, a file nothing maps: os::open_unbuffered), else buffered.
+    /// Returns the threads it could start - never fewer than zero, and it never throws: a box that cannot
+    /// afford the requested readers gets fewer (a thread-create failure is a resource error, not a reason to
+    /// end the process). 0 means no reader exists: the caller must fail the load, Engram rows cannot land.
+    int start(const std::vector<std::string>& paths, int threads, std::vector<char> direct = {}) {
         paths_ = paths;
         direct_ = std::move(direct);
-        for (int i = 0; i < threads; ++i) th_.emplace_back([this] { loop(); });
+        for (int i = 0; i < threads; ++i) {
+            try {
+                th_.emplace_back([this] { loop(); });
+            } catch (const std::system_error&) {
+                std::fprintf(stderr, "ds4: Engram reader: only %d of %d threads could start (system limit)\\n",
+                             (int) th_.size(), threads);
+                break;
+            }
+        }
+        return (int) th_.size();
     }
     void stop() {
         {

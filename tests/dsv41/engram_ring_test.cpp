@@ -130,7 +130,8 @@ int main() {
         }
         for (int mode = 0; mode < 2; ++mode) {   // 0: buffered handles; 1: the unbuffered small-row path too
             EgReader io;
-            io.start({good, bad}, 2, mode == 1 ? std::vector<char>{1, 0} : std::vector<char>{});
+            const int got_th = io.start({good, bad}, 2, mode == 1 ? std::vector<char>{1, 0} : std::vector<char>{});
+            check(got_th == 2, "start reports the reader threads it could create (second review 7.1)");
             check(io.threads() == 2, "the reader runs its own threads");
             std::vector<uint8_t> d0(kHd, 0xAB), d1(kHd, 0xAB), d2(kHd, 0xAB), d3(kHd, 0xAB);
             std::vector<uint8_t> s0(2, 0xCD), s1(2, 0xCD), s2(2, 0xCD), s3(2, 0xCD);

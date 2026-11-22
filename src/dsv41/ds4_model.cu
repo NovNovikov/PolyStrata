@@ -3621,7 +3621,7 @@ struct Model::Impl {
             nth = 2;
             if (std::getenv("DS4_ENGRAM_THREADS") == nullptr) std::fprintf(stderr, "ds4: Engram rows are read with 2 threads (DS4_ENGRAM_THREADS=N sets another number)\n");
 #endif
-            if (const char* e = std::getenv("DS4_ENGRAM_THREADS")) nth = std::max(1, std::atoi(e));
+            if (const char* e = std::getenv("DS4_ENGRAM_THREADS")) nth = std::min(256, std::max(1, std::atoi(e)));
             const uint64_t avail = ram_avail();
             uint64_t mb = avail == ~uint64_t{0} ? 64 : std::min<uint64_t>(256, std::max<uint64_t>(16, (avail >> 20) / 64));
             if (const char* e = std::getenv("DS4_ENGRAM_CACHE_MB")) mb = std::strtoull(e, nullptr, 10);
@@ -3651,7 +3651,13 @@ struct Model::Impl {
                     }
             }
 #endif
-            eg_io.start(paths, nth, eg_direct);
+            // (second review 7.1) a reader thread that cannot start is a resource error with a clean answer:
+            // no reader at all means Engram rows can never land, so the load fails by name - the process does not
+            // end on a thrown system_error, and fewer readers than asked only makes the reads more serial.
+            if (eg_io.start(paths, nth, eg_direct) == 0) {
+                err = "could not start a single Engram reader thread (system thread limit)";
+                return false;
+            }
             for (int li = 0; li < pk.eg_layers; ++li) {
                 eg_win.emplace_back(new EgBatch());
                 const std::string id = std::to_string(g.eg_layers[(size_t) li]);
