@@ -9,7 +9,8 @@ below are the donor's, measured on the donor's machine - not measurements of thi
 
 After the port a hostile review (GPT-assisted, 8 items) read every group against its defect surface; the
 seven code findings are each fixed in their own commit, with model-free tests over the production code.
-See "Review round" below.
+See "Review round" below. A second review (15 items) read the port and the first round's fixes against
+memory ordering, failure paths and what the logs actually prove; its results are in "Second review round".
 
 ## What is in, and where from
 
@@ -48,6 +49,72 @@ auto-merged hunks and were removed during review - the tree contains none of the
 | 5 | `5adc9bb7` | A failed Engram read that the window needed twice copied its destination slot's stale bytes into the duplicate (zeroing came after the copies) and warned only under Metal. Failed rows zero first, everywhere, counted as `eg_bad`; the ring's slot book and the batch finisher (`EgRing`, `eg_complete`) moved to `ds4_engram_io.hpp` | `engram_ring_test` (40) |
 | 6 | `2ca4f887` | `LM_AHEAD` could retarget its second buffer while the old target's guesses were still in flight (a skipped or RAM-served layer never adopts), tearing slots and counts; a failed guess ended the request. A reuse drains the side's in-flight reads first (`PfSide::drain`), and a failed guess re-reads on demand like any miss (`ds4_lm_ahead.hpp`) | `lm_ahead_test` (13) |
 | 7 | `80ac8352` | The deferral late-add and the lazy drafter's batch plan were only checkable with the model loaded. Both moved to headers the device and host share (`ds4_defer_math.hpp`; `dspark_lazy_batches` in `ds4_draft_cut.hpp`): the late add is now checked bit-for-bit against a CPU reference for the on-time add, and the drafter's computed-row plan against its bounds over every cut position | `defer_math_test` (1792), `ds4_draft_cut_test` (26) |
+
+## Second review round (items 1-15, one commit per finding)
+
+A second hostile review read the port and the first round's fixes again - this time against memory
+ordering, failure paths, and what the logs actually prove. Status of every item; each fix is its own
+commit, each test runs without a model.
+
+| # | Status | Commit | Finding, and what the fix does | Test |
+| --- | --- | --- | --- | --- |
+| 1 | FIXED | `301ea4a3` | `ExpertStore::find()` hands out a slot whose bytes could be recast the next microsecond: callers read them without a pin, and a full slot whose read had died left the caller waiting. `acquire_ready()` now returns only READY slots, pinned for the caller (`unpin` gives it back); a miss falls back to a demand read through the caller's own `ReadAt` | `store_classes_test` (166) |
+| 2 | FIXED | `4ff378d6` | A slot whose fill had failed (dead entry) was still counted live, chosen for eviction, and reported as room: dead entries are now skipped by accounting, eviction and the free-list alike | `store_classes_test` (166), `store_close_test` (20) |
+| 3 | FIXED | `45b59e2a` | `FdRef` swap could lose a wakeup (reader between check and wait) and `replace()` waited for readers of the NEW generation: the wait is generation-scoped (a ring of four counters indexed by generation), `waiting_` guards it under seq_cst, acquire/release carry the generation | `store_close_test` (20, section 4: old generation waited out, a new holder not waited, a 500-round lost-wakeup watchdog) |
+| 4 | FIXED | `327d1de5` | An Engram row whose read failed was served as zeros silently, the ring published refused rows, and a retry re-read a batch that was already complete. Failed rows are sticky (`EgBatch::bad_n`), the producer fails the ring item instead of publishing it, `eg_complete` retries once through a hook, refused rows fail the REQUEST, and a ring short of pinned room runs narrower or falls back - with prints | `engram_ring_test` (49) |
+| 5 | FIXED | `88cca029` | Two miss paths could both demand-rerun the same failed read-ahead slot (two writers, one destination). `PfSide::recover()` elects one re-reader through the exchange the old path already used; the others wait on it, and the item carries its own side so an adoption mid-flight cannot misroute it | `lm_ahead_test` (23; the test drives the production recovery function itself) |
+| 6 | FIXED | `741199eb` | The identity printed knob floats with `%g`: locale-dependent, six digits, two different weights could print the same string. `fp_txt()` writes the shortest round-trip text with `std::to_chars` (locale-free), and the format went to `strata-ds4-session-6` - session-5 files cannot prove their floats and are refused | `ds4_identity_knobs_test` (34) |
+| 7 | FIXED | `ab62a9fb` | An Engram row cache or ring out of memory could throw past the load (the process died) and reader threads that failed to start left a join that never returned. The cache catches and freezes its capacity, `EgReader::start` reports how many readers came up (load fails by name at zero), `DS4_ENGRAM_THREADS` is clamped to 256 | `engram_ring_test` (49) |
+| 8 | FIXED | `596ae05c` | The DSpark auto-fit rule refused the drafter BEFORE the drafter's VRAM cap was consulted - and the cap only exists while the drafter is loaded, so setting `DS4_MTP_VRAM_GB` (the knob for exactly such a tight box) did nothing. With the cap set the auto rule stands down and says so; kept, refused and inert cap each print their witness | engine build (ordering is load logic; refusal text unchanged byte-for-byte) |
+| 9 | VERIFIED NOT APPLICABLE | - | Claim: MTP experts stay resident past the cap. Traced instead: `plan_group_vram` respects the cap in every stage (`min(budget, mtp_cap)` in stage 1, MTP skipped in stage 3), `prof` covers `(nl+n_mtp)*n_exp` rows, tail-lending and the recent-slot carve-out exclude MTP blocks, `n_host = n_exp - n_vram` holds under the cap, and the lend-back demotion touches trunk only | `ds4_vram_plan_test` (19) |
+| 10 | FIXED | `a1ddb8af` | `rc_loop`'s recent-slot fills copied the GPU straight from the file's mapping while the store could recast it (and read a null mapping under `DROP_SHARDS`): every MXFP4 fill now stages the blob through pinned memory first - the store's copy under a pin the length of one memcpy, the file otherwise. The lane's copies take the store's copy too, and `lane_warm` counts a store-held blob as the RAM it is (and never samples a null mapping) | engine build; mailbox protocol and pins unchanged |
+| 11 | VERIFIED, documented here | - | Deferral and autotuning against the session identity - see "Identity of the moving parts" below | `ds4_identity_knobs_test` (34) |
+| 12 | FIXED | `80aaa607` | The lazy DSpark counters grew in a member nothing read: `Stats` publishes `lazy_rounds`/`lazy_rows` (counted only while the mode is on - the default path pays nothing) and the path prints its activation once | engine build |
+| 13 | ADDED | - | "Approximate modes" below: what each knob changes and where its activation shows | - |
+| 14 | FIXED | `af16a157` | `kuu_features_test.bat` graded survival, not activation: every run now greps its log for the feature's witness line (PASS/SKIP/FAIL with the reason), and the two silent modes - `STRATA_DS4_ROUTER_BF16` and a load banner arming `STRATA_DS4_DEFER` - print one | the bat is NOT run here (real pack, exclusive GPU); witness strings taken verbatim from the engine |
+| 15 | SWEEP | - | full host-test re-run and engine build after all of the above; numbers in "What was actually run" | |
+
+## Identity of the moving parts (review 11)
+
+Everything that changes what a layer computes is in the session identity as the ENGINE resolved it - and
+what about the parts that move by themselves?
+
+- **Deferral is pinned by configuration.** Mode, `DEFER_W`, `DEFER_K`, `DEFER_COLD`, `DEFER_EARLY`,
+  `DEFER_MAX` all enter the fingerprint (`ds4_identity_knobs.hpp`), so a session saved under `DEFER=3`
+  refuses to resume anywhere the deferral differs; `ds4_identity_knobs_test` (34 checks) covers the
+  emission and the parsing.
+- **A deferred part cannot cross a session boundary.** It belongs to the forward that made it: the epoch
+  bumped at every forward entry drops parts from an older one, the landing layer must exist inside the
+  same forward, and saves happen after a token - a finished forward - so a session file never holds a
+  half-deferred residual.
+- **The autotuned skip (`DISK_SKIP_AUTO`) pins its settings, not its measurements.** Auto on/off, window,
+  settle and budget are in the fingerprint; the decision to skip is a function of this machine's page
+  cache, and identity pins rules, not machine state - the same contract the plain skip knobs always had
+  (`in_ram()` reads the page table too). The mode is approximate and says so below.
+- **The pre-port autotuners pick transports, not numbers.** `tune_lane` and `calibrate_paths`/`pick_path`
+  choose thread layouts and which path runs an expert; both lanes round a low-bit expert's activations
+  alike (ggml's Q8_K, unless `DS4_IQ_Q8K=0`), and `DS4_LANE_CHECK=1` measures one expert of each class
+  through both at load and prints how many outputs are bit-identical. The port changed none of that.
+
+## Approximate modes: what each knob changes, and where its activation shows (review 13)
+
+None of these is default; the fast reference in "Launch sets" is marked approximate for exactly this
+list. "Identity" means the value (as the engine resolved it) is in the session fingerprint: same
+fingerprint - same rules. The rules themselves may consult machine state (the skip knobs ask the page
+cache), so equal fingerprints promise equal settings, not equal numbers across machines.
+
+| Knob | Changes the answers? | Identity | Activation witness in the log / stats |
+| --- | --- | --- | --- |
+| `STRATA_DS4_DEFER=1..4` | yes - the CPU-lane part lands a later layer (mode 4 also remaps stream weights) | yes (all six knobs) | `STRATA_DS4_DEFER=N is armed` at load; the arithmetic is tested bit-for-bit against the on-time add (`defer_math_test` 1792) |
+| `STRATA_DS4_DISK_SKIP_W` (+`_FROM`) | yes - low-weight cold experts are not read at all | yes | `skipped` in stats |
+| `STRATA_DS4_DISK_SKIP_AUTO` | yes, while on - on/off decided by the measured cold share | settings yes; runtime state cannot be | `DISK_SKIP auto: off after ...` / `on again for request ...` |
+| `STRATA_DS4_RAM_SKIP_W` | yes - the same rule for every routed expert | yes | `skipped` in stats |
+| `STRATA_DS4_PROMPT_SKIP=1/2` (older name `DS4_YOCO`, read first and overriding) | yes - prompts skip layers | yes (mode and keep, as the geometry permits) | per-chunk counts under `DS4_CHUNK_LOG=1` only |
+| `--experts N` | yes - fewer routed experts | yes (`experts_used`) | the load's expert count line |
+| `STRATA_DS4_DSPARK_LAZY` | no - rows past the confidence cut are never verified; the cut rule and row plan are tested (`ds4_draft_cut_test` 26) | not needed (drafter output is verified) | `DSpark lazy: ...` once; `lazy_rounds`, `lazy_rows` in stats (review 12) |
+| `DS4_MTP_VRAM_GB` | no - drafter residency only | not needed | the per-block `DS4_MTP_VRAM_GB: drafter ...` line prints to every log; `... no drafter is loaded` says when the cap is inert (review 8) |
+| `STRATA_DS4_ROUTER_BF16` | no - the logits are bit-identical to the F32 copy (`ds4_router_bf16_test` 19) | not needed | `routers kept in BF16` (or the named inert case) |
+| `STRATA_DS4_EG_RING`, `STRATA_DS4_LM_AHEAD`, `STRATA_DS4_DROP_SHARDS`, `DS4_STORE_UNIFORM` | no - reads and placement only, bytes tested (`engram_ring_test` 49, `lm_ahead_test` 23, `ds4_io_test` 27, `store_classes_test` 166) | not needed | the ring's pinned line, the read-ahead's counts line, the shard-drop line, the store-class banner |
 
 ## Environment variables this port adds
 
@@ -180,9 +247,12 @@ after `80ac8352`.
 
 ## Open questions for the model check
 
-- The pre-existing approximate knobs (`RAM_SKIP_W`, `DISK_SKIP_AUTO`, `PROMPT_SKIP=2`, `--experts`) are not in
-  the session fingerprint - predates the port; DEFER is now (adding the others would change existing users'
-  identity strings, so it wants its own decision).
+- ~~The pre-existing approximate knobs (`RAM_SKIP_W`, `DISK_SKIP_AUTO`, `PROMPT_SKIP=2`, `--experts`) are
+  not in the session fingerprint~~ - settled in the second review: they joined it (all as the engine
+  resolved them, `ds4_identity_knobs.hpp`), and the format went to `strata-ds4-session-6` because a
+  session-5 file cannot prove its knob floats. Session-5 files are refused, not trusted; see
+  "Approximate modes".
 - `DS4_MTP_VRAM_GB` and ring sizes for the 4090 with the user's pack: the donor's numbers are starting points.
 - `DSPARK_LAZY` falls back to eager when the head group spans devices, a markov split runs, or a draft dump is
-  active - whether the user's geometry hits that, the first `--dspark on` run will show.
+  active - whether the user's geometry hits that, the first `--dspark on` run will show: with a drafter
+  loaded, `lazy_rounds` staying at 0 in stats names the fallback (review 12).

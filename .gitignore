@@ -95,3 +95,6 @@ node_modules/
 /build-spark/
 /build-vision-spark/
 /.venv-build/
+
+# written by tests/dsv41/kuu_features_test.bat itself (the 40 token ids, made when absent)
+/tests/dsv41/kuu_feature_ids.txt
