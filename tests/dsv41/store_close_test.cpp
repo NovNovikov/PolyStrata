@@ -223,9 +223,10 @@ int main() {
         }
     }
 
-    // 3. the FdRef contract itself, without the store: acquire hands out the live value only - replace()
-    // returns after every read that had the old one, and the test closes the old value and churns the OS's
-    // handle pool right there, so any use-after-close shows as a failed or wrong-content read
+    // 3. the FdRef contract itself, without the store: what acquire() hands out is never closed under the reader -
+    // the handle and its reader reference are one refcounted block, taken together (third round item 1). A swap
+    // returns immediately even mid-read and the loop recycles handle values through the OS as fast as it can, so
+    // any use-after-close would show as a failed or wrong-content read; every read checks its file's bytes
     {
         FdRef r;
         os::fd_t cur = os::open_par(fx.path[0]);
@@ -239,134 +240,196 @@ int main() {
                 std::vector<uint8_t> buf(4096);
                 uint64_t i = (uint64_t) t * 977 + 13;
                 while (!stop.load(std::memory_order_relaxed)) {
-                    int gen = 0;
-                    const os::fd_t f = r.acquire(gen);
+                    FdRef::Handle h;
+                    r.acquire(h);
+                    const os::fd_t f = h.fd();
                     if (f != os::kBadFd) {
                         i = i * 6364136223846793005ull + 1442695040888963407ull;
                         const uint64_t off = (i >> 13) % (fx.first.size() - 4096);
                         if (!os::pread_par(f, buf.data(), 4096, off)) ++bad_reads;
                         else if (std::memcmp(buf.data(), fx.first.data() + off, 4096) != 0) ++mismatches;
                     }
-                    r.release(gen);
+                    r.release(h);
                 }
             });
         int replaced = 0;
         for (int it = 0; it < 300; ++it) {
             const os::fd_t fresh = os::open_par(fx.path[0]);
             if (fresh == os::kBadFd) break;
-            const os::fd_t old = r.replace(fresh);   // (waits for every read that had the old value)
-            if (old != os::kBadFd) { os::close_fd(old); ++replaced; }
+            r.replace(fresh);   // (returns at once: a read still in flight on the old value counts against the
+            ++replaced;         //   retired block, and only its last reference - possibly a reader - closes it)
             const os::fd_t decoy = os::open_par(fx.path[1]);   // (grab the freed value for another file, now)
             if (decoy != os::kBadFd) os::close_fd(decoy);
         }
         stop.store(true);
         for (auto& t : rd) t.join();
-        check(replaced > 0, "the torture loop ran its replace/close/recycle rounds");
+        check(replaced > 0, "the torture loop ran its replace/recycle rounds");
         check(bad_reads.load() == 0, "no read through an acquired handle ever hit a closed value");
         check(mismatches.load() == 0, "and never another file's bytes: every read matched the file its handle names");
-        const os::fd_t last = r.replace(os::kBadFd);
-        check(last != os::kBadFd, "replace reports the handle it took over (the closer closes that one)");
-        if (last != os::kBadFd) os::close_fd(last);
+        r.replace(os::kBadFd);
+        check(r.get() == os::kBadFd, "replace(kBadFd) takes the handle out of service");
     }
 
-    // 4. (hostile review, second round 3.1) what the generation counters promise, each with a bounded time:
-    // a swap waits for the readers of the handle it replaced and NOT for readers of the one it swapped in,
-    // and a last release racing a swap wakes it - every round, always, no sleeping forever.
+    // 4. (hostile review, third round item 1) the scenarios the lock-free pair could not hold, each driven with
+    // latches and a bounded time: the swapper's halfway point between publishing the new generation and the new
+    // handle no longer exists at all - and its mirror case, an old reader carrying the new value.
     {
         FdRef r;
         os::fd_t f0 = os::open_par(fx.path[0]);
-        check(f0 != os::kBadFd, "the generation test handle opens");
+        check(f0 != os::kBadFd, "the scenario test handle opens");
         r.set(f0);
-        // (a) the old generation IS waited for: a holder that acquired f0 keeps the swap waiting (bounded: it lets go)
-        std::atomic<bool> held{false};
-        std::thread holder([&] {
-            int gen = 0;
-            const os::fd_t f = r.acquire(gen);
+        std::vector<uint8_t> want = fx.first;
+        auto read_via = [&](os::fd_t f) {   // (one 4096-byte read, verified: is this handle alive and whose bytes?)
+            std::vector<uint8_t> buf(4096);
+            return os::pread_par(f, buf.data(), 4096, 8192) && std::memcmp(buf.data(), want.data() + 8192, 4096) == 0;
+        };
+        // (a) a reader acquires, the swap happens WHILE it reads, and its read must still deliver file 0's bytes:
+        // the old value leaves service at once but closes only when this last reference lets go
+        std::atomic<bool> acq{false}, swapped{false}, mid_ok{false}, rel{false};
+        std::thread mid([&] {
+            FdRef::Handle h;
+            r.acquire(h);
+            acq.store(true, std::memory_order_release);
+            while (!swapped.load(std::memory_order_acquire)) std::this_thread::sleep_for(std::chrono::microseconds(50));
+            mid_ok.store(read_via(h.fd()), std::memory_order_release);   // (the handle the swap replaced, mid-read)
+            r.release(h);
+            rel.store(true, std::memory_order_release);
+        });
+        while (!acq.load(std::memory_order_acquire)) std::this_thread::sleep_for(std::chrono::microseconds(50));
+        const os::fd_t f1 = os::open_par(fx.path[0]);
+        const auto ta = std::chrono::steady_clock::now();
+        r.replace(f1);   // (the third-round defect point: the old protocol closed the value this thread was mid-read through)
+        const double wa_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - ta).count();
+        swapped.store(true, std::memory_order_release);
+        const auto tb = std::chrono::steady_clock::now();
+        while (!rel.load(std::memory_order_acquire) &&
+               std::chrono::duration<double>(std::chrono::steady_clock::now() - tb).count() < 5.0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        mid.join();
+        check(wa_ms < 50.0, "a swap takes the handle out of service without waiting for its in-flight reads");
+        check(mid_ok.load(std::memory_order_acquire), "and the read it overtook still got its own file's bytes");
+        // (b) the stream of NEW readers: while an old reader sits on f1 (200 ms), new acquires must hand out f2
+        // at once (never the old value, never blocked) and read through it fine - the swap that retires f1 must
+        // not chase, and must not be chased by, readers that came after it
+        std::atomic<bool> held{false}, stop_b{false};
+        std::thread old_reader([&] {
+            FdRef::Handle h;
+            r.acquire(h);   // (f1: the value the next swap retires)
             held.store(true);
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            r.release(gen);
-            (void) f;
+            for (int i = 0; i < 40 && !stop_b.load(std::memory_order_relaxed); ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            r.release(h);
         });
         while (!held.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        const auto ta = std::chrono::steady_clock::now();
-        const os::fd_t f1v = os::open_par(fx.path[0]);   // (the handle the swap installs: (b) names it below)
-        const os::fd_t old_a = r.replace(f1v);
-        const double wa_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - ta).count();
-        holder.join();
-        check(old_a == f0, "the swap took over the handle the holder had");
-        check(wa_ms > 50.0 && wa_ms < 5000.0, "a swap waits its own generation's readers out, and returns");
-        // (b) readers that arrive after the swap - and so hold the handle it swapped IN - must not be waited for:
-        // a slow reader of the OLD handle keeps the swap busy 150 ms (it must be waited out), while a stream of
-        // readers spins for the new handle and one then HOLDS it 400 ms. The single old counter would have let
-        // that 400 ms holder extend the swap past 300 ms; the generation-scoped wait ends when the slow one lets go.
-        std::atomic<bool> held2{false}, held3{false}, stop3{false};
-        std::thread old_slow([&] {
-            int gen = 0;
-            r.acquire(gen);   // (f1: the generation the next swap will replace)
-            held2.store(true);
-            std::this_thread::sleep_for(std::chrono::milliseconds(150));
-            r.release(gen);
-        });
-        while (!held2.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        std::thread new_long([&] {
-            for (;;) {   // (spin until the acquire hands out the swapped-IN handle: then sit on it)
-                int gen = 0;
-                const os::fd_t f = r.acquire(gen);
-                if (f != f1v) {
-                    held3.store(true);
-                    for (int i = 0; i < 160 && !stop3.load(std::memory_order_relaxed); ++i)
-                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                    r.release(gen);
-                    return;
-                }
-                r.release(gen);
+        const os::fd_t f2 = os::open_par(fx.path[0]);
+        r.replace(f2);
+        const auto tc = std::chrono::steady_clock::now();
+        bool new_fast = false;
+        while (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tc).count() < 150.0) {
+            FdRef::Handle h;
+            r.acquire(h);
+            if (h.fd() == f2) { new_fast = read_via(h.fd()); r.release(h); break; }
+            r.release(h);
+        }
+        check(new_fast, "a new reader got the swapped-IN handle - and read through it - while an old reader was still up");
+        stop_b.store(true);
+        old_reader.join();
+        // (c) several swaps in a row over one live reader: each read the holder completes must name file 0
+        std::atomic<bool> acq3{false}, done3{false}, ok3{true};
+        std::thread holder3([&] {
+            FdRef::Handle h;
+            r.acquire(h);
+            acq3.store(true, std::memory_order_release);
+            for (int i = 0; i < 8; ++i) {
+                if (!read_via(h.fd())) ok3.store(false);
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
             }
+            r.release(h);
+            done3.store(true, std::memory_order_release);
         });
-        const auto tb = std::chrono::steady_clock::now();
-        const os::fd_t old_b = r.replace(os::open_par(fx.path[1]));
-        const double wb_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tb).count();
-        old_slow.join();
-        while (!held3.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));   // (the swap returned WHILE this holder sat on the new handle)
-        stop3.store(true);
-        new_long.join();
-        check(old_b != os::kBadFd, "the second swap took its handle over");
-        check(wb_ms > 50.0 && wb_ms < 400.0, "the swap waited its old generation out (150 ms) and not the new handle's 800 ms holder");
-        os::close_fd(old_b);
-        // (c) the lost wakeup, driven for real: a last release and a swap at the same moment, 500 rounds. The
-        // swap runs behind a watchdog: a lost notify would hang it, and the test says so by name and leaves.
-        int hung = 0;
+        while (!acq3.load(std::memory_order_acquire)) std::this_thread::sleep_for(std::chrono::microseconds(50));
+        for (int i = 0; i < 4; ++i) {
+            r.replace(os::open_par(fx.path[0]));
+            const os::fd_t decoy = os::open_par(fx.path[1]);   // (recycle a freed value onto file 1 between swaps)
+            if (decoy != os::kBadFd) os::close_fd(decoy);
+        }
+        const auto td = std::chrono::steady_clock::now();
+        while (!done3.load(std::memory_order_acquire) &&
+               std::chrono::duration<double>(std::chrono::steady_clock::now() - td).count() < 5.0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        holder3.join();
+        check(ok3.load(std::memory_order_acquire), "four swaps over one live reader: every read still named its file");
+        // (d) swap to kBadFd while a reader holds the live one: the reader is unaffected, new acquires come up empty
+        std::atomic<bool> acq4{false}, done4{false}, ok4{false};
+        std::thread holder4([&] {
+            FdRef::Handle h;
+            r.acquire(h);
+            acq4.store(true, std::memory_order_release);
+            while (!done4.load(std::memory_order_relaxed)) std::this_thread::sleep_for(std::chrono::microseconds(50));
+            ok4.store(read_via(h.fd()));
+            r.release(h);
+        });
+        while (!acq4.load(std::memory_order_acquire)) std::this_thread::sleep_for(std::chrono::microseconds(50));
+        r.replace(os::kBadFd);
+        {
+            FdRef::Handle gone;
+            r.acquire(gone);
+            check(gone.fd() == os::kBadFd, "after the swap to kBadFd a fresh acquire hands out no handle at all");
+            r.release(gone);
+        }
+        done4.store(true, std::memory_order_relaxed);
+        holder4.join();
+        check(ok4.load(), "while the held reader finished its read unharmed");
+        // (e) 500 rounds of a last release racing a swap: no lost wakeup is possible with no wait - what these
+        // rounds prove instead is that under exactly that churn no value closes early and none is read wrong.
+        // Every swap runs behind a watchdog: a hung thread is the defect, so the test names it and leaves.
+        std::atomic<int> bad5{0}, wrong5{0};
+        std::atomic<bool> stop5{false};
+        std::vector<std::thread> churn;
+        for (int t = 0; t < 3; ++t)
+            churn.emplace_back([&] {
+                while (!stop5.load(std::memory_order_relaxed)) {
+                    FdRef::Handle h;
+                    r.acquire(h);
+                    if (h.fd() != os::kBadFd && !read_via(h.fd())) ++wrong5;
+                    r.release(h);
+                }
+            });
+        r.replace(os::open_par(fx.path[0]));   // (back to a live handle for the rounds)
         for (int it = 0; it < 500; ++it) {
-            const os::fd_t fresh = os::open_par(fx.path[0]);
             std::atomic<bool> acq{false}, done{false};
             std::thread last([&] {
-                int gen = 0;
-                const os::fd_t f = r.acquire(gen);
+                FdRef::Handle h;
+                r.acquire(h);
                 acq.store(true, std::memory_order_release);
-                r.release(gen);
-                (void) f;
+                if (h.fd() != os::kBadFd && !read_via(h.fd())) ++bad5;   // (the last reader's read: the swap may
+                r.release(h);                                            //   retire the value only after this)
+                done.store(true, std::memory_order_release);
             });
             while (!acq.load(std::memory_order_acquire)) std::this_thread::sleep_for(std::chrono::microseconds(1));
-            std::atomic<bool> swapped{false};
-            std::thread swapper([&] {
-                const os::fd_t old = r.replace(fresh);
-                if (old != os::kBadFd) os::close_fd(old);
-                swapped.store(true);
+            r.replace(os::open_par(fx.path[0]));
+            std::atomic<bool> decoy_closed{false};
+            std::thread decoyer([&] {   // (recycle a value mid-round: an early close would poison THIS reader's next)
+                const os::fd_t decoy = os::open_par(fx.path[1]);
+                if (decoy != os::kBadFd) os::close_fd(decoy);
+                decoy_closed.store(true);
             });
-            last.join();
             const auto t0w = std::chrono::steady_clock::now();
-            while (!swapped.load() &&
+            while ((!done.load(std::memory_order_acquire) || !decoy_closed.load()) &&
                    std::chrono::duration<double>(std::chrono::steady_clock::now() - t0w).count() < 5.0)
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            if (!swapped.load()) {   // (a hung swap is the defect itself: name it and leave - joining it would hang the box)
-                check(false, "500 rounds of last-release-against-swap: no swap ever lost its wakeup");
-                std::fflush(stdout);
+            if (!done.load(std::memory_order_acquire) || !decoy_closed.load()) {   // (a hang is the defect itself:
+                check(false, "500 rounds of last-release-against-swap: no round ever hung");   //  name it, leave -
+                std::fflush(stdout);                                                 //   joining would hang the box)
                 std::exit(3);
             }
-            swapper.join();
+            last.join();
+            decoyer.join();
         }
-        check(hung == 0, "500 rounds of last-release-against-swap: no swap ever lost its wakeup");
-        const os::fd_t last_c = r.replace(os::kBadFd);
-        if (last_c != os::kBadFd) os::close_fd(last_c);
+        stop5.store(true);
+        for (auto& t : churn) t.join();
+        check(bad5.load() == 0 && wrong5.load() == 0, "500 rounds of last-release-against-swap: no early close, no wrong read");
+        r.replace(os::kBadFd);
     }
 
     fx.close();

@@ -79,7 +79,7 @@ public:
             const os::fd_t f = i < pfds.size() ? pfds[i] : os::kBadFd;
             if (pfds_r_[i].get() == f) continue;
             if (i < pfds_.size()) pfds_[i] = f;
-            os::close_fd(pfds_r_[i].replace(f));   // (replace waits for the reads in flight; then the value is dead weight)
+            pfds_r_[i].replace(f);   // (the old value closes when its LAST in-flight read is done - see FdRef)
         }
         if (pfds_r_.empty()) pfds_ = pfds;   // (before init: no table yet, nothing queued, nothing to close)
     }   // (the fallback handles were reopened)
