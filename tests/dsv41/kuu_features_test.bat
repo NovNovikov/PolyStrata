@@ -6,7 +6,10 @@ rem together.  A full engine log per run in the log folder, and a summary at the
 rem
 rem Second review item 14: the verdict used to be only "the script exited 0" - a run whose switch never
 rem reached any code looked exactly like one that did.  Each run now greps the engine log for that
-rem feature's ACTIVATION witness:
+rem feature's ACTIVATION witness.  Third round item 14: the witness greps only started to mean
+rem something once the FULL engine stderr reached the log - the script used to unlink the engine's
+rem stderr after the run, so %LOGF% carried only its own prints.  Now every engine stderr line is
+rem teed into %LOGF% as it arrives and kept verbatim in <name>.engine.log (KUU_ENGINE_LOG).  Verdicts:
 rem   PASS - clean run AND the feature's witness line in the log;
 rem   SKIP - clean run, the feature had legitimately nothing to do on this box (the reason is printed:
 rem          no drafter to cap or draft lazily, no Engram table to ring, no RAM for the read-ahead ...);
@@ -89,7 +92,10 @@ shift
 goto args
 :args_done
 set "LOGF=%LOGD%\%NAME%.log"
-echo(=== %NAME% === !ENVS! (engine load takes minutes; full log: %LOGF%)
+rem (third round 14) the script keeps the engine's FULL stderr here, never deleted, while also teeing it
+rem into %LOGF% below; %LOGF% carries every witness line, this file is the verbatim postmortem copy
+set "KUU_ENGINE_LOG=%LOGD%\%NAME%.engine.log"
+echo(=== %NAME% === !ENVS! (engine load takes minutes; full log: %LOGF%, engine's own: %KUU_ENGINE_LOG%)
 set PYTHONIOENCODING=utf-8
 rem errorlevel to a known 0: an unset variable above must not decide this run's verdict
 ver >nul
