@@ -1088,6 +1088,12 @@ int serve(strata::ds4::Model& m, const std::string& eos_list, bool spec, float c
             std::snprintf(b, sizeof b, " drafts=%.3f", (double) d_acc / (double) d_off);
             out += b;
         }
+        if (s.lazy_rounds > s_dec.lazy_rounds) {   // (third round 15) the lazy DSpark path in the STAT line too:
+            std::snprintf(b, sizeof b, " lazy_r=%lld lazy_rows=%lld",   //   rounds drafted in confidence batches
+                          (long long) (s.lazy_rounds - s_dec.lazy_rounds),   //   and the rows they made - before
+                          (long long) (s.lazy_rows - s_dec.lazy_rows));      //   this they sat only in /stats JSON
+            out += b;
+        }
         if (s.skipped > s_dec.skipped) {   // (STRATA_DS4_DISK_SKIP_W: experts left out a token)
             std::snprintf(b, sizeof b, " skipped=%.3f", (double) (s.skipped - s_dec.skipped) / fed);
             out += b;
@@ -1584,8 +1590,15 @@ int serve(strata::ds4::Model& m, const std::string& eos_list, bool spec, float c
                      t1 > t0 ? 1000.0 * (double) (r.ids.size() - from) / (t1 - t0) : 0.0, produced, t2 - t1,
                      t2 > t1 ? 1000.0 * (double) produced / (t2 - t1) : 0.0,
                      s.experts ? 100.0 * (double) s.cpu_experts / (double) s.experts : 0.0);
-        if (d_off > 0) std::fprintf(stderr, "maya ds4 serve: drafts %lld of %lld kept; %s\n", d_acc, d_off,
-                                    per_position(s_dec, s).c_str());
+        if (d_off > 0) {   // (third round 15) name the lazy share of the request's drafting rounds
+            char lz[96] = "";
+            if (s.lazy_rounds > s_dec.lazy_rounds)
+                std::snprintf(lz, sizeof lz, ", %lld of them lazy confidence batches (%lld rows)",
+                              (long long) (s.lazy_rounds - s_dec.lazy_rounds),
+                              (long long) (s.lazy_rows - s_dec.lazy_rows));
+            std::fprintf(stderr, "maya ds4 serve: drafts %lld of %lld kept%s; %s\n", d_acc, d_off, lz,
+                         per_position(s_dec, s).c_str());
+        }
         if (nan_stop) {   // (its state holds the NaNs: the next request starts from nothing)
             m.reset();
             held.clear();
@@ -2880,6 +2893,9 @@ int main(int argc, char** argv) {
                      rounds, d_off, d_acc, (double) out.size() / (double) rounds, (s1.draft_ms - s0.draft_ms) / nv,
                      s1.verify_ms - s0.verify_ms, (long long) (s1.drafts_offered > 0 ? 0 : 0));
         std::fprintf(stderr, "dspark %s\n", per_position(s0, s1).c_str());
+        if (s1.lazy_rounds > s0.lazy_rounds)   // (third round 15) the lazy share, for the harness logs too
+            std::fprintf(stderr, "dspark lazy: %lld of these rounds drafted in confidence batches, %lld rows\n",
+                         (long long) (s1.lazy_rounds - s0.lazy_rounds), (long long) (s1.lazy_rows - s0.lazy_rows));
     }
     if (std::getenv("DS4_TOKLOG") != nullptr && tok_ms.size() > 8) {   // the decode's tokens after the first (which carries the prompt's tail)
         std::vector<double> v(tok_ms.begin() + 1, tok_ms.end());
