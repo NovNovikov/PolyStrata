@@ -8026,7 +8026,7 @@ struct Model::Impl {
             return ec ? 0ull : (unsigned long long) s;
         };
         std::ostringstream id;
-        id << "strata-ds4-session-5 engine=" << STRATA_VERSION << " mtp=" << g.n_mtp << " dim=" << g.dim << " hd=" << g.hd
+        id << "strata-ds4-session-6 engine=" << STRATA_VERSION << " mtp=" << g.n_mtp << " dim=" << g.dim << " hd=" << g.hd
            << " win=" << g.win << " ratios=";
         for (int r : g.ratios) id << r << ",";
         id << " kv=";
@@ -8044,6 +8044,9 @@ struct Model::Impl {
         // emission itself is ds4_identity_knobs.hpp, checked without a model by tests/dsv41/ds4_identity_knobs_test.cpp.
         // The format number went to 5 with this: a session-4 file carries no trace of the skip knobs that were
         // then un-fingerprinted, so it cannot be proven compatible and is refused rather than trusted.
+        // It went to 6 with the knob floats' round-trip text (ds4_identity_knobs.hpp fp_txt): a session-5 file's
+        // six-digit "w=0.2" cannot be told apart from one written under a weight that merely printed the same,
+        // so those files are refused rather than trusted - exactly the reasoning that made 5 refuse 4.
         {
             SessionKnobs kn;
             kn.defer = defer_mode();

@@ -11,7 +11,25 @@
 // nothing, so a plain run's string stays byte-identical across builds that add knobs.
 #pragma once
 
+#include <charconv>
+#include <cstdio>
+#include <string>
+
 namespace strata::ds4 {
+
+/// Locale-independent, round-trip-exact float text (hostile review, second round 6.1). The stream `<<` on a
+/// float prints six significant digits in the PROCESS locale: 0.20000003f and 0.2f both print "0.2" - two
+/// different weights share one session identity, and a session file mounted under one answers under the
+/// other - and a machine whose C locale prints commas puts "0,2" into a string the loader compares bytewise.
+/// std::to_chars gives the shortest decimal that reads back as the same float, always with a dot, whatever
+/// the locale: distinct floats get distinct text, one float the same text everywhere.
+inline std::string fp_txt(float v) {
+    char buf[64];
+    const std::to_chars_result r = std::to_chars(buf, buf + sizeof buf, v);
+    if (r.ec == std::errc()) return std::string(buf, r.ptr);
+    std::snprintf(buf, sizeof buf, "%.9g", v);   // (to_chars has no failure for finite floats; belt for the odd one)
+    return std::string(buf);
+}
 
 struct SessionKnobs {
     // Expert Deferral (STRATA_DS4_DEFER family)
@@ -45,18 +63,18 @@ template <class OS>
 void emit_session_knobs(OS& id, const SessionKnobs& k) {
     if (k.defer != 0) {
         id << " defer=" << k.defer;
-        if (k.defer >= 2) id << " w=" << k.defer_w;         // mode 1 defers the whole lane: W cannot change it
-        if (k.defer == 4) id << " k=" << k.defer_k;         // only mode 4 lands the part late
-        if (k.defer >= 2 && k.defer_cold) id << " cold";    // every splitting mode, not just 4
+        if (k.defer >= 2) id << " w=" << fp_txt(k.defer_w);   // mode 1 defers the whole lane: W cannot change it
+        if (k.defer == 4) id << " k=" << k.defer_k;           // only mode 4 lands the part late
+        if (k.defer >= 2 && k.defer_cold) id << " cold";      // every splitting mode, not just 4
         if (k.defer_early) id << " early";
         if (k.defer_max_set) id << " max=" << k.defer_max;
     }
     if (k.disk_skip_w > 0.0f) {
-        id << " dsk=" << k.disk_skip_w << " dsk_from=" << k.disk_skip_from;
+        id << " dsk=" << fp_txt(k.disk_skip_w) << " dsk_from=" << k.disk_skip_from;
         if (k.disk_skip_auto)
             id << " dsk_auto=" << k.disk_skip_window << "," << k.disk_skip_settle << "," << k.disk_skip_budget;
     }
-    if (k.ram_skip_w > 0.0f) id << " rsk=" << k.ram_skip_w;
+    if (k.ram_skip_w > 0.0f) id << " rsk=" << fp_txt(k.ram_skip_w);
     if (k.yoco != 0 && k.yoco_keep > 0) id << " yoco=" << k.yoco << " keep=" << k.yoco_keep;
     if (k.experts_used > 0 && k.k_exp > 0 && k.experts_used < k.k_exp) id << " kexp=" << k.experts_used;
 }

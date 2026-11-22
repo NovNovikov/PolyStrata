@@ -5,8 +5,11 @@
 // and "0.2" are one state. No model, no pack, no device.
 #include "ds4_identity_knobs.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <clocale>
 #include <functional>
 #include <sstream>
 #include <string>
@@ -107,6 +110,45 @@ int main() {
         check(emit(k) == emit(k), "the same knobs emit the same string twice");
         check(emit(k).find("defer=4") < emit(k).find("dsk=") && emit(k).find("yoco=") < emit(k).find("kexp="),
               "the section's parts keep a fixed order");
+    }
+
+    // 6. (second round 6.1) the float texts: adjacent floats are distinct, every text round-trips, and the dot
+    // survives a comma locale - the fingerprint compares strings, so this is where two weights may not collide.
+    {
+        const float w = 0.2f, w2 = std::nextafter(w, 1.0f);
+        check(w2 != w, "the float right above 0.2 exists (the test itself is sound)");
+        SessionKnobs a, b2;
+        a.defer = 2; a.defer_w = w;
+        b2.defer = 2; b2.defer_w = w2;
+        check(emit(a) != emit(b2),
+              "0.2f and its neighbour get different identities (six digits printed both as \"0.2\")");
+        const std::string ta = emit(a);
+        const size_t p = ta.find(" w=");
+        check(p != std::string::npos && std::strtof(ta.c_str() + p + 3, nullptr) == w && ta.size() == p + 6 &&
+                  ta.compare(p + 1, 5, "w=0.2") == 0,
+              "the text reads back as the very float and keeps the short 0.2 form");
+        bool exact = true;
+        for (int i = 0; i < 2000; ++i) {
+            SessionKnobs k;
+            k.ram_skip_w = (float) (i + 1) * 0.00123f;
+            const std::string t = emit(k);
+            const size_t q = t.find("rsk=");
+            if (q == std::string::npos || std::strtof(t.c_str() + q + 4, nullptr) != k.ram_skip_w) { exact = false; break; }
+        }
+        check(exact, "2000 arbitrary weights: each prints text that reads back as exactly itself");
+        // the process's C locale may print commas; the fingerprint may not: fp_txt never follows the locale
+        char saved[128] = {0};
+        std::snprintf(saved, sizeof saved, "%s", std::setlocale(LC_ALL, nullptr) ? std::setlocale(LC_ALL, nullptr) : "C");
+        if (std::setlocale(LC_ALL, "German") != nullptr) {
+            SessionKnobs k;
+            k.ram_skip_w = 0.25f;
+            const std::string t = emit(k);
+            check(t.find("rsk=0.25") != std::string::npos && t.find(',') == std::string::npos,
+                  "in a comma locale the weight still prints with a dot");
+            std::setlocale(LC_ALL, saved);
+        } else {
+            check(fp_txt(0.25f) == "0.25", "no comma locale on this machine: fp_txt itself still prints the dot");
+        }
     }
 
     std::printf("ds4_identity_knobs_test: %d checks, %d failures\n", checks, failures);
