@@ -3089,6 +3089,31 @@ struct Model::Impl {
                                      "(under the 1.5x fit)\n", exp_b / 1e9, room_b / 1e9);
             }
         }
+        // (live-pack round) the dtype check the drafter loader cannot answer: its Markov step needs
+        // <last-mtp>.markov_head.embed.weight as BF16 and the head as F16 or BF16, and a pack that keeps either
+        // quantized (an Unsloth IQ1_S build does) died DEEP in placement with a bare return false - a documented
+        // switch (DS4_MTP_VRAM_GB, or --dspark on) killing the whole engine at load. The tensors are already in
+        // the index, so the loader's full Markov condition (both head tensors and the confidence projection) is
+        // asked HERE, and the pack's own dtypes go into the answer: an unreadable drafter is refused by name,
+        // the way the fit rule above already refuses on size, and the run goes on without it. Explicit
+        // --dspark on is included: a named refusal serves the user better than the crash it replaces.
+        if (o.dspark && g.n_mtp > 0) {
+            const std::string Z = "mtp." + std::to_string(g.n_mtp - 1) + ".";
+            const Tensor* te = pk.get(Z + "markov_head.embed.weight");
+            const Tensor* th = pk.get(Z + "markov_head.head.weight");
+            const Tensor* tc = pk.get(Z + "confidence_head.proj.weight");
+            const auto tdt = [](const Tensor* t) -> std::string { return t != nullptr ? t->dtype : std::string("absent"); };
+            if (te == nullptr || th == nullptr || tc == nullptr || te->dtype != "BF16" ||
+                (th->dtype != "F16" && th->dtype != "BF16")) {
+                o.dspark = false;
+                std::fprintf(stderr, "ds4: DSpark not loaded: the drafter's Markov head is not in the bits this loader reads "
+                                     "(pack: %s = %s, wanted BF16; %s = %s, wanted F16 or BF16; %s%s) - the run goes on "
+                                     "without the drafter\n",
+                             (Z + "markov_head.embed.weight").c_str(), tdt(te).c_str(),
+                             (Z + "markov_head.head.weight").c_str(), tdt(th).c_str(),
+                             (Z + "confidence_head.proj.weight").c_str(), tc == nullptr ? " absent" : "");
+            }
+        }
         if (!o.dspark) g.n_mtp = 0;
         if (g.n_mtp == 0 && std::getenv("DS4_MTP_VRAM_GB") != nullptr)   // (second review 8.2) a cap set for a
             std::fprintf(stderr, "ds4: DS4_MTP_VRAM_GB is set but no drafter is loaded - the cap does nothing\n");   //   drafter that
@@ -4086,6 +4111,13 @@ struct Model::Impl {
             const int n = pk.drop_files(drop, store->fd_live());
             if (n > 0) store->set_pfds(pk.pfds);   // (third round 12: kept files' mappings stay usable - rescue
             std::fprintf(stderr, "ds4: (local) %d expert file(s) unmapped, their buffered handles closed: unbuffered reads only\n", n);   //   asks Pack::at per expert, not a global flag)
+        }
+        else if (drop_shards) {   // (live-pack round) the switch was set and the block above never ran: on the
+            std::fprintf(stderr, "ds4: (local) STRATA_DS4_DROP_SHARDS armed but idle: %s - the geometry holds no"     //   copy-into-RAM machine that
+                                 " expert-shard view to drop; the geometry, not a failure\n",                          //   is the rule, and the sweep
+                             store == nullptr ? "the CPU lane's experts came into RAM at load: no demand store, no views"  //   could not read silence
+                                               : (!pk.gguf ? "the pack is not a GGUF dir"                                 //   as anything but FAIL
+                                                           : "DS4_NO_VIEW dropped the file views at load already"));
         }
         if (const int dm = defer_mode(); dm != 0)   // (second review 14) config witness: the approximate mode is
             std::fprintf(stderr, "ds4: (local) STRATA_DS4_DEFER=%d is armed: a deferred CPU-lane part lands in a "     //   armed in this process, and the
@@ -13458,6 +13490,24 @@ struct Model::Impl {
         if (pick_min_ > 0) return pick_min_;
         pick_min_ = prompt_flow_min(std::getenv("DS4_PICK_MIN"));
         std::fprintf(stderr, "ds4: prompt path: the chunked pass from %d tokens, windows of 16 below\n", pick_min_);
+        // (live-pack round) the two chunked-pass switches name their own idleness HERE, once, where the path is
+        // first named. A sweep of short prompts saw neither the activation witness nor any reason for the silence
+        // - armed-and-idle looked exactly like a silent no-op (tests/dsv41/kuu_features_test.bat FAILed on it).
+        // These prints change no feature code: the switch stays armed, the chunked pass still owns it.
+        if (std::getenv("STRATA_DS4_EG_RING") != nullptr && std::atoi(std::getenv("STRATA_DS4_EG_RING")) >= 2) {
+            bool eg_table = false;   // (the ring's other precondition, checkable now: a table-less pack says THAT)
+            for (size_t li = 0; li < L.size() && !eg_table; ++li)
+                eg_table = L[li].eg >= 0;
+            if (!eg_table)
+                std::fprintf(stderr, "ds4: Engram ring armed but idle: this pack carries no Engram table, "
+                                     "the ring has nothing to read\n");
+            else
+                std::fprintf(stderr, "ds4: Engram ring armed: the chunked pass owns it - prompts under %d "
+                                     "tokens run in windows and leave it with nothing to read\n", pick_min_);
+        }
+        if (std::getenv("STRATA_DS4_LM_AHEAD") != nullptr && std::atoi(std::getenv("STRATA_DS4_LM_AHEAD")) != 0)
+            std::fprintf(stderr, "ds4: next-layer read-ahead armed: the chunked pass owns it - prompts under "
+                                 "%d tokens run in windows and never build its buffers\n", pick_min_);
         return pick_min_;
     }
     int pick_min_ = 0;

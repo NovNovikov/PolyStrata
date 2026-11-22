@@ -294,10 +294,45 @@ linked clean at the final tree. The live-pack feature sweep that followed found 
 terminal drain - split DEFER requests wait on `resps_late` too, and the first shape released only
 `resps` - fixed as above and covered by scenarios for modes 2, 3 and 4.
 
+## Live-pack feature sweep, and what it fixed (2026-11-22)
+
+First time any of these switches ran against a real pack: the owner ran `tests/dsv41/kuu_features_test.bat`
+(10 engine loads) on the IQ1_S pack `deepseek-v4.1-1017-ud-iq1-s`, sm_89 24 GB + 128 GB RAM, on the hotfixed
+build. Baseline and `DEFER=3` passed clean (10-24 tok/s generating); the router, uniform-store and lazy
+switches SKIPped with their own named reasons, as designed. Five FAILs came out of it, and they were one
+crash and three silences - none of them a hotfix regression, all of them first-contact bugs of paths the
+host tests could not reach:
+
+- **The cap crash (real)**: on this pack the auto rule refuses DSpark (103 GB of routed experts against
+  24 GB of GPU), and baseline lives; `DS4_MTP_VRAM_GB` stands that rule down (second review 8.1), the drafter
+  begins to load, and its Markov step demands `mtp.2.markov_head.embed.weight` in BF16 and the head in
+  F16/BF16 - an IQ1_S pack keeps them quantized, so the loader returned false DEEP in placement and the whole
+  engine died at init. A documented switch killed the run. The fix is a refusal, not a new quant reader:
+  where the auto fit rule already refuses on size, the loader's Markov condition is now asked up front and
+  the pack's own dtypes go into a named line - `DSpark not loaded: the drafter's Markov head is not in the
+  bits this loader reads (pack: ... = IQ1_S, wanted BF16 ...)` - and the run goes on without the drafter,
+  exactly as it does under the auto refusal. Reading a quantized drafter is a separate feature with its own
+  acceptance-rate validation; it is not part of this fix.
+- **Three named silences**: `EG_RING` and `LM_AHEAD` live inside the chunked pass, which this box's smoke
+  prompts (40 tokens, threshold 96) never reach, and `DROP_SHARDS` steps only over a demand store, which a
+  copy-everything-into-RAM machine (`--mmap-experts auto`, "no demand store") never builds. All three were
+  legitimately idle - and printed nothing, so the sweep could only call the silence FAIL. Each now names
+  itself once at the load's path banner: `Engram ring armed: the chunked pass owns it - prompts under N
+  tokens run in windows ...` (a table-less pack says THAT instead), `next-layer read-ahead armed: ...`,
+  `STRATA_DS4_DROP_SHARDS armed but idle: the CPU lane's experts came into RAM at load ...`. The prints
+  change no feature code; the sweep's witness checks gained the matching SKIP branches, and `all_exact`
+  accepts a named reason as a trace, as it always did for the router's `the switch does nothing`.
+
+Their real tests stay what this smoke never was: a prompt past the flow threshold exercises the ring and
+the read-ahead, and `--mmap-experts on` with a limited `DS4_STORE_GB` gives `DROP_SHARDS` a store to drop
+through. Speed claims still wait for a repeated, one-process benchmark - eight loads of the same 103 GB at
+~0.38 GB/s is why the sweep spends ~45 minutes before it measures anything.
+
 ## Not run, and why
 
 - Any end-to-end inference, prefill/decode timing, KL or quality measurement: excluded by the task spec -
-  the model was never loaded, so the donor's percentages are not restated as results of this build.
+  no timing was claimed from the sweep's single-shot GENs (warm-up alone moved baseline 10 -> 19 tok/s),
+  so the donor's percentages are not restated as results of this build.
 - CUDA event waits, H2D record order, and the actual overlap quality of the ring and the read-ahead: these
   need the device's timeline. Their decisions (which slot may be refilled, when a buffer may be retargeted,
   when a part must die) are now the tested classes; the waits around them were verified by reading.

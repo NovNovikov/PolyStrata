@@ -15,9 +15,11 @@ rem   SKIP - clean run, the feature had legitimately nothing to do on this box (
 rem          no drafter to cap or draft lazily, no Engram table to ring, no RAM for the read-ahead ...);
 rem   FAIL - engine trouble (the old check), or the switch was set and the log carries neither the
 rem          witness nor a named reason - a silent no-op is exactly what this sweep must not hide.
-rem Smoke only: it does not measure speed, and the 40-token prompt runs the windows path, so EG_RING and
-rem LM_AHEAD build their buffers and idle rather than prefetch - their timing is a model-length run's
-rem job (docs/KUU_DSV41.md).
+rem Smoke only: it does not measure speed, and the 40-token prompt stays under the path threshold the engine
+rem names at load, so EG_RING and LM_AHEAD are armed with nothing to do and DROP_SHARDS finds no store to
+rem drop through. The engine now prints a named reason for exactly that (Engram ring armed / read-ahead
+rem armed / DROP_SHARDS armed but idle / DSpark's unreadable drafter refused), and the sweep reads those
+rem as SKIP - their real timing is a model-length run's job (docs/KUU_DSV41.md).
 rem
 rem usage:  kuu_features_test.bat [exe] [pack]
 rem Each run loads the whole pack (minutes, lots of RAM) and wants the VRAM to itself: stop the other
@@ -137,6 +139,7 @@ goto :eof
 
 :wit_cap
 findstr /C:"DS4_MTP_VRAM_GB: drafter" "%LOGF%" >nul && (set "VERDICT=PASS"& set "WHY=the drafter's per-block VRAM cap was applied")
+if not defined VERDICT findstr /C:"not in the bits this loader reads" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=the pack keeps the drafter's Markov head quantized: the loader refused DSpark by name and the run went on without it")
 if not defined VERDICT findstr /C:"no drafter is loaded" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=the drafter was not loaded: the cap had nothing to cap")
 if not defined VERDICT findstr /C:"DSpark not loaded" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=DSpark auto refused the fit before the cap: this run proves the ordering line only")
 if not defined VERDICT (set "VERDICT=FAIL"& set "WHY=the cap was set and the log carries no trace of it")
@@ -152,6 +155,8 @@ goto :eof
 :wit_ring
 findstr /C:"would not fit" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=no pinned room for the ring slots: the Engram reads went one at a time")
 if not defined VERDICT findstr /C:"requested slots of" "%LOGF%" >nul && (set "VERDICT=PASS"& set "WHY=the reader ring was pinned and took the Engram reads")
+if not defined VERDICT findstr /C:"Engram ring armed but idle" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=this pack carries no Engram table: the armed ring had nothing to read")
+if not defined VERDICT findstr /C:"Engram ring armed" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=armed at load, but the smoke prompts stayed in the windows path - the ring belongs to the chunked pass; a long prompt is its real test")
 if not defined VERDICT findstr /C:"Engram" "%LOGF%" >nul || (set "VERDICT=SKIP"& set "WHY=this pack carries no Engram table: the ring had nothing to read")
 if not defined VERDICT (set "VERDICT=FAIL"& set "WHY=STRATA_DS4_EG_RING=8 was set and the ring built no trace")
 goto :eof
@@ -159,12 +164,14 @@ goto :eof
 :wit_ahead
 findstr /C:"next-layer read-ahead:" "%LOGF%" >nul && (set "VERDICT=PASS"& set "WHY=the read-ahead buffers were built and its counts printed - the short prompt idles them, the line says the mode ran")
 if not defined VERDICT findstr /C:"read-ahead is off for this run" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=no RAM for the second layer cache: the engine said so")
+if not defined VERDICT findstr /C:"read-ahead armed" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=armed at load, but the smoke prompts stayed in the windows path - the read-ahead belongs to the chunked pass; a long prompt is its real test")
 if not defined VERDICT (set "VERDICT=FAIL"& set "WHY=STRATA_DS4_LM_AHEAD=1 was set and neither the counts nor the refusal printed")
 goto :eof
 
 :wit_drop
 findstr /R /C:"^ds4: .local. 0 expert" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=no shard file was droppable in this geometry - the store reads through direct handles regardless")
 if not defined VERDICT findstr /C:"unmapped, their buffered handles closed" "%LOGF%" >nul && (set "VERDICT=PASS"& set "WHY=the expert shards were unmapped and their buffered handles closed")
+if not defined VERDICT findstr /C:"DROP_SHARDS armed but idle" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=armed, but this geometry holds no expert-shard view to drop - the named reason says which condition; a limited store is its real test, e.g. --mmap-experts on with DS4_STORE_GB=32")
 if not defined VERDICT (set "VERDICT=FAIL"& set "WHY=STRATA_DS4_DROP_SHARDS=1 was set and the drop step printed nothing")
 goto :eof
 
@@ -179,8 +186,8 @@ set "XMISS="
 findstr /C:"routers kept in BF16" "%LOGF%" >nul || findstr /C:"the switch does nothing" "%LOGF%" >nul || set "XMISS=!XMISS! router_bf16"
 findstr /C:"DS4_MTP_VRAM_GB: drafter" "%LOGF%" >nul || findstr /C:"no drafter is loaded" "%LOGF%" >nul || set "XMISS=!XMISS! mtp_cap"
 findstr /C:"DSpark lazy:" "%LOGF%" >nul || findstr /C:"DSpark not loaded" "%LOGF%" >nul || findstr /C:"no drafter is loaded" "%LOGF%" >nul || set "XMISS=!XMISS! lazy_dspark"
-findstr /C:"requested slots of" "%LOGF%" >nul || findstr /C:"would not fit" "%LOGF%" >nul || set "XMISS=!XMISS! eg_ring"
-findstr /C:"next-layer read-ahead:" "%LOGF%" >nul || findstr /C:"read-ahead is off" "%LOGF%" >nul || set "XMISS=!XMISS! lm_ahead"
-findstr /C:"unmapped, their buffered handles closed" "%LOGF%" >nul || set "XMISS=!XMISS! drop_shards"
+findstr /C:"requested slots of" "%LOGF%" >nul || findstr /C:"would not fit" "%LOGF%" >nul || findstr /C:"Engram ring armed" "%LOGF%" >nul || set "XMISS=!XMISS! eg_ring"
+findstr /C:"next-layer read-ahead:" "%LOGF%" >nul || findstr /C:"read-ahead is off" "%LOGF%" >nul || findstr /C:"read-ahead armed" "%LOGF%" >nul || set "XMISS=!XMISS! lm_ahead"
+findstr /C:"unmapped, their buffered handles closed" "%LOGF%" >nul || findstr /C:"DROP_SHARDS armed but idle" "%LOGF%" >nul || set "XMISS=!XMISS! drop_shards"
 if not defined XMISS (set "VERDICT=PASS"& set "WHY=every switch of the exact set left its witness") else (set "VERDICT=FAIL"& set "WHY=no trace for:!XMISS!")
 goto :eof
