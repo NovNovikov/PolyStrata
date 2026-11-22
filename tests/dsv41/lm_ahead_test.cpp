@@ -204,6 +204,65 @@ int main() {
         check(later && !side.failed(1), "and a recovery after the files came back still restores the slot");
     }
 
+    // 5. (hostile review, third round 6) the stale winner: a caller saw the slot FAILED and paused there; another
+    // recovered it SUCCESSFULLY meanwhile; the paused one wakes and wins the now-free fixing exchange - the second
+    // round's code let that winner write the whole slot again under the readers of the first one's bytes. The
+    // winner re-checks the state (recover_owned); first the exact wake-up state, then the promise under stress.
+    {
+        PfSide side;
+        side.init(1);
+        side.begin(0);
+        *side.bad_of(0) = true;
+        int reads_a = 0;
+        const bool ok_a = PfSide::recover(
+            side, 0,
+            [&] {
+                ++reads_a;
+                const os::fd_t sfd = os::open_ro(path);
+                bool ok = sfd != os::kBadFd;
+                for (int r = 0; r < 3 && ok; ++r)
+                    ok = os::pread_full(sfd, slotbuf.data() + r * (expert / 3), expert / 3, 2 * expert + r * (expert / 3));
+                if (sfd != os::kBadFd) os::close_fd(sfd);
+                return ok;
+            },
+            [] {});
+        check(ok_a && reads_a == 1, "the live recovery restores the slot (the state the stale winner wakes into)");
+        int reads_b = 0;
+        const bool ok_b = PfSide::recover_owned(side, 0, [&] { ++reads_b; return true; });
+        check(ok_b && reads_b == 0, "the stale winner takes the restored slot as a hit - never a second writer");
+        // and the same under stress: six callers per round, a slot broken afresh each round. Two invariants every
+        // round: the slot is written EXACTLY ONCE - a restored slot re-written by a stale winner is the defect,
+        // and rounds_with_read proves every round had its one legitimate write - and it never has TWO writers at
+        // any instant (an overlap is corruption by another item's read running under a rewrite), however each
+        // caller paused between seeing the failure and winning the exchange.
+        std::atomic<int> overlaps{0}, writes{0};
+        int rounds_with_read = 0;
+        for (int round = 0; round < 200; ++round) {
+            side.begin(0);
+            *side.bad_of(0) = true;
+            std::atomic<int> live{0};
+            std::vector<std::thread> th;
+            for (int t = 0; t < 6; ++t)
+                th.emplace_back([&] {
+                    (void)PfSide::recover(
+                        side, 0,
+                        [&] {
+                            if (live.fetch_add(1, std::memory_order_acq_rel) != 0) ++overlaps;
+                            ++writes;
+                            slotbuf[(size_t) round % slotbuf.size()] = (uint8_t) (round + 7);
+                            live.fetch_sub(1, std::memory_order_acq_rel);
+                            return true;
+                        },
+                        [] { std::this_thread::sleep_for(std::chrono::microseconds(50)); });
+                });
+            for (auto& t : th) t.join();
+            if (!side.failed(0)) ++rounds_with_read;
+        }
+        check(writes.load() == rounds_with_read && rounds_with_read == 200,
+              "200 rounds x six racing callers: every round re-read its failed slot exactly once, no stale winner twice");
+        check(overlaps.load() == 0, "and no round ever held two writers over the slot at one instant");
+    }
+
     os::close_fd(fd);
     remove(path.c_str());
     std::printf("lm_ahead_test: %d checks, %d failures\n", checks, failures);
