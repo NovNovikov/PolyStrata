@@ -7148,9 +7148,19 @@ struct Model::Impl {
         // guess's priority) - the same bytes.  Opt-in (DS4_STORE_BG=1): "ready" comes 9 s sooner on the 251 GB R9700 box (24 s against 34), but a prompt sent at
         // once then waits for the same SSD (200 tokens: 18.7 s against 9.0), so the first answer starts no sooner and decode after
         // it measured 3.7% lower; it only pays when the first prompt comes more than ~10 s after ready.
-        const size_t first = !(std::getenv("DS4_STORE_BG") && std::atoi(std::getenv("DS4_STORE_BG")) == 1)
-                                 ? list.size()
-                                 : std::min(list.size(), (size_t) (48e9 / (double) std::max<size_t>(1, L[0].blob)));
+        // (hostile review, third round 11) the head's byte line walked the list summing the experts' OWN slot bytes.
+        // It used to divide 48 GB by layer 0's blob - fine while every layer shares one size, off by the blob ratio
+        // on a mixed pack: small-blob layers put far more than 48 GB before the first token (or big ones far less),
+        // which is exactly the split DS4_STORE_BG exists to control. The ranking itself was always byte-aware
+        // (count per blob byte); only this cut ignored the bytes. Same 48 GB intent, now true on every geometry.
+        size_t first = list.size();
+        if (std::getenv("DS4_STORE_BG") && std::atoi(std::getenv("DS4_STORE_BG")) == 1) {
+            double acc_b = 0.0;
+            for (size_t i = 0; i < list.size(); ++i) {
+                acc_b += (double) L[(size_t) list[i].first].blob;
+                if (acc_b > 48e9) { first = i; break; }
+            }
+        }
         const std::vector<std::pair<int, int>> head(list.begin(), list.begin() + (long) first), tail(list.begin() + (long) first, list.end());
         const size_t n = store->preload(head, leave);
         std::fprintf(stderr, "ds4: RAM store: %zu of the profile's hottest experts read in (%.1f GB of slots committed) in %.1f s%s\n", n,
@@ -7165,8 +7175,12 @@ struct Model::Impl {
                 piece.assign(tail.begin() + (long) i, tail.begin() + (long) std::min(tail.size(), i + 128));
                 got += store->preload(piece, leave);
             }
+            // (third round 11) the bytes read, from the experts' OWN blobs: got * L[0].blob printed a mixpack's
+            // background figure off by the blob ratio (the count is right, the GB line was the story told)
+            double bg_b = 0.0;
+            for (size_t i = 0; i < got && i < tail.size(); ++i) bg_b += (double) L[(size_t) tail[i].first].blob;
             std::fprintf(stderr, "ds4: RAM store: %zu more experts (%.1f GB) read in the background in %.1f s\n", got,
-                         (double) got * (double) L[0].blob / 1e9, (now_ms() - tb) / 1000.0);
+                         bg_b / 1e9, (now_ms() - tb) / 1000.0);
         });
     }
     // at a window boundary: the store's ready slots become the device's (zero-copy) experts, taken back when it needs the room;
