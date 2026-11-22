@@ -1049,6 +1049,11 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
     add_executable(ds4_router_bf16_test EXCLUDE_FROM_ALL tests/dsv41/ds4_router_bf16_test.cu src/dsv41/ds4_kernels.cu)
     target_include_directories(ds4_router_bf16_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src/dsv41 ${_strata_gpu_include_directories})
     target_link_libraries(ds4_router_bf16_test PRIVATE strata_dsv41_kernels ${_strata_gpu_runtime_target} Threads::Threads)
+    # the recent-slot fills' staging blob (RcStage): no rewrite under a live DMA, every member stream noted, a
+    # teardown mid-copy stays alive; needs a GPU, no model; built by name (third round item 2)
+    add_executable(ds4_rc_stage_test EXCLUDE_FROM_ALL tests/dsv41/ds4_rc_stage_test.cu)
+    target_include_directories(ds4_rc_stage_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src/dsv41 ${_strata_gpu_include_directories})
+    target_link_libraries(ds4_rc_stage_test PRIVATE ${_strata_gpu_runtime_target} Threads::Threads)
     if(STRATA_NATIVE_EXPERTS)
       # the trellis experts (device kernels ds4_tq.cu, CPU lane ds4_tq_cpu.cpp) against a double reference; needs a GPU, no model
       # both test .cpp files launch kernels, so they compile as HIP on the AMD backend and as CUDA on the NVIDIA one

@@ -20,7 +20,8 @@
 #include "ds4_experts_rule.hpp"
 #include "ds4_vram_plan.hpp"   // plan_group_vram: the VRAM expert split, shared with tests/dsv41/ds4_vram_plan_test.cpp
 #include "ds4_draft_cut.hpp"   // draft_cut_keep: the confidence cut, shared with main.cpp's verify and the 8.5 test
-#include "ds4_defer_policy.hpp"   // defer_window / lane_splits / the light split: shared with tests/dsv41/ds4_defer_policy_test.cpp
+#include "ds4_defer_policy.hpp"   // defer_window / lane_splits / the light split: shared with tests/dsv41/ds4_defe
+#include "ds4_rc_stage.hpp"       // (local) RcStage: the recent-slot fills' staging blob and its DMA drain ruler_policy_test.cpp
 #include "ds4_identity_knobs.hpp"   // SessionKnobs / emit_session_knobs: the fingerprint section, shared with its test
 #include "ds4_engram_io.hpp"
 #include "ds4_lm_ahead.hpp"
@@ -9378,31 +9379,31 @@ struct Model::Impl {
     void rc_loop() {
         std::vector<RcJob> fly;     // issued, not yet done
         std::string err;
-        // (local, second review 10.1) one pinned staging blob for the MXFP4 fills. stream_expert's async copies
-        // must never read the file's mapping directly while the store is up: with DROP_SHARDS off the mapping IS
-        // the store's recastable storage (an eviction could land another expert's bytes mid-copy - the copies out
-        // of it run for milliseconds), with it on the mapping is null and the copy fails. Every MXFP4 fill stages
-        // the blob here first - the store's pinned copy when it holds one, the file otherwise - and the device
-        // copies from this stable source, exactly as the flow's batches already do.
-        uint8_t* rc_stage = nullptr;
+        // (local, second review 10.1; third round 2) one staging blob for the MXFP4 fills. stream_expert's async
+        // copies must never read the file's mapping directly while the store is up: with DROP_SHARDS off the
+        // mapping IS the store's recastable storage (an eviction could land another expert's bytes mid-copy - the
+        // copies out of it run for milliseconds), with it on the mapping is null and the copy fails. Every MXFP4
+        // fill stages the blob first - the store's pinned copy when it holds one, the file otherwise - and the
+        // device copies from that stable source, exactly as the flow's batches already do. The blob is written
+        // again only after the device drained the PREVIOUS fill (RcStage::drain, whose events cover every member
+        // stream - a tensor-parallel expert's pieces are on several devices), and no pinned room is no longer a
+        // licence to read the recastable slot directly: RcStage falls back to heap (an async copy from pageable
+        // memory completes before it returns), and only with no memory at all the fills are declined - the expert
+        // then routes over the RAM lane, which is never a reason to stop inference.
         size_t rc_stage_bytes = 0;
         for (const Layer& l : L)
             if (l.lay.fmt == gg::kFmtMXFP4) rc_stage_bytes = std::max(rc_stage_bytes, (size_t) l.blob);
-        if (rc_stage_bytes != 0 &&
-            cudaHostAlloc((void**) &rc_stage, rc_stage_bytes, cudaHostAllocPortable) != cudaSuccess) {
-            rc_stage = nullptr;   // (no pinned room: the fills fall back to the mapping, the pre-port behaviour)
-            (void) cudaGetLastError();
-        }
-        struct RcStageFree {
-            uint8_t** p;
-            ~RcStageFree() { if (*p != nullptr) cudaFreeHost(*p); }
-        } rc_stage_free{&rc_stage};
+        RcStage stage;
+        const bool have_stage = rc_stage_bytes == 0 || stage.alloc(rc_stage_bytes);
+        if (rc_stage_bytes != 0 && !have_stage)
+            std::fprintf(stderr, "ds4: recent-slot fills: no memory for a staging blob - the MXFP4 ones are "
+                                 "declined (the experts route over the RAM lane instead)\n");
         for (;;) {
             std::deque<RcJob> held;
             {
                 std::unique_lock<std::mutex> lk(rc_mu);
                 if (fly.empty()) rc_cv.wait(lk, [&] { return quit.load() || !rc_q.empty(); });
-                if (quit.load()) return;
+                if (quit.load()) break;
                 held.swap(rc_q);
             }
             for (const RcJob& j : held) {
@@ -9414,28 +9415,48 @@ struct Model::Impl {
                 bool ok = true;
                 const uint8_t* src = nullptr;   // (second review 10.1) the staged blob; null for non-MXFP4 layers,
                                                 //   whose mappings the store never shares
-                if (l.lay.fmt == gg::kFmtMXFP4 && rc_stage != nullptr) {
-                    bool got = false;
-                    if (store) {   // (its copy is RAM: take it under a pin the length of one memcpy)
-                        const int ss = store->acquire_ready(l.il, j.expert);
-                        if (ss >= 0) {
-                            std::memcpy(rc_stage, store->blob(ss), (size_t) l.blob);
-                            store->unpin(ss);
-                            got = true;
+                const bool staged = l.lay.fmt == gg::kFmtMXFP4;
+                if (staged) {
+                    if (!have_stage)
+                        ok = false;   // (declined for good: never an async read of the store's slot or a null mapping)
+                    else {
+                        // (third round 2) the device may still be copying the PREVIOUS fill out of this blob -
+                        // wait every noted member stream out before a single byte goes in (a failed wait is a
+                        // failed fill: the blob's history is no longer provable, and a partial copy of THIS
+                        // expert's into the slot is exactly the corruption the staging exists to prevent)
+                        if (!stage.drain()) ok = false;
+                        bool got = false;
+                        if (ok && store) {   // (its copy is RAM: take it under a pin the length of one memcpy)
+                            const int ss = store->acquire_ready(l.il, j.expert);
+                            if (ss >= 0) {
+                                std::memcpy(stage.data(), store->blob(ss), (size_t) l.blob);
+                                store->unpin(ss);
+                                got = true;
+                            }
                         }
+                        if (ok && !got) got = read_mx(l, j.expert, stage.data());
+                        if (!got)
+                            ok = false;   // (a refused fill is the async copy's failure: the slot retires, the lane routes)
+                        else
+                            src = stage.data();
                     }
-                    if (!got) got = read_mx(l, j.expert, rc_stage);
-                    if (!got)
-                        ok = false;   // (a refused fill is the async copy's failure: the slot retires, the lane routes)
-                    else
-                        src = rc_stage;
                 }
-                for (int m = 0; m < l.nm && ok; ++m) {
+                for (int m = 0; m < l.nm; ++m) {
                     Layer& x = member(l, m);
                     const int di = x.dev;
                     cudaSetDevice(devs[(size_t) di].id);
-                    cudaStreamWaitEvent(rc_cs[(size_t) di], rc_go[(size_t) di], 0);   // (after the tick's tables)
-                    if (!stream_expert(l, m, j.expert, sat(l, x, l.rc_base + j.slot, unit(x)), rc_cs[(size_t) di], err, src))
+                    const bool issued = ok;   // (did this member's stream get touched at all: is there a read of
+                                              //   the blob on it that a later drain must wait out?)
+                    if (ok) {
+                        cudaStreamWaitEvent(rc_cs[(size_t) di], rc_go[(size_t) di], 0);   // (after the tick's tables)
+                        if (!stream_expert(l, m, j.expert, sat(l, x, l.rc_base + j.slot, unit(x)), rc_cs[(size_t) di], err, src))
+                            ok = false;
+                    }
+                    // (third round 2) the fill's end must be provable on EVERY member stream this job touched -
+                    // also for a member whose copy failed mid-way (its stream may hold a partly enqueued read of
+                    // the blob, and the next fill's drain has to wait that out). A note that cannot be made
+                    // poisons the stage: the blob is never written again, and never freed under a live copy.
+                    if (staged && src != nullptr && issued && !stage.record(devs[(size_t) di].id, rc_cs[(size_t) di]))
                         ok = false;
                     cudaEventRecord(l.rc_ev[(size_t) j.slot * l.nm + m], rc_cs[(size_t) di]);
                 }
