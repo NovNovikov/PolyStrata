@@ -811,6 +811,8 @@ struct Chunk {
         int64_t after = -1;                            // (layer-major) the items up to this one read first
         std::atomic<int>* pf = nullptr;                // (local, LM_AHEAD) its layer-cache slot's read-ahead, still reading
         std::atomic<bool>* pf_bad = nullptr;
+        int pf_slot = -1;                              // (local, second round 5.1) the PfSide slot to recover if pf_bad
+        int pf_side = -1;                              //   (the side is the one adoption used: c.lc_side can flip after)
         int store_slot = -1;                           // (local, review 2) the RAM store slot acquired for it, PINNED until the io copies it to staging (unpin at its DMA, sweep at the run's end)
         std::atomic<int> left{0};                      // parts still being read
         std::atomic<bool> bad{false};
@@ -4886,6 +4888,8 @@ struct Model::Impl {
                 if (c.la != nullptr && c.lc_pf[(size_t) j]) {   // (local, LM_AHEAD: read ahead - once it has landed)
                     it.pf = c.pf[c.lc_side].left_of((size_t) j);
                     it.pf_bad = c.pf[c.lc_side].bad_of((size_t) j);
+                    it.pf_slot = j;                    // (second round 5.1) which slot to demand-recover, on which
+                    it.pf_side = c.lc_side;            //   side: adoption may have flipped c.lc_side since
                     ++c.it_la;
                 }
                 hit = true;
@@ -5040,15 +5044,26 @@ struct Model::Impl {
             if (it.pf != nullptr) {   // (local, LM_AHEAD: its expert still being read ahead)
                 if (it.pf->load(std::memory_order_acquire) != 0) break;
                 if (it.pf_bad->load(std::memory_order_acquire)) {
-                    // (local, review 6) the speculative read failed - a guess must not kill the request.
-                    // Read the expert now, on demand, straight into the layer-cache slot it was guessed
-                    // into; the item then runs as a plain hit. Only a demand read that fails too ends it.
+                    // (local, review 6 / second round 5.1) the speculative read failed - a guess must not kill the
+                    // request. PfSide::recover makes this the ONE re-read of the slot: exchange() picks a single
+                    // re-reader while the other items that picked the same expert wait, and a re-read that lands
+                    // CLEARS the slot's bad flag, so those items - and every later one for this layer - run as
+                    // plain hits on the restored bytes instead of each re-reading (several writers, and a dead
+                    // file read once per item). Only a demand read that fails too ends it; the flag then stays,
+                    // so no item anywhere runs on the half-written slot.
                     const Layer& l = L[(size_t) it.il];
                     uint8_t* slot = (uint8_t*) it.ram;
-                    bool got = slot != nullptr;
-                    for (int r = 0; r < 3 && got; ++r)
-                        got = pk.read_at(l.mx_file[r], l.mx_off[r] + (uint64_t) it.e * l.mx_stride[r],
-                                         mx_part_bytes(l, r), slot + l.lay.trellis[r]);
+                    const bool got = PfSide::recover(
+                        c.pf[(size_t) it.pf_side], (size_t) it.pf_slot,
+                        [&] {
+                            if (slot == nullptr) return false;
+                            for (int r = 0; r < 3; ++r)
+                                if (!pk.read_at(l.mx_file[r], l.mx_off[r] + (uint64_t) it.e * l.mx_stride[r],
+                                                mx_part_bytes(l, r), slot + l.lay.trellis[r]))
+                                    return false;
+                            return true;
+                        },
+                        [&] { std::this_thread::sleep_for(std::chrono::microseconds(100)); });
                     if (!got) {
                         err = "reading layer " + std::to_string(it.il) + " expert " + std::to_string(it.e) +
                               " from the model's files failed (the read-ahead's attempt had failed too)";
@@ -5056,6 +5071,7 @@ struct Model::Impl {
                     }
                     it.pf = nullptr;
                     it.pf_bad = nullptr;
+                    it.pf_slot = it.pf_side = -1;
                 }
             }
             if (it.after >= 0) {   // layer-major: a slot's expert copied out of it once its reader is done; a slot

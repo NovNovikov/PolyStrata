@@ -99,24 +99,109 @@ int main() {
     }
 
     // 3. a failed speculative read: the slot reports landed AND failed (a dead slot, not a hang), and the
-    // engine's answer - re-read on demand - restores its bytes
+    // engine's answer - PfSide::recover, the production demand re-read - restores the slot's state and bytes
     {
         PfSide side;
         side.init(2);
         post_expert(io, side, 0, os::kBadFd, 3 * expert, expert, slotbuf.data());   // both handles dead: the read fails
         side.drain([&] { std::this_thread::sleep_for(std::chrono::microseconds(200)); });
         check(side.landed(0), "a failed speculative read counts as landed: no waiter hangs on it");
-        check(side.failed(0), "and says so: the engine's pump sees pf_bad and falls back to a demand read");
-        bool demand = true;
-        const os::fd_t sfd = os::open_ro(path);   // (a plain synchronous handle, the shape the engine's read_at uses)
-        for (int r = 0; r < 3 && demand; ++r)
-            demand = os::pread_full(sfd, slotbuf.data() + r * (expert / 3), expert / 3, 3 * expert + r * (expert / 3));
-        if (sfd != os::kBadFd) os::close_fd(sfd);
-        check(demand, "the demand retry the engine now runs on it succeeds");
+        check(side.failed(0), "and says so: the engine's pump sees pf_bad and calls for a demand re-read");
+        int rereads = 0;
+        auto good_read = [&](uint64_t off) {
+            return [&] {
+                ++rereads;
+                const os::fd_t sfd = os::open_ro(path);   // (a plain handle, the shape the engine's read_at uses)
+                bool demand = sfd != os::kBadFd;
+                for (int r = 0; r < 3 && demand; ++r)
+                    demand = os::pread_full(sfd, slotbuf.data() + r * (expert / 3), expert / 3, off + r * (expert / 3));
+                if (sfd != os::kBadFd) os::close_fd(sfd);
+                return demand;
+            };
+        };
+        const bool got = PfSide::recover(side, 0, good_read(3 * expert), [] { std::this_thread::sleep_for(std::chrono::microseconds(100)); });
+        check(got && rereads == 1, "the production recovery re-reads the slot once and reports it landed");
+        check(!side.failed(0), "and restores the slot's state: the bad flag is clear, the slot is a plain hit now");
         bool bytes = true;
         for (uint64_t i = 0; i < expert; i += 4099)
             if (slotbuf[(size_t) i] != want_at(3 * expert + i)) bytes = false;
         check(bytes, "and the item runs on the slot's expert, not a failed guess - the request is not killed");
+        const bool again = PfSide::recover(side, 0, good_read(3 * expert), [] {});
+        check(again && rereads == 1, "a second call on the restored slot reads nothing: later items take the hit");
+    }
+
+    // 4. (second round 5.1) the single-writer promise, driven for real: eight items pick the same guessed slot,
+    // all find it failed at once. One re-reads; the rest wait and take the restored bytes. The bytes must never
+    // have more than one writer - another item's copy reads them while the recovery runs.
+    {
+        PfSide side;
+        side.init(2);
+        post_expert(io, side, 0, os::kBadFd, 2 * expert, expert, slotbuf.data());
+        side.drain([&] { std::this_thread::sleep_for(std::chrono::microseconds(200)); });
+        check(side.failed(0), "the slot is failed before the eight ask");
+        std::atomic<int> readers{0}, slow_reads{0};
+        auto recover_one = [&](bool works) {
+            return PfSide::recover(
+                side, 0,
+                [&] {
+                    ++slow_reads;
+                    (void) works;   // (the successful shape: the read below is the real one)
+                    const os::fd_t sfd = os::open_ro(path);
+                    bool ok = sfd != os::kBadFd && works;
+                    for (int r = 0; r < 3 && ok; ++r)
+                        ok = os::pread_full(sfd, slotbuf.data() + r * (expert / 3), expert / 3, 2 * expert + r * (expert / 3));
+                    if (sfd != os::kBadFd) os::close_fd(sfd);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(30));   // (the window the others must wait out)
+                    return ok;
+                },
+                [&] {
+                    ++readers;   // (a waiter's sleep tick, not a re-read: it must not write the slot)
+                    std::this_thread::sleep_for(std::chrono::microseconds(200));
+                });
+        };
+        std::vector<std::thread> th;
+        std::atomic<int> oks{0}, nos{0};
+        for (int t = 0; t < 8; ++t)
+            th.emplace_back([&] { (recover_one(true) ? oks : nos).fetch_add(1); });
+        for (auto& t : th) t.join();
+        check(slow_reads.load() == 1, "exactly ONE item re-read the slot (exchange picks the single writer)");
+        check(oks.load() == 8 && nos.load() == 0, "all eight get the slot: the re-reader and the seven restored hits");
+        check(!side.failed(0), "the slot ends restored, not failed-again");
+        bool bytes = true;
+        for (uint64_t i = 0; i < expert; i += 4099)
+            if (slotbuf[(size_t) i] != want_at(2 * expert + i)) bytes = false;
+        check(bytes, "and it carries its expert's bytes whole");
+        // the refused slot: one attempt, everyone told no, and the failed state STAYS - nobody may run on it
+        side.begin(1);
+        *side.bad_of(1) = true;
+        std::atomic<int> fails_reads{0};
+        th.clear();
+        oks.store(0); nos.store(0);
+        for (int t = 0; t < 8; ++t)
+            th.emplace_back([&] {
+                const bool ok = PfSide::recover(
+                    side, 1,
+                    [&] { ++fails_reads; std::this_thread::sleep_for(std::chrono::milliseconds(20)); return false; },
+                    [&] { std::this_thread::sleep_for(std::chrono::microseconds(200)); });
+                (ok ? oks : nos).fetch_add(1);
+            });
+        for (auto& t : th) t.join();
+        check(fails_reads.load() == 1 && nos.load() == 8,
+              "a refused slot: one attempt, all eight told no - the request fails, no per-item re-read storm");
+        check(side.failed(1), "and the slot stays failed: no item takes the half-written bytes as good");
+        // the files came back: a later recovery still can fix it
+        const bool later = PfSide::recover(
+            side, 1,
+            [&] {
+                const os::fd_t sfd = os::open_ro(path);
+                bool ok = sfd != os::kBadFd;
+                for (int r = 0; r < 3 && ok; ++r)
+                    ok = os::pread_full(sfd, slotbuf.data() + r * (expert / 3), expert / 3, 2 * expert + r * (expert / 3));
+                if (sfd != os::kBadFd) os::close_fd(sfd);
+                return ok;
+            },
+            [] { std::this_thread::sleep_for(std::chrono::microseconds(100)); });
+        check(later && !side.failed(1), "and a recovery after the files came back still restores the slot");
     }
 
     os::close_fd(fd);
