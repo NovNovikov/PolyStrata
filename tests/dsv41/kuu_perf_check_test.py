@@ -94,6 +94,8 @@ def main():
     for name, wit, want in [
         ("baseline", BANNER, "PASS"),
         ("baseline", "none", "FAIL"),                       # set-and-silent is still the thing to catch
+        ("baseline2", BANNER, "PASS"),                      # the A/B/A second control: same rules
+        ("store_base2", "RAM store: about 400 slots in 7 size classes", "PASS"),
         ("defer3", "STRATA_DS4_DEFER=3 is armed", "PASS"),
         ("eg_ring", "requested slots of 8 slots", "PASS"),
         ("eg_ring", "Engram ring: 12.0 MB of pinned slots would not fit (1 of 8 got)", "SKIP"),

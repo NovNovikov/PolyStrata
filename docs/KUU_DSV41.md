@@ -336,9 +336,14 @@ the chunked pass streams experts from the files), a load sized like the user's o
 A/B benches take a 32,675-token prompt with GEN 512; the mimo bench `--gen 1024/2048`): a 32,768-token
 prompt, one warm-up GEN and three measured GENs of 512, every run one RESULT line - cold load, prefill,
 decode tok/s per GEN, and the activation witness, so no number is read without knowing the switch
-reached its code. `kuu_perf_check.py` is the runner; its mock test (`kuu_perf_check_test.py`, run green
-2026-11-22) grades the verdict table without a model. Ten pack loads want an idle machine: the owner
-runs it, as always.
+reached its code. `kuu_perf_check.py` is the runner; its mock test (`kuu_perf_check_test.py`, run green 2026-11-22) grades the verdict table without a model.
+A/B/A, from the first full sweep the same day: decode drifts run after run (the store group's median
+walked 9 -> 31 tok/s across the sweep in launch order alone), so each group runs its control first
+AND last (`baseline ... baseline2`, `store_base ... store_base2`) - the two controls' own gap is the
+noise estimate, and a switch counts as an effect only against their average; measured GENs went 3 -> 5
+and warm GENs 1 -> 2 for the same reason. The RESULT's `prefill` is the first GEN's cold read - the
+first version reported the last GEN's 0.1 s of `32767 reused`, a reporting bug, fixed. Twelve pack
+loads want an idle machine: the owner runs it, as always.
 
 ## Not run, and why
 

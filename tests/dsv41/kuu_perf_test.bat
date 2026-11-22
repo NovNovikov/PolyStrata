@@ -28,12 +28,14 @@ rem
 rem usage:  kuu_perf_test.bat [exe] [pack] [run ...]   no run names: all eight
 rem         kuu_perf_test.bat defer3 eg_ring           run names first: exe and pack take their defaults
 rem         (an empty argument would be eaten by cmd before the bat sees it, so never pass "" for a default)
-rem Knobs for the load itself (defaults shown): KUUPERF_GENS=3 KUUPERF_WARM=1 KUUPERF_TOKENS=64
+rem Knobs for the load itself (defaults shown): KUUPERF_GENS=5 KUUPERF_WARM=2 KUUPERF_TOKENS=512
+rem The question of the day is DEFER: run just its A/B/A with   kuu_perf_test.bat baseline defer3 baseline2
+rem (~30 min); the full twelve-run set wants ~2 hours.
 rem Logs: %TEMP%\kuu-perf-logs\<name>.log (run + engine stderr teed) and <name>.engine.log (verbatim).
 setlocal EnableDelayedExpansion
 
 set "RUNS_FIRST="
-for %%r in (baseline defer3 eg_ring lm_ahead all_exact store_base uniform drop_shards) do if /i "%~1"=="%%r" set "RUNS_FIRST=1"
+for %%r in (baseline baseline2 defer3 eg_ring lm_ahead all_exact store_base store_base2 ring_mmap ahead_mmap uniform drop_shards) do if /i "%~1"=="%%r" set "RUNS_FIRST=1"
 set "EXE=%~1"
 set "PACK=%~2"
 if defined RUNS_FIRST ( set "EXE=" & set "PACK=" )
@@ -82,16 +84,22 @@ echo Logs:   %LOGD%
 echo(
 
 set "ANYFAIL="
+rem A/B/A: each group runs its control first AND last - the machine drifts as the sweep walks (the OS
+rem cache heats across runs, the experts keep migrating inside one), so the two controls' own gap IS
+rem the noise estimate; a switch earned an effect only against the AVERAGE of baseline+baseline2 (and
+rem store_base+store_base2), never against the single lucky run.
 call :run baseline
 call :run defer3      "STRATA_DS4_DEFER=3" "STRATA_DS4_DEFER_W=0.20"
 call :run eg_ring     "STRATA_DS4_EG_RING=8"
 call :run lm_ahead    "STRATA_DS4_LM_AHEAD=1"
 call :run all_exact   "STRATA_DS4_ROUTER_BF16=1" "DS4_MTP_VRAM_GB=0.5" "STRATA_DS4_DSPARK_LAZY=1" "STRATA_DS4_EG_RING=8" "STRATA_DS4_LM_AHEAD=1" "STRATA_DS4_DROP_SHARDS=1"
+call :run baseline2
 call :run store_base  "DS4_STORE_GB=32" -- --mmap-experts on
 call :run ring_mmap   "DS4_STORE_GB=32" "STRATA_DS4_EG_RING=8" -- --mmap-experts on
 call :run ahead_mmap  "DS4_STORE_GB=32" "STRATA_DS4_LM_AHEAD=1" -- --mmap-experts on
 call :run uniform     "DS4_STORE_GB=32" "DS4_STORE_UNIFORM=1" -- --mmap-experts on
 call :run drop_shards "DS4_STORE_GB=32" "STRATA_DS4_DROP_SHARDS=1" -- --mmap-experts on
+call :run store_base2 "DS4_STORE_GB=32" -- --mmap-experts on
 
 echo(
 echo ===== summary (compare each run with its control, RESULT line per run) =====

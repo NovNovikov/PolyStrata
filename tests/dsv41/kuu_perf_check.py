@@ -3,8 +3,9 @@
 
 One real-load run of the engine on a real pack, for ONE feature's measurement: a long prompt (the ids
 file, whole - kuu_perf_test.bat makes one of 32,768, the size the user's own benches run: the qwen A/B
-benches take a 32,675-token prompt with GEN 512, the mimo bench --gen 1024/2048), one warm-up GEN, then
-KUUPERF_GENS measured GENs of KUUPERF_TOKENS tokens (defaults 3 and 512 - the qwen bench's number).
+benches take a 32,675-token prompt with GEN 512, the mimo bench --gen 1024/2048), KUUPERF_WARM warm-up
+GENs (default 2), then KUUPERF_GENS measured GENs of KUUPERF_TOKENS tokens (defaults 5 and 512 - the
+qwen bench's number; five because three could not see the machine's own drift).
 Every GEN is timed where the protocol makes it measurable:
 send -> first 'T ' is the prefill (the prompt landing), first 'T ' -> DONE is the decode, so
 decode tok/s = (tokens-1) / decode_s. The engine's own cold load comes from its 'ds4: loaded in X s'
@@ -16,9 +17,11 @@ FAIL is engine trouble or silence - the same three-way verdict as kuu_features_t
 time so the rules are testable (tests/dsv41/kuu_perf_check_test.py, mocks, no model).
 
 The last line is one machine-readable RESULT the .bat collects:
-  RESULT <name> PASS|SKIP|FAIL load=<s> ready=<s> warm=<tps> prefill=<s> decode=<tps,tps,tps> note=<...>
-Exit 0 for PASS and SKIP, 1 for FAIL. Running this needs the machine to itself: it loads the whole pack
-(minutes, ~103 GB of RAM on this box). The user runs it; see kuu_perf_test.bat.
+  RESULT <name> PASS|SKIP|FAIL load=<s> ready=<s> warm=<tps> prefill=<s> decode=<tps,tps,...> note=<...>
+prefill is the FIRST GEN's prompt read - the cold one; the later GENs reuse the KV and print their
+0.1 s in the per-GEN lines only. Exit 0 for PASS and SKIP, 1 for FAIL. Running this needs the machine
+to itself: it loads the whole pack (minutes, ~103 GB of RAM on this box). The user runs it; see
+kuu_perf_test.bat.
 """
 import os, queue, re, subprocess, sys, tempfile, threading, time
 
@@ -31,6 +34,12 @@ POISON = ("illegal memory access", "router picked", "the move into VRAM failed")
 # first hit decides; none hit -> FAIL "silent". The strings are the engine's own lines (ds4_model.cu).
 WIT = {
     "baseline":   [("PASS", "ds4: prompt path")],   # the control: the banner is its whole check
+    # A/B/A: every group runs its control twice, first and last (baseline ... baseline2, store_base ...
+    # store_base2). The machine warms as the sweep walks - pack files heat the OS cache across runs and
+    # the experts keep migrating inside one run - so the controls' own drift IS the noise estimate, and a
+    # switch earns an effect only against the AVERAGE of its two controls. baseline2 is the same rules
+    # and geometry as baseline, run last; the numbers differ only by when the machine was.
+    "baseline2":  [("PASS", "ds4: prompt path")],
     "defer3":     [("PASS", "STRATA_DS4_DEFER=3 is armed")],
     "eg_ring":    [("PASS", "requested slots of"), ("SKIP", "would not fit"),
                    ("SKIP", "Engram ring armed")],
@@ -45,6 +54,7 @@ WIT = {
     "ahead_mmap": [("PASS", "next-layer read-ahead:"), ("SKIP", "read-ahead is off"),
                    ("SKIP", "read-ahead armed")],
     "store_base": [("PASS", "RAM store: about")],
+    "store_base2":[("PASS", "RAM store: about")],   # the streaming group's second control (A/B/A)
     "uniform":    [("PASS", "in 1 size classes"), ("FAIL", "RAM store:")],   # built but in classes: no took
     "drop_shards":[("PASS", "unmapped, their buffered handles closed"), ("SKIP", "0 expert"),
                    ("SKIP", "DROP_SHARDS armed but idle")],
@@ -77,8 +87,8 @@ def main():
         print(f"run-names: {', '.join(sorted(WIT))}")
         return 1
     ids = [int(x) for x in open(idsf).read().strip().split(",")]
-    gens = int(os.environ.get("KUUPERF_GENS", 3))
-    warm = int(os.environ.get("KUUPERF_WARM", 1))
+    gens = int(os.environ.get("KUUPERF_GENS", 5))   # (measured GENs: three could not see the machine's
+    warm = int(os.environ.get("KUUPERF_WARM", 2))   #  own drift - decode moves run after run, 2026-11-22)
     ntok = int(os.environ.get("KUUPERF_TOKENS", 512))
     logname = os.environ.get("KUU_ENGINE_LOG") or os.path.join(
         tempfile.gettempdir(), f"kuu_perf_{name}.engine.log")
@@ -125,7 +135,7 @@ def main():
                 ready_s[0] = time.perf_counter() - t_start
                 break
         idstr = ",".join(map(str, ids))
-        warm_tps, prefill, decodes = -1.0, -1.0, []
+        warm_tps, prefill, cold_prefill, decodes = -1.0, -1.0, -1.0, []
         for k in range(warm + gens):
             t_send = time.perf_counter(); t_first = None; n = 0
             p.stdin.write(f"GEN {ntok}  {idstr}\n"); p.stdin.flush()
@@ -144,6 +154,9 @@ def main():
                     if n != ntok:
                         print(f"gen {k + 1}: DONE carried {n} of {ntok} tokens"); bad += 1
                     prefill = (t_first - t_send) if t_first else -1.0
+                    if k == 0:
+                        cold_prefill = prefill   # RESULT reports the FIRST read (71.9 s on 32k, 2026-11-22),
+                                                 # not the last GEN's 32767-reused 0.1 s the first version did
                     tps = (n - 1) / (t_done - t_first) if t_first and n > 1 else -1.0
                     if k < warm:
                         warm_tps = tps
@@ -174,14 +187,14 @@ def main():
                 print(f"engine log carries: {s}"); bad += 1
         if bad:
             dump_tail(logname)
-            result("FAIL", prefill, decodes, warm_tps, note="engine trouble")
+            result("FAIL", cold_prefill, decodes, warm_tps, note="engine trouble")
             return 1
         if name == "all_exact":
             miss = [w for w, subs in EXACT.items() if not any(s in eng_log for s in subs)]
             if miss:
-                result("FAIL", prefill, decodes, warm_tps, note="no trace for:" + "".join(" " + m for m in miss))
+                result("FAIL", cold_prefill, decodes, warm_tps, note="no trace for:" + "".join(" " + m for m in miss))
                 return 1
-            result("PASS", prefill, decodes, warm_tps, note="every switch of the exact set left its witness")
+            result("PASS", cold_prefill, decodes, warm_tps, note="every switch of the exact set left its witness")
             return 0
         verdict, witness = "FAIL", ""
         for v, s in WIT[name]:
@@ -191,7 +204,7 @@ def main():
         if verdict == "FAIL" and name == "uniform" and "RAM store:" not in eng_log:
             verdict, witness = "SKIP", "no RAM store was built: nothing to make uniform"
         note = f"witness: {witness}" if verdict != "FAIL" else "neither the witness nor a named reason in the log"
-        result(verdict, prefill, decodes, warm_tps, note=note)
+        result(verdict, cold_prefill, decodes, warm_tps, note=note)
         return 1 if verdict == "FAIL" else 0
     finally:
         log.close()
