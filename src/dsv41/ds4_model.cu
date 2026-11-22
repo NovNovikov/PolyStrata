@@ -2114,8 +2114,22 @@ struct Model::Impl {
         // ~Chunk joins them through io's destructor, but members destruct after this body - every cudaFreeHost
         // below would run while a queued job was still copying into staging. ~IoQueue lets started jobs land
         // (into memory that is still alive right here) and drops the merely-queued ones.
-        for (size_t i = 0; i < chunks.size(); ++i)
-            if (chunks[i] != nullptr && chunks[i]->io != nullptr) chunks[i]->io.reset();
+        // (third round 13) the Engram's events go in the same breath: the ring slots and the two-buffer hosts are
+        // in host_allocs and cudaFreeHost below, but the events (ring, Engram rows, embeddings) had no owner at
+        // teardown - the donor created them and only the run destroyed them, on the fallback paths alone. The
+        // runs are over here (the producers are joined at their scope exits), so nothing waits on these anymore.
+        for (size_t i = 0; i < chunks.size(); ++i) {
+            if (chunks[i] == nullptr) continue;
+            Chunk& cp = *chunks[i];
+            if (cp.io != nullptr) cp.io.reset();
+            if (i < devs.size()) cudaSetDevice(devs[i].id);
+            for (cudaEvent_t ev : cp.eg_ring_ev) (void) cudaEventDestroy(ev);
+            cp.eg_ring_ev.clear();
+            for (int s = 0; s < 2; ++s) {
+                if (cp.eg_ev[s]) (void) cudaEventDestroy(cp.eg_ev[s]);
+                if (cp.emb_ev[s]) (void) cudaEventDestroy(cp.emb_ev[s]);
+            }
+        }
         for (const ProfMark& m : prof_marks) {
             if (m.dev < 0 || (size_t) m.dev >= prof_pool.size()) continue;
             if (cudaSetDevice(m.dev) == cudaSuccess) (void) cudaEventDestroy(m.ev);
@@ -12697,6 +12711,14 @@ struct Model::Impl {
         // the consumer then called get() on a future nothing had ever started. Now: fewer than two slots - or a ring
         // thread that cannot start - means the partial slots are released and only the two-buffer producer ever runs.
         static const int eg_nr = std::getenv("STRATA_DS4_EG_RING") ? std::max(0, std::atoi(std::getenv("STRATA_DS4_EG_RING"))) : 0;
+        // (third round 13) the ring's BYTE BUDGET, default 4000 MB total pinned: slots are a chunk of rows each,
+        // and cudaHostAlloc hands out gigabytes on Windows that the machine then pays for in paging - the budget
+        // runs the ring narrower (and under two slots, off) BEFORE the pinning, instead of trusting the allocator
+        // to say no. STRATA_DS4_EG_RING_MB moves the ceiling.
+        static const uint64_t eg_ring_budget =
+            1000000ull * (uint64_t) (std::getenv("STRATA_DS4_EG_RING_MB")
+                                          ? std::max(0, std::atoi(std::getenv("STRATA_DS4_EG_RING_MB")))
+                                          : 4000);
         const bool eg_want = eg_nr >= 2 && !egu.empty();
         bool eg_ring = false;   // (effective) true only between erg.reset() and a live producer thread over it
         EgRing erg;   // (local) the ring's book, extracted to ds4_engram_io.hpp where the host test drives it;
@@ -12729,7 +12751,21 @@ struct Model::Impl {
                 c.eg_ring_bytes = c.C * eg_per;
             }
             int got = (int) c.eg_ring.size();
-            for (; got < eg_nr; ++got) {   // (second review 4.3) a slot that will not pin is the ring running narrower,
+            // (third round 13) the budget speaks BEFORE the pinning: slots over it go back (a ring made for a
+            // smaller chunk can sit above what a grown chunk's slots may pin), and the fill stops at the cap.
+            const int ask = eg_ring_slots(eg_nr, (uint64_t) c.C * eg_per, eg_ring_budget);
+            while ((int) c.eg_ring.size() > ask) {   // (the last-made slots first: same release shape as the resize above)
+                const size_t r = c.eg_ring.size() - 1;
+                if (cudaEventSynchronize(c.eg_ring_ev[r]) != cudaSuccess) (void) cudaGetLastError();
+                cudaEventDestroy(c.eg_ring_ev[r]);
+                c.eg_ring_ev.pop_back();
+                auto it = std::find(host_allocs.begin(), host_allocs.end(), (void*) c.eg_ring[r]);
+                if (it != host_allocs.end()) host_allocs.erase(it);
+                cudaFreeHost(c.eg_ring[r]);
+                c.eg_ring.pop_back();
+            }
+            got = (int) c.eg_ring.size();
+            for (; got < ask; ++got) {   // (second review 4.3) a slot that will not pin is the ring running narrower,
                 uint8_t* p = nullptr;      //   not the run's death: the two-buffer read_eg path takes the units again
                 if (!halloc(p, c.C * eg_per, err)) break;
                 cudaEvent_t ev = nullptr;
@@ -12745,9 +12781,9 @@ struct Model::Impl {
             }
             err.clear();   // (the halloc text belongs to a fallback, not to the run)
             if (got < 2) { // (fewer than two slots cannot overlap reading with copying: the ordinary path serves)
-                std::fprintf(stderr, "ds4: Engram ring: %.1f MB of pinned slots would not fit (%d of %d got); "
-                                     "the Engram reads go the two-buffer way instead\n",
-                             (double) (c.C * eg_per) / 1e6, got, eg_nr);
+                std::fprintf(stderr, "ds4: Engram ring: %.1f MB of pinned slots would not fit (%d of %d got; "
+                                     "budget %llu MB); the Engram reads go the two-buffer way instead\n",
+                             (double) (c.C * eg_per) / 1e6, got, eg_nr, (unsigned long long) (eg_ring_budget / 1000000ull));
                 // (third round 3) the ring's half-made resources are the fallback's dead weight: the slots and the
                 // events created for it go now (theirs were never recorded on: no copy was ever queued through them)
                 for (cudaEvent_t ev : c.eg_ring_ev) cudaEventDestroy(ev);
@@ -12765,7 +12801,8 @@ struct Model::Impl {
                     eg_said = true;
                     std::fprintf(stderr, "ds4: Engram ring (local): %d of %d requested slots of %.1f MB pinned%s\n",
                                  got, eg_nr, (double) (c.C * eg_per) / 1e6,
-                                 got < eg_nr ? " (pinned room ran short: the ring runs narrower)" : "");
+                                 got < ask ? " (pinned room ran short: the ring runs narrower)"
+                                           : ask < eg_nr ? " (the ring byte budget runs it narrower)" : "");
                 }
                 erg.reset((size_t) got, c.C * eg_per);
                 eg_ring = true;

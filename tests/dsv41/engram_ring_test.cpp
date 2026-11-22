@@ -8,6 +8,7 @@
 // can land a reader-failed row before it is zeroed (second review 4.1). No GGUF, no device, no model.
 #include "ds4_engram_io.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -353,6 +354,35 @@ int main() {
         io.stop();
         remove(good.c_str());
     }
+
+    // (hostile review, third round 13) the ring's byte budget, the engine's clamp (eg_ring_slots). The shapes it
+    // decides: a request that fits stands whole; a request over the ceiling runs the ring narrower; a ring made
+    // under a small chunk is trimmed when the chunk (so one slot's bytes) grew past the budget; two slots is the
+    // floor below which the engine takes the two-buffer path; and nothing here ever grows a ring or goes negative.
+    {
+        const uint64_t MB = 1000000ull, BUD = 4000 * MB;   // (the engine's default ceiling)
+        const uint64_t slot = 8ull * 1024ull * 1024ull;    // (8 MB slot: a plausible chunk of Engram rows)
+        check(eg_ring_slots(4, slot, BUD) == 4, "a ring the budget covers stands at the requested size");
+        check(eg_ring_slots(2, slot, BUD) == 2, "and a small request is untouched by the ceiling");
+        check(eg_ring_slots(1024, slot, BUD) == (int) (BUD / slot),
+              "a gigabyte-scale request is clamped to what the ceiling divides into whole slots");
+        check(eg_ring_slots(8, slot, 20 * MB) == 2, "a ceiling of 20 MB over 8 MB slots leaves exactly two");
+        check(eg_ring_slots(8, slot, 15 * MB) == 1,
+              "and 15 MB leaves one: below two, the engine's fallback takes the units (the clamp does not hide it)");
+        check(eg_ring_slots(8, slot, 0) == 0, "a zero budget asks for no slots at all");
+        check(eg_ring_slots(8, 0, BUD) == 0, "a zero-size slot asks for nothing (no divide by zero)");
+        check(eg_ring_slots(8, 300 * MB, BUD) == 8,
+              "the request bounds the ring: the budget would afford 13 such slots, the switch asked 8");
+        check(eg_ring_slots(16, 600ull * MB, BUD) == 6,
+              "a ring of 16 slots of 600 MB answers six: eight would pin 4.8 GB over a 4 GB ceiling");
+        check(eg_ring_slots(0, slot, BUD) == 0, "a switch that asks for none returns none");
+        check(eg_ring_slots(-3, slot, BUD) == 0, "a negative request is none, not a wrap");
+        // (how the engine composes it: trim = the existing size against the ceiling, fill = the same ceiling)
+        const int ceil16 = eg_ring_slots(16, 600ull * MB, BUD);   // = 6
+        check(std::min(8, ceil16) == 6, "a ring of 8 made when slots were small trims to the six a grown slot allows");
+        check(std::min(4, ceil16) == 4, "a ring of 4 already fits the grown slots: the fill starts there, the trim spares it");
+    }
+
     std::printf("engram_ring_test: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

@@ -328,6 +328,20 @@ private:
     std::atomic<size_t> done_{0}, used_{0};
 };
 
+/// (hostile review, third round 13) how many ring slots the BYTE BUDGET allows: the ring pins one chunk of rows
+/// per slot, and a switch like STRATA_DS4_EG_RING=16 over a big chunk can ask for many gigabytes of pinned RAM -
+/// which cudaHostAlloc happily hands out on Windows past what is comfortable, and a machine that pins itself
+/// into paging is slower than the two-buffer path that needs exactly two slots. The requested count stands when
+/// it fits; a budget-clamped ring is the same graceful answer a pinned-room failure already gives (narrower
+/// ring, then the two-buffer path below two slots). The engine TRIMS a ring that outlived its budget - the chunk
+/// grew, so one slot's bytes did - against this same ceiling, and fills up to it, never past. A zero-size slot
+/// or a non-positive request asks for nothing.
+inline int eg_ring_slots(int requested, uint64_t slot_bytes, uint64_t budget_bytes) {
+    if (requested <= 0 || slot_bytes == 0) return 0;
+    const uint64_t room = budget_bytes / slot_bytes;
+    return (int) (room < (uint64_t) requested ? room : (uint64_t) requested);
+}
+
 /// Finish a batch (the engine's eg_finish without the engine): wait for its reads, then serve the rows the batch
 /// reads once but needs twice - and a row whose read failed reads as zeros EVERYWHERE it lands, never the slot's
 /// stale bytes (the ported order copied the dups before zeroing the failure, so a repeated row of a failed read
