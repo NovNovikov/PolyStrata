@@ -7,6 +7,10 @@ ancestor `146df3c4`) into this repository's `src/dsv41` on branch `strata-0.2.12
 of them unset the engine reads and computes exactly as the pre-port binary. The donor's speed numbers quoted
 below are the donor's, measured on the donor's machine - not measurements of this build.
 
+After the port a hostile review (GPT-assisted, 8 items) read every group against its defect surface; the
+seven code findings are each fixed in their own commit, with model-free tests over the production code.
+See "Review round" below.
+
 ## What is in, and where from
 
 | Change | Donor commit(s) | Here | Switch (default: off) |
@@ -33,6 +37,18 @@ Not ported, per the task spec: ACE norm skipping, the adaptive deferral time bud
 `E2_*`, `A2_*`), and the other section-5 list. Two of the rejected ones rode inside ported commits'
 auto-merged hunks and were removed during review - the tree contains none of them.
 
+## Review round (one commit per finding, model-free tests)
+
+| # | Commit | The defect, and what the fix does | Test |
+| --- | --- | --- | --- |
+| 1 | `889bdc19` | The CPU lane decided deferral from env + a window-count check of its own, and a window cut mid-request could leave a deferred part pending into the next forward. The verdict now travels with the request: `publish_kernel` stamps `Req.defer` under the seq fence, the lane splits per `lane_splits(r.defer, mode)`, and the four forward entries bump an epoch that drops pending parts from an older forward. Pure logic extracted to `ds4_defer_policy.hpp` | `ds4_defer_policy_test` (21) |
+| 2 | `b4e27d3c` | Session files written by an older engine could carry knobs the new one never parsed and be trusted anyway. The fingerprint is `strata-ds4-session-5`: session-4 files are refused, and the identity string carries the parsed effective values (DEFER mode, and cold for every splitting mode, not only 4) | `ds4_identity_knobs_test` (29) |
+| 3 | `e2d01b6b` | A size class could starve on a full budget: all-free slots of its size with the room held by another class. `ExpertStore::rebalance()` recasts the coldest fully-reclaimable chunk (all-free, or ready-unpinned-not-visible; never loading or pinned) to the starved class; the `rebalances` counter reports it | `store_classes_test` (153) |
+| 4 | `f248c64f` | `STRATA_DS4_DROP_SHARDS` closed file handles while queued IO still held raw fds - reads after a close hit foreign descriptors. Jobs now hold `FdRef` slots resolved at dispatch, and a swap drain-closes the old handle only after every acquired read finishes | `store_close_test` (14) |
+| 5 | `5adc9bb7` | A failed Engram read that the window needed twice copied its destination slot's stale bytes into the duplicate (zeroing came after the copies) and warned only under Metal. Failed rows zero first, everywhere, counted as `eg_bad`; the ring's slot book and the batch finisher (`EgRing`, `eg_complete`) moved to `ds4_engram_io.hpp` | `engram_ring_test` (40) |
+| 6 | `2ca4f887` | `LM_AHEAD` could retarget its second buffer while the old target's guesses were still in flight (a skipped or RAM-served layer never adopts), tearing slots and counts; a failed guess ended the request. A reuse drains the side's in-flight reads first (`PfSide::drain`), and a failed guess re-reads on demand like any miss (`ds4_lm_ahead.hpp`) | `lm_ahead_test` (13) |
+| 7 | `80ac8352` | The deferral late-add and the lazy drafter's batch plan were only checkable with the model loaded. Both moved to headers the device and host share (`ds4_defer_math.hpp`; `dspark_lazy_batches` in `ds4_draft_cut.hpp`): the late add is now checked bit-for-bit against a CPU reference for the on-time add, and the drafter's computed-row plan against its bounds over every cut position | `defer_math_test` (1792), `ds4_draft_cut_test` (26) |
+
 ## Environment variables this port adds
 
 | Variable | Values | Default | What it does |
@@ -41,7 +57,7 @@ auto-merged hunks and were removed during review - the tree contains none of the
 | `STRATA_DS4_DEFER` | `0`..`4` | `0` | defer the CPU-lane part: `1` whole, `2` light experts, `3` light into the next route, `4` landing `DEFER_K` layers late |
 | `STRATA_DS4_DEFER_W` | float | `0.2` | modes 2/4: under this share of the route an expert is light |
 | `STRATA_DS4_DEFER_K` | 1-3 | `1` | mode 4: layers late |
-| `STRATA_DS4_DEFER_COLD` | `0`/`1` | `0` | mode 4: light means not-in-RAM |
+| `STRATA_DS4_DEFER_COLD` | `0`/`1` | `0` | splitting modes (2, 3, 4): light means not-in-RAM, weights aside |
 | `STRATA_DS4_DEFER_EARLY` | `0`/`1` | `0` | apply the deferred part at the next layer's entry |
 | `STRATA_DS4_DEFER_MAX` | int | all | cap the trunk layer deferral applies to |
 | `STRATA_DS4_ROUTER_BF16` | `0`/`1` | `0` | keep a BF16 router as its own bits (half the VRAM) |
@@ -112,9 +128,15 @@ tuned for the 4090.
 ```sh
 cmake -B build -DSTRATA_ENABLE_CUDA=ON -DSTRATA_BUILD_DSV41=ON && cmake --build build --target strata-dsv41
 # host tests (no GPU, no model): cl/cl- equivalents work too; here through CMake:
-cmake --build build --target ds4_vram_plan_test ds4_draft_cut_test   # plus store_classes_test/ds4_io_test compiled directly:
+cmake --build build --target ds4_vram_plan_test ds4_draft_cut_test   # plus the host tests compiled directly:
 #   cl /std:c++17 /I src/dsv41 /I include tests/dsv41/store_classes_test.cpp && store_classes_test
 #   cl /std:c++17 /I src/dsv41 /I include tests/dsv41/ds4_io_test.cpp        && ds4_io_test
+#   cl /std:c++17 /I src/dsv41 /I include tests/dsv41/store_close_test.cpp   && store_close_test
+#   cl /std:c++17 /I src/dsv41 /I include tests/dsv41/engram_ring_test.cpp   && engram_ring_test
+#   cl /std:c++17 /I src/dsv41 /I include tests/dsv41/lm_ahead_test.cpp      && lm_ahead_test
+#   cl /std:c++17 /I src/dsv41 /I include tests/dsv41/defer_math_test.cpp    && defer_math_test
+#   cl /std:c++17 /I src/dsv41 /I include tests/dsv41/ds4_defer_policy_test.cpp
+#   cl /std:c++17 /I src/dsv41 /I include tests/dsv41/ds4_identity_knobs_test
 # device tests (EXCLUDE_FROM_ALL, need a GPU):
 cmake --build build --target ds4_router_bf16_test ds4_route_guard_test && ./ds4_router_bf16_test
 # the pre-existing dsv41 host tests (unchanged, run as regression):
@@ -125,15 +147,22 @@ cmake --build build --target ds4_slot_test ds4_marks_test ds4_ring_link_test ds4
 ## What was actually run, and with what
 
 All on the porting machine: RTX 4090 24 GB (sm_89), i5-13600KF, 128 GB DDR5, Windows 11, CUDA 12.9.
-strata-dsv41 compiles and links clean after every group.
+strata-dsv41 compiles and links clean after every group and after every review fix; the last full sweep ran
+after `80ac8352`.
 
 | Run | Result |
 | --- | --- |
 | `ds4_router_bf16_test` (device) | 19 checks, 0 failures: BF16 rows and the F32 copy give bit-identical logits at the router's real 256x7168 (T=1 and 16) and other shapes; `route()` picks identical |
-| `store_classes_test` | 127 checks, 0 failures; same 50 MB budget, 24 experts x 3 layers differing ~4x: the class store holds 72 experts before its first eviction, the uniform one 48 |
+| `store_classes_test` | 153 checks, 0 failures: size classes over one 50 MB budget (72 experts vs the uniform store's 48 before first eviction), plus the review's starvation relief - a class takes a cold chunk from another and never a loading or pinned one |
+| `store_close_test` (new, review 4) | 14 checks, 0 failures: handles swapped under readers in flight, queued jobs resolved at dispatch, drain-close ordering |
 | `ds4_vram_plan_test` | 19 checks, 0 failures (drafter split, cap compliance through every stage, freed room to the trunk, zero/min/unlimited budgets, no-cap behavior) |
-| `ds4_draft_cut_test` | 12 checks, 0 failures (cutoff boundaries inclusive, cumulative rule, window cap, rounds back to back) |
+| `ds4_draft_cut_test` | 26 checks, 0 failures (cutoff boundaries inclusive, cumulative rule, window cap, rounds back to back; the review's lazy batch plan: shape over a grid of bounds, rows paid per cut position, a cut at draft 0 computes zero head rows) |
 | `ds4_io_test` | 27 checks, 0 failures (buffered/par/unbuffered/direct agree aligned and unaligned; direct survives the buffered closes; closed handle and past-EOF fail loudly) |
+| `ds4_defer_policy_test` (new, review 1) | 21 checks, 0 failures: the deferral verdict and the lane-split rule as pure functions |
+| `ds4_identity_knobs_test` (new, review 2) | 29 checks, 0 failures: session-5 identity strings, parsed effective values, cold for every splitting mode |
+| `engram_ring_test` (new, review 5) | 40 checks, 0 failures: ring slot book walked by two threads (no refill under a live copy), row cache clock, and `eg_complete` over synthetic files - a failed read zeros its row AND its duplicate, failures never cached, `stop()` drains a submitted batch |
+| `lm_ahead_test` (new, review 6) | 13 checks, 0 failures: the read-ahead pass book (target/skip/reset), real IO reads showing a reuse begins only after the drain and the slot then holds the new expert whole, a failed speculative slot landing-and-failed with the demand retry restoring its bytes |
+| `defer_math_test` (new, review 7) | 1792 checks, 0 failures: the device late-add's exact functions vs a CPU reference for the on-time add, bit-exact on exact dyadic values - plain landing, one and two mixings, mode 4's per-layer remap, mode 3/4 coefficient agreement, device-shaped strided adds; hc 1/2/4/8, 64 seeds |
 | `ds4_route_guard_test` (device, regression on the touched kernels) | all ok |
 | `ds4_slot_test`, `ds4_marks_test`, `ds4_ring_link_test`, `ds4_evt_test`, `ds4_experts_rule_test`, `ds4_path_policy_test`, `ds4_pick_rule_test` | all pass (session slot/meta, marks, ring-link, events, rules) |
 
@@ -141,11 +170,11 @@ strata-dsv41 compiles and links clean after every group.
 
 - Any end-to-end inference, prefill/decode timing, KL or quality measurement: excluded by the task spec -
   the model was never loaded, so the donor's percentages are not restated as results of this build.
-- Engram ring wraparound timing, LM_AHEAD hit rates under demand, DEFER overlap quality: the code paths are
-  inside a prompt run and need the loaded model; reviewed in place (slot-reuse guard waits on the H2D event;
-  demand reads queue first; the deferred part is dropped at a window boundary).
-- CUDA events and H2D ordering of the ring were verified by reading, not running; a model-free harness would
-  be a parallel implementation, which the task spec rules out.
+- CUDA event waits, H2D record order, and the actual overlap quality of the ring and the read-ahead: these
+  need the device's timeline. Their decisions (which slot may be refilled, when a buffer may be retargeted,
+  when a part must die) are now the tested classes; the waits around them were verified by reading.
+- `DSPARK_LAZY` sampled-draft token identity through the RNG path: the cut rule and the row plan are tested;
+  the sampler itself needs a device and runs identical code to the eager loop.
 - HIP/Metal builds: this machine is CUDA; the dsv41 path is CUDA-only in this tree (and the Metal hazard for
   BF16 was made inert). A HIP build of the touched files happens wherever `STRATA_BUILD_DSV41` is on.
 
