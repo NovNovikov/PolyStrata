@@ -2,14 +2,23 @@
 rem kuu_features_test.bat - the usual engine smoke (tests/dsv41/short_prompt_check.py: the pack loaded,
 rem three 16-token GENs, fail on any ERR / engine death / illegal-access stderr) run ONCE PER PORTED
 rem kuu feature, one feature at a time with every other switch off, then once with all the exact ones
-rem together.  PASS/FAIL per run on the console, a full engine log per run in the log folder, and a
-rem summary at the end.  Smoke only: it does not measure speed, and the 40-token prompt runs the windows
-rem path, so EG_RING and LM_AHEAD build their buffers and idle rather than prefetch - their timing is a
-rem model-length run's job (docs/KUU_DSV41.md).
+rem together.  A full engine log per run in the log folder, and a summary at the end.
+rem
+rem Second review item 14: the verdict used to be only "the script exited 0" - a run whose switch never
+rem reached any code looked exactly like one that did.  Each run now greps the engine log for that
+rem feature's ACTIVATION witness:
+rem   PASS - clean run AND the feature's witness line in the log;
+rem   SKIP - clean run, the feature had legitimately nothing to do on this box (the reason is printed:
+rem          no drafter to cap or draft lazily, no Engram table to ring, no RAM for the read-ahead ...);
+rem   FAIL - engine trouble (the old check), or the switch was set and the log carries neither the
+rem          witness nor a named reason - a silent no-op is exactly what this sweep must not hide.
+rem Smoke only: it does not measure speed, and the 40-token prompt runs the windows path, so EG_RING and
+rem LM_AHEAD build their buffers and idle rather than prefetch - their timing is a model-length run's
+rem job (docs/KUU_DSV41.md).
 rem
 rem usage:  kuu_features_test.bat [exe] [pack]
 rem Each run loads the whole pack (minutes, lots of RAM) and wants the VRAM to itself: stop the other
-rem servers first.  One run failing does not stop the rest.
+rem servers first.  One run failing does not stop the rest.  Ten runs: plan for an hour or more.
 setlocal EnableDelayedExpansion
 
 set "EXE=%~1"
@@ -43,16 +52,17 @@ echo Pack:   %PACK%
 echo Logs:   %LOGD%
 echo(
 
-call :run baseline
-call :run router_bf16     "STRATA_DS4_ROUTER_BF16=1"
-call :run uniform_store   "DS4_STORE_UNIFORM=1"
-call :run mtp_cap         "DS4_MTP_VRAM_GB=0.5"
-call :run lazy_dspark     "STRATA_DS4_DSPARK_LAZY=1"
-call :run eg_ring         "STRATA_DS4_EG_RING=8"
-call :run lm_ahead        "STRATA_DS4_LM_AHEAD=1"
-call :run drop_shards     "STRATA_DS4_DROP_SHARDS=1"
-call :run defer3_approx   "STRATA_DS4_DEFER=3" "STRATA_DS4_DEFER_W=0.20"
-call :run all_exact       "STRATA_DS4_ROUTER_BF16=1" "DS4_MTP_VRAM_GB=0.5" "STRATA_DS4_DSPARK_LAZY=1" "STRATA_DS4_EG_RING=8" "STRATA_DS4_LM_AHEAD=1" "STRATA_DS4_DROP_SHARDS=1"
+set "ANYFAIL="
+call :run baseline      none
+call :run router_bf16   bf16    "STRATA_DS4_ROUTER_BF16=1"
+call :run uniform_store uniform "DS4_STORE_UNIFORM=1"
+call :run mtp_cap       cap     "DS4_MTP_VRAM_GB=0.5"
+call :run lazy_dspark   lazy    "STRATA_DS4_DSPARK_LAZY=1"
+call :run eg_ring       ring    "STRATA_DS4_EG_RING=8"
+call :run lm_ahead      ahead   "STRATA_DS4_LM_AHEAD=1"
+call :run drop_shards   drop    "STRATA_DS4_DROP_SHARDS=1"
+call :run defer3_approx defer   "STRATA_DS4_DEFER=3" "STRATA_DS4_DEFER_W=0.20"
+call :run all_exact     exact   "STRATA_DS4_ROUTER_BF16=1" "DS4_MTP_VRAM_GB=0.5" "STRATA_DS4_DSPARK_LAZY=1" "STRATA_DS4_EG_RING=8" "STRATA_DS4_LM_AHEAD=1" "STRATA_DS4_DROP_SHARDS=1"
 
 echo(
 echo ===== summary =====
@@ -67,6 +77,8 @@ for %%v in (STRATA_DS4_ROUTER_BF16 DS4_MTP_VRAM_GB DS4_STORE_UNIFORM STRATA_DS4_
             STRATA_DS4_DEFER STRATA_DS4_DEFER_W STRATA_DS4_DEFER_K STRATA_DS4_DEFER_COLD STRATA_DS4_DEFER_EARLY STRATA_DS4_DEFER_MAX ^
             STRATA_DS4_RAM_SKIP_W STRATA_DS4_DISK_SKIP_W STRATA_DS4_DISK_SKIP_AUTO STRATA_DS4_PROMPT_SKIP DS4_YOCO) do set "%%v="
 set "NAME=%~1"
+set "WIT=%~2"
+shift
 shift
 set "ENVS="
 :args
@@ -83,10 +95,86 @@ rem errorlevel to a known 0: an unset variable above must not decide this run's 
 ver >nul
 python "%SCRIPT%" "%EXE%" "%PACK%" "%IDS%" %ARGS% > "%LOGF%" 2>&1
 if errorlevel 1 (
-    echo     %NAME%: FAIL - see %LOGF%
-    echo %NAME% FAIL>> "%SUM%"
-) else (
-    echo     %NAME%: PASS
-    echo %NAME% PASS>> "%SUM%"
+    echo     %NAME%: FAIL - engine trouble, see %LOGF%
+    echo %NAME% FAIL - engine trouble>> "%SUM%"
+    set "ANYFAIL=1"
+    goto :eof
 )
+set "VERDICT="
+set "WHY="
+call :wit_%WIT%
+echo     %NAME%: %VERDICT% - %WHY%
+echo %NAME% %VERDICT% - %WHY%>> "%SUM%"
+if "%VERDICT%"=="FAIL" set "ANYFAIL=1"
+goto :eof
+
+rem Every witness below greps %LOGF% for a substring of the engine's own line (no parentheses: they
+rem are findstr's own syntax and cmd's block syntax at once).  PASS first, then the named reasons a
+rem clean run may carry no witness (SKIP), then FAIL: set and silent.
+
+:wit_none
+set "VERDICT=PASS"
+set "WHY=baseline: a clean run is the whole check"
+goto :eof
+
+:wit_bf16
+findstr /C:"routers kept in BF16" "%LOGF%" >nul && (set "VERDICT=PASS"& set "WHY=the routers were stored as BF16 bits")
+if not defined VERDICT findstr /C:"the switch does nothing" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=this pack's router is not BF16 of its exact size: the F32 copy was kept")
+if not defined VERDICT (set "VERDICT=FAIL"& set "WHY=the switch was set and the log carries neither the witness nor the reason")
+goto :eof
+
+:wit_uniform
+findstr /C:"in 1 size classes" "%LOGF%" >nul && (set "VERDICT=PASS"& set "WHY=the store ran as one uniform class")
+if not defined VERDICT findstr /C:"RAM store:" "%LOGF%" >nul && (set "VERDICT=FAIL"& set "WHY=the store was built in classes: DS4_STORE_UNIFORM=1 did not take")
+if not defined VERDICT (set "VERDICT=SKIP"& set "WHY=no RAM store was built on this box: the switch had nothing to make uniform")
+goto :eof
+
+:wit_cap
+findstr /C:"DS4_MTP_VRAM_GB: drafter" "%LOGF%" >nul && (set "VERDICT=PASS"& set "WHY=the drafter's per-block VRAM cap was applied")
+if not defined VERDICT findstr /C:"no drafter is loaded" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=the drafter was not loaded: the cap had nothing to cap")
+if not defined VERDICT findstr /C:"DSpark not loaded" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=DSpark auto refused the fit before the cap: this run proves the ordering line only")
+if not defined VERDICT (set "VERDICT=FAIL"& set "WHY=the cap was set and the log carries no trace of it")
+goto :eof
+
+:wit_lazy
+findstr /C:"DSpark lazy:" "%LOGF%" >nul && (set "VERDICT=PASS"& set "WHY=the drafting rounds ran the confidence-batched lazy path")
+if not defined VERDICT findstr /C:"DSpark not loaded" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=DSpark auto refused the fit: there was no drafter to draft lazily")
+if not defined VERDICT findstr /C:"no drafter is loaded" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=the drafter was not loaded at all")
+if not defined VERDICT (set "VERDICT=FAIL"& set "WHY=a drafter is loaded and no round took the lazy path: check the fallbacks - head across devices, a markov split, a draft dump")
+goto :eof
+
+:wit_ring
+findstr /C:"would not fit" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=no pinned room for the ring slots: the Engram reads went one at a time")
+if not defined VERDICT findstr /C:"requested slots of" "%LOGF%" >nul && (set "VERDICT=PASS"& set "WHY=the reader ring was pinned and took the Engram reads")
+if not defined VERDICT findstr /C:"Engram" "%LOGF%" >nul || (set "VERDICT=SKIP"& set "WHY=this pack carries no Engram table: the ring had nothing to read")
+if not defined VERDICT (set "VERDICT=FAIL"& set "WHY=STRATA_DS4_EG_RING=8 was set and the ring built no trace")
+goto :eof
+
+:wit_ahead
+findstr /C:"next-layer read-ahead:" "%LOGF%" >nul && (set "VERDICT=PASS"& set "WHY=the read-ahead buffers were built and its counts printed - the short prompt idles them, the line says the mode ran")
+if not defined VERDICT findstr /C:"read-ahead is off for this run" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=no RAM for the second layer cache: the engine said so")
+if not defined VERDICT (set "VERDICT=FAIL"& set "WHY=STRATA_DS4_LM_AHEAD=1 was set and neither the counts nor the refusal printed")
+goto :eof
+
+:wit_drop
+findstr /R /C:"^ds4: .local. 0 expert" "%LOGF%" >nul && (set "VERDICT=SKIP"& set "WHY=no shard file was droppable in this geometry - the store reads through direct handles regardless")
+if not defined VERDICT findstr /C:"unmapped, their buffered handles closed" "%LOGF%" >nul && (set "VERDICT=PASS"& set "WHY=the expert shards were unmapped and their buffered handles closed")
+if not defined VERDICT (set "VERDICT=FAIL"& set "WHY=STRATA_DS4_DROP_SHARDS=1 was set and the drop step printed nothing")
+goto :eof
+
+:wit_defer
+findstr /C:"STRATA_DS4_DEFER=3 is armed" "%LOGF%" >nul && (set "VERDICT=PASS"& set "WHY=mode 3 armed at load and told the log - an approximate mode, in the session fingerprint")
+if not defined VERDICT (set "VERDICT=FAIL"& set "WHY=STRATA_DS4_DEFER=3 was set and the load banner is missing")
+goto :eof
+
+:wit_exact
+rem every switch of the exact set left its own trace: the five whose default geometry reaches the code
+set "XMISS="
+findstr /C:"routers kept in BF16" "%LOGF%" >nul || findstr /C:"the switch does nothing" "%LOGF%" >nul || set "XMISS=!XMISS! router_bf16"
+findstr /C:"DS4_MTP_VRAM_GB: drafter" "%LOGF%" >nul || findstr /C:"no drafter is loaded" "%LOGF%" >nul || set "XMISS=!XMISS! mtp_cap"
+findstr /C:"DSpark lazy:" "%LOGF%" >nul || findstr /C:"DSpark not loaded" "%LOGF%" >nul || findstr /C:"no drafter is loaded" "%LOGF%" >nul || set "XMISS=!XMISS! lazy_dspark"
+findstr /C:"requested slots of" "%LOGF%" >nul || findstr /C:"would not fit" "%LOGF%" >nul || set "XMISS=!XMISS! eg_ring"
+findstr /C:"next-layer read-ahead:" "%LOGF%" >nul || findstr /C:"read-ahead is off" "%LOGF%" >nul || set "XMISS=!XMISS! lm_ahead"
+findstr /C:"unmapped, their buffered handles closed" "%LOGF%" >nul || set "XMISS=!XMISS! drop_shards"
+if not defined XMISS (set "VERDICT=PASS"& set "WHY=every switch of the exact set left its witness") else (set "VERDICT=FAIL"& set "WHY=no trace for:!XMISS!")
 goto :eof

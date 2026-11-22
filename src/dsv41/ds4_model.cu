@@ -2476,8 +2476,17 @@ struct Model::Impl {
         static const bool bf = std::getenv("STRATA_DS4_ROUTER_BF16") != nullptr && std::atoi(std::getenv("STRATA_DS4_ROUTER_BF16")) != 0;
 #endif
         const Tensor* t = pk.get(name);
-        if (!bf || t == nullptr || t->dtype != "BF16" || t->bytes != (size_t) l.n_exp * g.dim * 2)
+        if (!bf || t == nullptr || t->dtype != "BF16" || t->bytes != (size_t) l.n_exp * g.dim * 2) {
+            static std::atomic<bool> inert_said{false};   // (second review 14) the witness of a switch that cannot
+            if (bf && !inert_said.exchange(true))         //   take: the pack's router is not BF16 of its exact size
+                std::fprintf(stderr, "ds4: (local) STRATA_DS4_ROUTER_BF16 is set but the router tensor is not a "
+                                     "BF16 matrix of n_exp x dim: the F32 copy is kept (the switch does nothing)\n");
             return f32(d, name, l.gate_w, err, acct, (size_t) l.n_exp * g.dim);
+        }
+        static std::atomic<bool> on_said{false};   // (second review 14) the activation witness, once: the routers
+        if (!on_said.exchange(true))               //   are stored as their BF16 bits from here on
+            std::fprintf(stderr, "ds4: (local) STRATA_DS4_ROUTER_BF16: routers kept in BF16 (half the router's "
+                                 "VRAM; the logits are bit-identical to the F32 copy - ds4_router_bf16_test)\n");
         if (!dalloc(d, l.gate_bf, t->bytes / 2, err, acct)) return false;
         return upload(d, *t, l.gate_bf, err);
     }
@@ -4070,6 +4079,9 @@ struct Model::Impl {
             }
             std::fprintf(stderr, "ds4: (local) %d expert file(s) unmapped, their buffered handles closed: unbuffered reads only\n", n);
         }
+        if (const int dm = defer_mode(); dm != 0)   // (second review 14) config witness: the approximate mode is
+            std::fprintf(stderr, "ds4: (local) STRATA_DS4_DEFER=%d is armed: a deferred CPU-lane part lands in a "     //   armed in this process, and the
+                                 "later layer - it changes the answers, and the session fingerprint records it\n", dm); //   smoke test greps for this line
         if (o.verbose) std::fprintf(stderr, "ds4: loaded in %.1f s\n%s", (now_ms() - t0) / 1000.0, describe().c_str());
         if (chunk > 0) (void) pick_flow_min();   // (the startup line)
         reset();
