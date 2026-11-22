@@ -320,13 +320,18 @@ public:
                               std::memory_order_relaxed);
         return all;
     }
-    /// Give back the pins held on sl[i] by begin()/ensure() (ok[i]: it was kept; sl[i] == -1: none was held -
-    /// a demand fallback).  Releasing through the slot list, not a where_ lookup (second review 1.1): the expert
-    /// may have got a new slot in the meantime, and decrementing that one would cut short another holder's pin.
-    void release(const std::vector<int>& sl, const std::vector<char>& ok) {
+    /// Give back the pins held on sl (second review 1.1: by slot, not by a where_ lookup - the expert may have
+    /// got a new slot in between, and decrementing that one would cut short another holder's pin).  Third round 5:
+    /// the give-back keys on the SLOT LIST ALONE, not on ok[i]: a pin is held for exactly as long as sl[i] >= 0 -
+    /// begin() took it when it named the slot, and wait_slots hands a failed one back itself and clears sl[i].
+    /// ok[i] is the READ'S RESULT, and an early way out (the split lane's rescue reporting an IO error mid-hold)
+    /// never waited for its other entries: gating the release on ok leaked those pins for good - a pinned slot is
+    /// never evicted, never recast, and the store filled with slots nobody read from.  ok stays in the signature
+    /// for the callers that pass it; ownership, not outcome, decides.
+    void release(const std::vector<int>& sl, const std::vector<char>& /*ok*/) {
         std::lock_guard<std::mutex> lk(mu_);
         for (size_t i = 0; i < sl.size(); ++i)
-            if (ok[(size_t) i] && sl[(size_t) i] >= 0) {
+            if (sl[(size_t) i] >= 0) {
                 Slot& sp = slots_[(size_t) sl[(size_t) i]];
                 if (sp.pin > 0) sp.pin--;
             }

@@ -473,6 +473,36 @@ int main() {
     set_env("DS4_STORE_CHUNK_SLOTS=");
 
     set_env("DS4_STORE_UNIFORM=");
+
+    // 8. (hostile review, third round 5) an abandoned hold: begin() pins the slots it names, and a caller that
+    // walks away before wait_slots - the split CPU lane does exactly that when one expert's rescue reports an IO
+    // error - owes every pin it was given. The old release returned the ok[i] slots' pins only, so the un-waited
+    // ones leaked for good: a pinned slot is never evicted, never recast, and the store ends up holding slots
+    // nobody reads from. The real sequence, then the proof the store is still whole.
+    {
+        ExpertStore::Cfg c;
+        c.threads = 2;
+        c.floor_bytes = 0;
+        c.budget_bytes = 64u << 20;
+        ExpertStore st;
+        check(st.init(c, fx.geo, fx.dfds, fx.pfds), "the abandon-store inits");
+        const int es[4] = {3, 9, 17, 22};
+        std::vector<char> ok;
+        std::vector<int> sl;
+        st.begin(1, es, 4, ok, sl);   // (pins taken, reads on their way - and the caller never waits: the early return)
+        bool held = false;
+        for (int s : sl) held = held || (s >= 0 && st.pinned(s));
+        check(held, "begin holds pins on the experts it named, with nothing waited yet");
+        st.release(sl, ok);           // (ok is all zeros: the old release gave NOTHING back; ownership says all)
+        bool still = false;
+        for (int s : sl) still = still || st.pinned(s);
+        check(!still, "release gives back every pin of the abandoned hold, not just the ok ones");
+        bool back = true;
+        for (int e : es)
+            if (load(st, 1, e) < 0 || !check_held(st, 1, e, fx.geo)) back = false;
+        check(back, "the abandoned experts load normally afterwards, bytes and all");
+    }
+
     fx.close();
     std::printf("store_classes_test: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

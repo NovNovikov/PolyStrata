@@ -8836,7 +8836,9 @@ struct Model::Impl {
         }
         ~StoreHold() {
             if (m) {
-                m->store->release(sl, ok);
+                m->store->release(sl, ok);   // (third round 5) gives back EVERY pin this hold still holds - the slot
+                                             //   list is the ownership, so a way out that never waited for some
+                                             //   entries (a rescue that failed on another expert) leaves none behind
                 for (const auto& t : tmps) os::anon_free(t.first, t.second);
             }
         }
@@ -8861,7 +8863,10 @@ struct Model::Impl {
             }
             for (const Ent& en : hot)
                 if (!hold.wait_expert(en.e)) return;   // (review 2) real IO error: fail up through lane_err, never compute zeros
-            if (!hot.empty()) cpu_experts_mx(l, x, hot, ldx, nullptr);
+            // (third round 5) through the hold's demand context: a hot expert's slot can fail between ready() and
+            // this wait (evicted, read failed) - rescue then reads it into a demand blob, and computing this batch
+            // without dmd() would resolve that expert to no slot at all: zeros where its answer should be
+            if (!hot.empty()) cpu_experts_mx(l, x, hot, ldx, nullptr, hold.dmd());
             // the ones that came in meanwhile first, then the rest in the order they land
             std::vector<char> done(cold.size(), 0);
             for (size_t left = cold.size(); left > 0;) {
