@@ -334,7 +334,8 @@ process (the windows group `baseline defer3 eg_ring lm_ahead all_exact`, the str
 compared with its own control - the `_mmap` pair because the ring and the read-ahead work only where
 the chunked pass streams experts from the files), a load sized like the user's own benches (the qwen
 A/B benches take a 32,675-token prompt with GEN 512; the mimo bench `--gen 1024/2048`): a 32,768-token
-prompt, one warm-up GEN and three measured GENs of 512, every run one RESULT line - cold load, prefill,
+prompt, KUUPERF_WARM warm-up GENs then KUUPERF_GENS measured GENs of 512 (defaults 2 and 5), every run
+one RESULT line - cold load, prefill,
 decode tok/s per GEN, and the activation witness, so no number is read without knowing the switch
 reached its code. `kuu_perf_check.py` is the runner; its mock test (`kuu_perf_check_test.py`, run green 2026-11-22) grades the verdict table without a model.
 A/B/A, from the first full sweep the same day: decode drifts run after run (the store group's median
@@ -344,6 +345,24 @@ noise estimate, and a switch counts as an effect only against their average; mea
 and warm GENs 1 -> 2 for the same reason. The RESULT's `prefill` is the first GEN's cold read - the
 first version reported the last GEN's 0.1 s of `32767 reused`, a reporting bug, fixed. Twelve pack
 loads want an idle machine: the owner runs it, as always.
+
+The A/B/A ran the same evening (2026-11-22, the owner's box: one GPU, 128 GB RAM, pack
+deepseek-v4.1-1017-ud-iq1-s; logs %TEMP%\kuu-perf-logs). Two questions, two answers:
+
+- **DEFER=3, the usual copy-to-RAM geometry: no effect.** The two controls came out equal to the
+  last digit - mean decode over the five measured GENs 26.8 and 26.8 tok/s, cold prefill 74.2 and
+  83.8 s - and defer3 landed inside that band at 25.5 tok/s (prefill 73.6 s). The morning's +15 %,
+  measured without the second control, was noise. The flag does nothing at this geometry on this
+  hardware and stays off by default.
+- **DROP_SHARDS, mmap + 32 GB store: real, and only for streaming reads.** Cold prefill 137.2 s
+  against controls of 188.7 and 205.4 - **minus 30 %** against two controls that agree within 4 %.
+  The mechanism is the switch's own: shards already shipped into the RAM store are unmapped and
+  their buffered handles closed, so the streaming path stops double-buffering what the cache holds.
+  Decode stayed undecidable even with five GENs - the controls themselves diverged (32.4 against
+  17.7 tok/s) while the experts kept migrating mid-run.
+- Neither switch does anything for this box's daily geometry: the engine already copies the 103 GB
+  of experts into 128 GB of RAM, where a 32K prompt reads in 74 s; the minus 30 % belongs to
+  machines that must stream from disk.
 
 ## Not run, and why
 
